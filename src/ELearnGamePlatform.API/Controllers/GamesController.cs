@@ -2,6 +2,7 @@ using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -188,13 +189,19 @@ public class GamesController : ControllerBase
         var questionsList = questions.Take(count).Select(q => new
         {
             id = q.Id,
-            questionText = q.QuestionText,
+            questionText = NormalizeGameQuestionText(q.QuestionText, q.QuestionType),
             questionType = q.QuestionType.ToString(),
-            options = q.GetOptions(),
+            options = q.GetOptions().Select(option => new
+            {
+                key = option.Key,
+                text = NormalizeGameText(option.Text),
+                isCorrect = option.IsCorrect
+            }),
             correctAnswer = q.CorrectAnswer,
-            explanation = q.Explanation,
+            explanation = NormalizeGameExplanation(q.Explanation),
             difficulty = q.Difficulty.ToString(),
-            topic = q.Topic
+            topic = q.Topic,
+            quality = BuildQuestionQualityPayload(q)
         }).ToList();
 
         return Ok(new
@@ -213,10 +220,11 @@ public class GamesController : ControllerBase
         var flashcards = questions.Select(q => new
         {
             id = q.Id,
-            front = q.QuestionText,
-            back = ResolveFlashcardAnswer(q),
-            explanation = q.Explanation,
-            topic = q.Topic
+            front = NormalizeGameQuestionText(q.QuestionText, q.QuestionType),
+            back = NormalizeGameText(ResolveFlashcardAnswer(q)),
+            explanation = NormalizeGameExplanation(q.Explanation),
+            topic = q.Topic,
+            quality = BuildQuestionQualityPayload(q)
         });
 
         return Ok(new
@@ -239,6 +247,78 @@ public class GamesController : ControllerBase
         }
 
         return question.CorrectAnswer ?? "Khong co dap an";
+    }
+
+    private static string NormalizeGameQuestionText(string? questionText, QuestionType questionType)
+    {
+        var normalized = NormalizeGameText(questionText);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "Cau hoi dang duoc cap nhat";
+        }
+
+        normalized = Regex.Replace(
+            normalized,
+            @"^(Cau\s+\d+:\s+)Theo tai lieu,\s*dau la noi dung dung nhat ve\s+(.+?)([?!.]?)$",
+            "$1Theo tai lieu, nhan dinh nao mo ta dung nhat ve $2?",
+            RegexOptions.IgnoreCase);
+
+        if (questionType != QuestionType.FillInTheBlank && !Regex.IsMatch(normalized, @"[.!?]$"))
+        {
+            normalized += questionType == QuestionType.ShortAnswer ? "." : "?";
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeGameExplanation(string? explanation)
+    {
+        var normalized = NormalizeGameText(explanation);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        if (normalized.Contains("cau hoi du phong", StringComparison.OrdinalIgnoreCase))
+        {
+            var evidenceMatch = Regex.Match(normalized, @"Can cu:\s*(.+)$", RegexOptions.IgnoreCase);
+            return evidenceMatch.Success
+                ? $"Cau hoi nay duoc tao tu cac y chinh trong tai lieu. Can cu: {evidenceMatch.Groups[1].Value}"
+                : "Cau hoi nay duoc tao tu cac y chinh trong tai lieu.";
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeGameText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value.Replace('\u00A0', ' ');
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        normalized = Regex.Replace(normalized, @"(?<=[\p{L}])(?=\d)", " ");
+        normalized = Regex.Replace(normalized, @"(?<=\d)(?=[\p{L}])", " ");
+        normalized = Regex.Replace(normalized, @"\s+([,.;:?!])", "$1");
+        normalized = Regex.Replace(normalized, @"([,.;:?!])(?=[\p{L}\p{N}])", "$1 ");
+        normalized = Regex.Replace(normalized, @"\(\s+", "(");
+        normalized = Regex.Replace(normalized, @"\s+\)", ")");
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        return normalized;
+    }
+
+    private static object BuildQuestionQualityPayload(Question question)
+    {
+        var issues = question.GetVerifierIssues();
+        return new
+        {
+            score = question.VerifierScore,
+            issues,
+            isLowConfidence = question.VerifierScore.HasValue && question.VerifierScore.Value < 70,
+            isUnknown = !question.VerifierScore.HasValue
+        };
     }
 
     [HttpGet("user/{userId}")]

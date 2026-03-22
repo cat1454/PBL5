@@ -38,6 +38,12 @@ public class Question
     [MaxLength(200)]
     public string? Topic { get; set; }
 
+    [Column("verifier_score")]
+    public int? VerifierScore { get; set; }
+
+    [Column("verifier_issues")]
+    public string? VerifierIssuesJson { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

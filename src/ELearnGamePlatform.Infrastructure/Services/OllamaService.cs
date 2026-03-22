@@ -30,31 +30,39 @@ public class OllamaService : IOllamaService
         };
     }
 
-    public async Task<string> GenerateResponseAsync(string prompt, string? systemPrompt = null)
+    public async Task<string> GenerateResponseAsync(
+        string prompt,
+        string? systemPrompt = null,
+        OllamaModelProfile profile = OllamaModelProfile.Generation)
     {
-        var request = new
+        var requestedModel = ResolveModel(profile);
+        var defaultModel = ResolveModel(OllamaModelProfile.Generation);
+
+        try
         {
-            model = _settings.Model,
-            prompt = prompt,
-            system = systemPrompt,
-            stream = false,
-            options = new
-            {
-                temperature = _settings.Temperature
-            }
-        };
+            return await SendGenerateRequestAsync(requestedModel, prompt, systemPrompt);
+        }
+        catch (Exception ex) when (
+            profile == OllamaModelProfile.Analysis &&
+            !string.Equals(requestedModel, defaultModel, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not use analysis model {AnalysisModel}. Falling back to generation/default model {DefaultModel}.",
+                requestedModel,
+                defaultModel);
 
-        var response = await _httpClient.PostAsJsonAsync("/api/generate", request, _jsonOptions);
-        response.EnsureSuccessStatusCode();
-
-        var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
-        return result?.Response ?? string.Empty;
+            return await SendGenerateRequestAsync(defaultModel, prompt, systemPrompt);
+        }
     }
 
-    public async Task<T?> GenerateStructuredResponseAsync<T>(string prompt, string? systemPrompt = null) where T : class
+    public async Task<T?> GenerateStructuredResponseAsync<T>(
+        string prompt,
+        string? systemPrompt = null,
+        OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
     {
         var jsonPrompt = BuildStrictJsonPrompt(prompt);
-        var responseText = await GenerateResponseAsync(jsonPrompt, systemPrompt);
+        var responseText = await GenerateResponseAsync(jsonPrompt, systemPrompt, profile);
         
         _logger.LogDebug("Ollama raw response (first 500 chars): {Response}", 
             responseText.Length > 500 ? responseText.Substring(0, 500) + "..." : responseText);
@@ -84,6 +92,31 @@ public class OllamaService : IOllamaService
         }
     }
 
+    private async Task<string> SendGenerateRequestAsync(string model, string prompt, string? systemPrompt)
+    {
+        var request = new
+        {
+            model,
+            prompt = prompt,
+            system = systemPrompt,
+            stream = false,
+            options = new
+            {
+                temperature = _settings.Temperature
+            }
+        };
+
+        var response = await _httpClient.PostAsJsonAsync("/api/generate", request, _jsonOptions);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"Ollama request failed for model '{model}' with status {(int)response.StatusCode}: {errorBody}");
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
+        return result?.Response ?? string.Empty;
+    }
+
     public async Task<bool> IsAvailableAsync()
     {
         try
@@ -95,6 +128,20 @@ public class OllamaService : IOllamaService
         {
             return false;
         }
+    }
+
+    private string ResolveModel(OllamaModelProfile profile)
+    {
+        var fallback = string.IsNullOrWhiteSpace(_settings.GenerationModel)
+            ? _settings.Model
+            : _settings.GenerationModel;
+
+        return profile switch
+        {
+            OllamaModelProfile.Analysis when !string.IsNullOrWhiteSpace(_settings.AnalysisModel) => _settings.AnalysisModel!,
+            OllamaModelProfile.Generation when !string.IsNullOrWhiteSpace(_settings.GenerationModel) => _settings.GenerationModel!,
+            _ => fallback
+        };
     }
 
     private string ExtractJsonFromResponse(string response)

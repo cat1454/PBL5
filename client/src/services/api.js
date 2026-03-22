@@ -112,3 +112,39 @@ export const gameService = {
     return response.data;
   },
 };
+
+export const slideService = {
+  startGenerateSlides: async (documentId, options = 8) => {
+    const payload = typeof options === 'number'
+      ? { desiredSlideCount: options }
+      : options;
+
+    const response = await axios.post(`${API_BASE_URL}/slides/generate/start`, {
+      documentId,
+      desiredSlideCount: payload?.desiredSlideCount || 8,
+      themeKey: payload?.themeKey,
+      audience: payload?.audience,
+      tone: payload?.tone,
+      narrativeGoal: payload?.narrativeGoal,
+      languageStyle: payload?.languageStyle,
+    });
+    return response.data;
+  },
+
+  getGenerateProgress: async (jobId) => {
+    const response = await axios.get(`${API_BASE_URL}/slides/generate/progress/${jobId}`);
+    return response.data;
+  },
+
+  getDeckByDocument: async (documentId) => {
+    const response = await axios.get(`${API_BASE_URL}/slides/document/${documentId}`);
+    return response.status === 204 ? null : response.data;
+  },
+
+  updateSlideItem: async (deckId, itemId, payload) => {
+    const response = await axios.put(`${API_BASE_URL}/slides/${deckId}/items/${itemId}`, payload);
+    return response.data;
+  },
+
+  getDeckHtmlUrl: (documentId) => `${API_BASE_URL}/slides/document/${documentId}/html`,
+};

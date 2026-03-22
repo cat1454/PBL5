@@ -7,18 +7,19 @@ function QuizGame() {
   const { documentId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [questions, setQuestions] = useState([]);
+  const [allQuestions, setAllQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [showResult, setShowResult] = useState(false);
   const [answers, setAnswers] = useState([]);
   const [finalScore, setFinalScore] = useState(null);
+  const [hideLowConfidence, setHideLowConfidence] = useState(false);
 
   useEffect(() => {
     const loadQuiz = async () => {
       try {
         const data = await gameService.getQuizGame(documentId, 10);
-        setQuestions(data.questions);
+        setAllQuestions(data.questions);
       } catch (err) {
         alert('Error loading quiz. Please generate questions first.');
         console.error(err);
@@ -30,6 +31,18 @@ function QuizGame() {
 
     loadQuiz();
   }, [documentId, navigate]);
+
+  useEffect(() => {
+    setCurrentQuestionIndex(0);
+    setSelectedAnswer(null);
+    setShowResult(false);
+    setAnswers([]);
+    setFinalScore(null);
+  }, [hideLowConfidence, allQuestions]);
+
+  const questions = hideLowConfidence
+    ? allQuestions.filter((question) => !question.quality?.isLowConfidence)
+    : allQuestions;
 
   const handleAnswerSelect = (optionKey) => {
     if (!showResult) {
@@ -100,8 +113,17 @@ function QuizGame() {
   if (questions.length === 0) {
     return (
       <div className="card">
-        <h2>No Questions Available</h2>
-        <p>Please generate questions first.</p>
+        <h2>{allQuestions.length > 0 ? 'Tat ca cau hoi hien dang bi an' : 'No Questions Available'}</h2>
+        <p>
+          {allQuestions.length > 0
+            ? 'Tat het bo loc an low-confidence de xem lai toan bo cau hoi.'
+            : 'Please generate questions first.'}
+        </p>
+        {allQuestions.length > 0 && (
+          <button className="button button-secondary" onClick={() => setHideLowConfidence(false)}>
+            Hien lai cau hoi diem thap
+          </button>
+        )}
         <button className="button" onClick={() => navigate('/documents')}>
           Back to Documents
         </button>
@@ -138,6 +160,7 @@ function QuizGame() {
   const currentQuestion = questions[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
   const topicDisplay = formatTopicForDisplay(currentQuestion.topic);
+  const quality = currentQuestion.quality || {};
 
   return (
     <div className="game-container">
@@ -147,6 +170,16 @@ function QuizGame() {
         </div>
         
         <h3>Question {currentQuestionIndex + 1} of {questions.length}</h3>
+        <div className="quality-toolbar">
+          <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
+            {hideLowConfidence ? 'Hien tat ca cau hoi' : 'An cau hoi diem thap'}
+          </button>
+          {quality.score !== undefined && quality.score !== null && (
+            <span className={`quality-chip ${quality.isLowConfidence ? 'low' : 'good'}`}>
+              Verifier {quality.score}/100
+            </span>
+          )}
+        </div>
         <p className="flashcard-meta" style={{ marginTop: '-6px' }}>{topicDisplay.friendlyLabel}</p>
         {topicDisplay.mainTopic && (
           <p className="flashcard-meta" style={{ marginTop: '-2px' }}>
@@ -161,6 +194,24 @@ function QuizGame() {
         
         <div className="question-card">
           <h2>{currentQuestion.questionText}</h2>
+
+          {(quality.isLowConfidence || quality.isUnknown) && (
+            <div className="alert alert-info quality-warning">
+              <strong>{quality.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+              <p>
+                {quality.isLowConfidence
+                  ? `Cau hoi nay co diem verifier ${quality.score}/100. Nen doc ky explanation truoc khi hoc.`
+                  : 'Cau hoi nay da duoc chinh sua thu cong hoac chua qua verifier moi.'}
+              </p>
+              {Array.isArray(quality.issues) && quality.issues.length > 0 && (
+                <ul className="quality-issues">
+                  {quality.issues.slice(0, 2).map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           
           <div className="options">
             {currentQuestion.options.map((option) => (

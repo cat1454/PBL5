@@ -82,6 +82,20 @@ cd src/ELearnGamePlatform.API
 dotnet run
 ```
 
+Neu `C:` bi day do `NuGet cache`, `Temp`, hoac `MSBuild temp`, dung script sau de day toan bo du lieu build tam sang `H:\pbl5\.runtime-h`:
+
+```powershell
+cd src/ELearnGamePlatform.API
+.\run-h.ps1
+```
+
+Neu muon clear cache cu roi restore lai tren `H:`:
+
+```powershell
+cd src/ELearnGamePlatform.API
+.\run-h.ps1 -ClearOldCaches
+```
+
 4. Chay frontend:
 
 ```powershell

@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { documentService, questionService } from '../services/api';
+import { documentService, questionService, slideService } from '../services/api';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9,6 +9,9 @@ function DocumentList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [generating, setGenerating] = useState({});
+  const [slideGenerating, setSlideGenerating] = useState({});
+  const [slideDecks, setSlideDecks] = useState({});
+  const [slideDeckAvailability, setSlideDeckAvailability] = useState({});
   const [showAnalysis, setShowAnalysis] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -49,18 +52,85 @@ function DocumentList() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncSlideDecks = async () => {
+      const targetDocuments = documents.filter((doc) =>
+        doc.status === 3 && (
+          typeof slideDeckAvailability[doc.id] === 'undefined'
+          || slideGenerating[doc.id]?.running
+          || ['queued', 'running'].includes(String(slideDecks[doc.id]?.generationProgress?.status || '').toLowerCase())
+        ));
+
+      if (targetDocuments.length === 0) {
+        return;
+      }
+
+      const results = await Promise.allSettled(
+        targetDocuments.map((doc) => slideService.getDeckByDocument(doc.id))
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      setSlideDecks((current) => {
+        const next = { ...current };
+
+        results.forEach((result, index) => {
+          const documentId = targetDocuments[index].id;
+
+          if (result.status === 'fulfilled') {
+            if (result.value) {
+              next[documentId] = result.value;
+            } else {
+              delete next[documentId];
+            }
+            return;
+          }
+        });
+
+        return next;
+      });
+
+      setSlideDeckAvailability((current) => {
+        const next = { ...current };
+
+        results.forEach((result, index) => {
+          const documentId = targetDocuments[index].id;
+
+          if (result.status === 'fulfilled') {
+            next[documentId] = !!result.value;
+          }
+        });
+
+        return next;
+      });
+    };
+
+    syncSlideDecks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documents, slideDeckAvailability, slideDecks, slideGenerating]);
+
   // Auto-refresh when documents are being processed
   useEffect(() => {
     const hasProcessingDocs = documents.some(doc => doc.status >= 0 && doc.status <= 2);
+    const hasGeneratingSlides = Object.values(slideGenerating).some((state) => state?.running)
+      || Object.values(slideDecks).some((deck) =>
+        ['queued', 'running'].includes(String(deck?.generationProgress?.status || '').toLowerCase()));
     
-    if (hasProcessingDocs) {
+    if (hasProcessingDocs || hasGeneratingSlides) {
       const interval = setInterval(() => {
         loadDocuments();
       }, 3000); // Refresh every 3 seconds
 
       return () => clearInterval(interval);
     }
-  }, [documents, loadDocuments]);
+  }, [documents, loadDocuments, slideDecks, slideGenerating]);
 
   const handleGenerateQuestions = async (documentId) => {
     setGenerating((current) => ({
@@ -69,6 +139,7 @@ function DocumentList() {
         running: true,
         percent: 0,
         stage: 'queued',
+        stageLabel: 'Cho xu ly',
         message: 'Dang xep hang tao bo cau hoi...',
       },
     }));
@@ -95,10 +166,17 @@ function DocumentList() {
             running: progressState.status === 'queued' || progressState.status === 'running',
             percent: progressState.percent ?? 0,
             stage: progressState.stage,
+            stageLabel: progressState.stageLabel,
             message: progressState.message,
+            detail: progressState.detail,
             current: progressState.current,
             total: progressState.total,
+            unitLabel: progressState.unitLabel,
+            stageIndex: progressState.stageIndex,
+            stageCount: progressState.stageCount,
             topicTag: progressState.topicTag,
+            elapsedSeconds: progressState.elapsedSeconds,
+            estimatedRemainingSeconds: progressState.estimatedRemainingSeconds,
           },
         }));
 
@@ -123,6 +201,105 @@ function DocumentList() {
       console.error(err);
     } finally {
       setGenerating((current) => {
+        const next = { ...current };
+        delete next[documentId];
+        return next;
+      });
+    }
+  };
+
+  const handleGenerateSlides = async (documentId) => {
+    setSlideGenerating((current) => ({
+      ...current,
+      [documentId]: {
+        running: true,
+        percent: 0,
+        stage: 'queued',
+        stageLabel: 'Cho xu ly',
+        message: 'Dang xep hang tao slide deck...',
+      },
+    }));
+    setSlideDeckAvailability((current) => ({
+      ...current,
+      [documentId]: true,
+    }));
+    setFeedback({ type: 'info', text: 'Dang tao slide deck va se hien dan ngay trong danh sach tai lieu.' });
+
+    try {
+      const startResult = await slideService.startGenerateSlides(documentId, 8);
+      const jobId = startResult.jobId;
+
+      const pollStartedAt = Date.now();
+      const pollTimeoutMs = 8 * 60 * 1000;
+      let completed = false;
+
+      while (!completed) {
+        if (Date.now() - pollStartedAt > pollTimeoutMs) {
+          throw new Error('Timeout waiting for slide generation progress');
+        }
+
+        const progressState = await slideService.getGenerateProgress(jobId);
+
+        setSlideGenerating((current) => ({
+          ...current,
+          [documentId]: {
+            running: progressState.status === 'queued' || progressState.status === 'running',
+            percent: progressState.percent ?? 0,
+            stage: progressState.stage,
+            stageLabel: progressState.stageLabel,
+            message: progressState.message,
+            detail: progressState.detail,
+            current: progressState.current,
+            total: progressState.total,
+            unitLabel: progressState.unitLabel,
+            stageIndex: progressState.stageIndex,
+            stageCount: progressState.stageCount,
+            elapsedSeconds: progressState.elapsedSeconds,
+            estimatedRemainingSeconds: progressState.estimatedRemainingSeconds,
+            slidesGenerated: progressState.slidesGenerated,
+          },
+        }));
+
+        try {
+          const deck = await slideService.getDeckByDocument(documentId);
+          setSlideDecks((current) => {
+            const next = { ...current };
+            if (deck) {
+              next[documentId] = deck;
+            } else {
+              delete next[documentId];
+            }
+            return next;
+          });
+          setSlideDeckAvailability((current) => ({
+            ...current,
+            [documentId]: !!deck,
+          }));
+        } catch (deckError) {
+          console.error(deckError);
+        }
+
+        if (progressState.status === 'completed') {
+          completed = true;
+          setFeedback({
+            type: 'success',
+            text: `Da tao xong slide deck. Slide se tiep tuc hien trong card nay va co the mo Slide Studio de sua chi tiet.`,
+          });
+          await loadDocuments({ silent: true });
+          break;
+        }
+
+        if (progressState.status === 'failed') {
+          throw new Error(progressState.error || 'Slide generation failed');
+        }
+
+        await sleep(1200);
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', text: 'Khong tao duoc slide deck. Vui long kiem tra progress va backend log.' });
+      console.error(err);
+    } finally {
+      setSlideGenerating((current) => {
         const next = { ...current };
         delete next[documentId];
         return next;
@@ -180,7 +357,116 @@ function DocumentList() {
     return `${minutes}p ${seconds}s`;
   };
 
+  const getGenerationEta = (generationState) => {
+    if (!generationState?.running) {
+      return null;
+    }
+
+    if (typeof generationState.estimatedRemainingSeconds !== 'number') {
+      return 'Dang tinh thoi gian con lai...';
+    }
+
+    if (generationState.estimatedRemainingSeconds <= 0) {
+      return 'Sap xong...';
+    }
+
+    return `Uoc tinh con ${formatDuration(generationState.estimatedRemainingSeconds * 1000)}`;
+  };
+
+  const getGenerationSubProgress = (generationState) => {
+    if (
+      typeof generationState?.current !== 'number'
+      || typeof generationState?.total !== 'number'
+      || generationState.total <= 0
+    ) {
+      return null;
+    }
+
+    return Math.max(0, Math.min(100, Math.round((generationState.current / generationState.total) * 100)));
+  };
+
+  const getSlideEta = (slideState) => {
+    if (!slideState?.running) {
+      return null;
+    }
+
+    if (typeof slideState.estimatedRemainingSeconds !== 'number') {
+      return 'Dang tinh thoi gian con lai...';
+    }
+
+    if (slideState.estimatedRemainingSeconds <= 0) {
+      return 'Sap xong...';
+    }
+
+    return `Uoc tinh con ${formatDuration(slideState.estimatedRemainingSeconds * 1000)}`;
+  };
+
+  const getSlideSubProgress = (slideState) => {
+    if (
+      typeof slideState?.current !== 'number'
+      || typeof slideState?.total !== 'number'
+      || slideState.total <= 0
+    ) {
+      return null;
+    }
+
+    return Math.max(0, Math.min(100, Math.round((slideState.current / slideState.total) * 100)));
+  };
+
+  const getRealtimeEta = (state) => {
+    if (!state || (state.status !== 'queued' && state.status !== 'running')) {
+      return null;
+    }
+
+    if (typeof state.estimatedRemainingSeconds !== 'number') {
+      return 'Dang tinh thoi gian con lai...';
+    }
+
+    if (state.estimatedRemainingSeconds <= 0) {
+      return 'Sap xong...';
+    }
+
+    return `Uoc tinh con ${formatDuration(state.estimatedRemainingSeconds * 1000)}`;
+  };
+
+  const getRealtimeSubProgress = (state) => {
+    if (
+      typeof state?.current !== 'number'
+      || typeof state?.total !== 'number'
+      || state.total <= 0
+    ) {
+      return null;
+    }
+
+    return Math.max(0, Math.min(100, Math.round((state.current / state.total) * 100)));
+  };
+
+  const getRealtimeProgressLabel = (state) => {
+    if (
+      typeof state?.current !== 'number'
+      || typeof state?.total !== 'number'
+      || state.total <= 0
+    ) {
+      return null;
+    }
+
+    const unit = state.unitLabel || 'muc';
+    const prefix = state.stage?.includes('ocr')
+      ? 'OCR'
+      : state.stage?.includes('analyzing')
+        ? 'Phan tich'
+        : 'Tien trinh';
+
+    return `${prefix} ${unit}: ${state.current}/${state.total}`;
+  };
+
   const getEstimatedTimeRemaining = (doc) => {
+    const processingState = doc.processingProgress;
+    const realtimeEta = getRealtimeEta(processingState);
+    if (realtimeEta) {
+      return realtimeEta;
+    }
+
     if (doc.status < 0 || doc.status > 2) {
       return null;
     }
@@ -199,6 +485,10 @@ function DocumentList() {
   const getStatusHint = (doc) => {
     if (generating[doc.id]?.running) {
       return 'AI dang doc toan bo noi dung va tao bo cau hoi moi. Ban co the cho 2-3 phut de lay ket qua tot hon.';
+    }
+
+    if (doc.processingProgress?.status === 'running' && doc.processingProgress?.message) {
+      return doc.processingProgress.message;
     }
 
     switch (doc.status) {
@@ -319,6 +609,17 @@ function DocumentList() {
               (() => {
                 const generationState = generating[doc.id];
                 const isGenerating = !!generationState?.running;
+                const slideState = slideGenerating[doc.id];
+                const slideDeck = slideDecks[doc.id];
+                const activeSlideProgress = slideState || slideDeck?.generationProgress;
+                const isGeneratingSlides = ['queued', 'running'].includes(String(activeSlideProgress?.status || '').toLowerCase());
+                const inlineSlideItems = slideDeck?.items?.slice(0, 3) || [];
+                const inlineOutlineItems = slideDeck?.outline?.slides?.slice(0, 4) || [];
+                const placeholderSlides = inlineOutlineItems.length > 0
+                  ? inlineOutlineItems.slice(0, Math.min(3, inlineOutlineItems.length))
+                  : Array.from({ length: 3 }, (_, index) => ({ slideIndex: index + 1 }));
+                const processingState = doc.processingProgress;
+                const isProcessingRealtime = !!processingState && (processingState.status === 'queued' || processingState.status === 'running');
 
                 return (
               <div key={doc.id} className="document-item">
@@ -342,6 +643,49 @@ function DocumentList() {
                     <p className="status-eta">⏱️ {getEstimatedTimeRemaining(doc)}</p>
                   )}
 
+                  {isProcessingRealtime && (
+                    <div className="generation-panel processing-panel">
+                      <div className="spinner-small"></div>
+                      <div>
+                        <strong>Dang xu ly tai lieu ({processingState.percent || 0}%)</strong>
+                        <p>{processingState.message || 'He thong dang OCR va phan tich tai lieu.'}</p>
+                        {processingState.stageLabel && (
+                          <p className="generation-progress-meta">
+                            Buoc hien tai: {processingState.stageLabel}
+                            {typeof processingState.stageIndex === 'number' && typeof processingState.stageCount === 'number'
+                              ? ` (${processingState.stageIndex}/${processingState.stageCount})`
+                              : ''}
+                          </p>
+                        )}
+                        {processingState.detail && (
+                          <p className="generation-progress-detail">{processingState.detail}</p>
+                        )}
+                        {getRealtimeEta(processingState) && (
+                          <p className="generation-progress-meta">{getRealtimeEta(processingState)}</p>
+                        )}
+                        {getRealtimeProgressLabel(processingState) && (
+                          <p className="generation-progress-meta">
+                            {getRealtimeProgressLabel(processingState)}
+                          </p>
+                        )}
+                        <div className="generation-progress-bar">
+                          <div
+                            className="generation-progress-fill"
+                            style={{ width: `${Math.max(0, Math.min(100, processingState.percent || 0))}%` }}
+                          ></div>
+                        </div>
+                        {getRealtimeSubProgress(processingState) !== null && (
+                          <div className="generation-subprogress">
+                            <div
+                              className="generation-subprogress-fill"
+                              style={{ width: `${getRealtimeSubProgress(processingState)}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {doc.mainTopics && doc.mainTopics.length > 0 && (
                     <div className="inline-topics">
                       {doc.mainTopics.slice(0, 5).map((topic, index) => (
@@ -356,8 +700,24 @@ function DocumentList() {
                       <div>
                         <strong>Dang tao bo cau hoi moi ({generationState.percent || 0}%)</strong>
                         <p>{generationState.message || 'He thong dang xu ly va sinh cau hoi.'}</p>
+                        {generationState.stageLabel && (
+                          <p className="generation-progress-meta">
+                            Buoc hien tai: {generationState.stageLabel}
+                            {typeof generationState.stageIndex === 'number' && typeof generationState.stageCount === 'number'
+                              ? ` (${generationState.stageIndex}/${generationState.stageCount})`
+                              : ''}
+                          </p>
+                        )}
+                        {generationState.detail && (
+                          <p className="generation-progress-detail">{generationState.detail}</p>
+                        )}
+                        {getGenerationEta(generationState) && (
+                          <p className="generation-progress-meta">{getGenerationEta(generationState)}</p>
+                        )}
                         {typeof generationState.current === 'number' && typeof generationState.total === 'number' && (
-                          <p>Tien trinh cau hoi: {generationState.current}/{generationState.total}</p>
+                          <p className="generation-progress-meta">
+                            Tien trinh {generationState.unitLabel || 'muc'}: {generationState.current}/{generationState.total}
+                          </p>
                         )}
                         {generationState.topicTag && <p>Topic-tag hien tai: {generationState.topicTag}</p>}
                         <div className="generation-progress-bar">
@@ -366,7 +726,153 @@ function DocumentList() {
                             style={{ width: `${Math.max(0, Math.min(100, generationState.percent || 0))}%` }}
                           ></div>
                         </div>
+                        {getGenerationSubProgress(generationState) !== null && (
+                          <div className="generation-subprogress">
+                            <div
+                              className="generation-subprogress-fill"
+                              style={{ width: `${getGenerationSubProgress(generationState)}%` }}
+                            ></div>
+                          </div>
+                        )}
                       </div>
+                    </div>
+                  )}
+
+                  {(slideDeck || isGeneratingSlides) && (
+                    <div className="slide-inline-panel">
+                      <div className="slide-inline-header">
+                        <div>
+                          <strong>
+                            {isGeneratingSlides
+                              ? `Dang tao slide deck (${activeSlideProgress?.percent || 0}%)`
+                              : `Slide deck: ${slideDeck?.title || 'Da tao xong'}`}
+                          </strong>
+                          <p>
+                            {activeSlideProgress?.message
+                              || slideDeck?.subtitle
+                              || 'Outline va cac slide se hien dan ngay tai day.'}
+                          </p>
+                          {activeSlideProgress?.stageLabel && (
+                            <p className="generation-progress-meta">
+                              Buoc hien tai: {activeSlideProgress.stageLabel}
+                              {typeof activeSlideProgress.stageIndex === 'number' && typeof activeSlideProgress.stageCount === 'number'
+                                ? ` (${activeSlideProgress.stageIndex}/${activeSlideProgress.stageCount})`
+                                : ''}
+                            </p>
+                          )}
+                          {activeSlideProgress?.detail && (
+                            <p className="generation-progress-detail">{activeSlideProgress.detail}</p>
+                          )}
+                          {getSlideEta(activeSlideProgress) && (
+                            <p className="generation-progress-meta">{getSlideEta(activeSlideProgress)}</p>
+                          )}
+                          {typeof activeSlideProgress?.current === 'number' && typeof activeSlideProgress?.total === 'number' && (
+                            <p className="generation-progress-meta">
+                              Tien trinh {activeSlideProgress.unitLabel || 'slide'}: {activeSlideProgress.current}/{activeSlideProgress.total}
+                            </p>
+                          )}
+                        </div>
+                        <div className="slide-inline-actions">
+                          <button
+                            className="button button-secondary"
+                            onClick={() => navigate(`/slides/${doc.id}`)}
+                          >
+                            Mo Studio
+                          </button>
+                          {slideDeck && (
+                            <button
+                              className="button button-secondary"
+                              onClick={() => window.open(slideService.getDeckHtmlUrl(doc.id), '_blank', 'noopener,noreferrer')}
+                            >
+                              HTML/PDF
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isGeneratingSlides && (
+                        <>
+                          <div className="generation-progress-bar">
+                            <div
+                              className="generation-progress-fill"
+                              style={{ width: `${Math.max(0, Math.min(100, activeSlideProgress?.percent || 0))}%` }}
+                            ></div>
+                          </div>
+                          {getSlideSubProgress(activeSlideProgress) !== null && (
+                            <div className="generation-subprogress">
+                              <div
+                                className="generation-subprogress-fill"
+                                style={{ width: `${getSlideSubProgress(activeSlideProgress)}%` }}
+                              ></div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {inlineOutlineItems.length > 0 && (
+                        <div className="slide-inline-outline">
+                          {inlineOutlineItems.map((slide) => (
+                            <div key={`${doc.id}-${slide.slideIndex}-${slide.heading}`} className="slide-inline-outline-item">
+                              <span>{slide.slideIndex}</span>
+                              <div>
+                                <strong>{slide.heading}</strong>
+                                <p>{slide.goal}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {inlineSlideItems.length > 0 ? (
+                        <div className="slide-inline-preview-grid">
+                          {inlineSlideItems.map((item) => (
+                            <article key={item.id} className={`slide-inline-card slide-inline-${String(item.slideType || '').toLowerCase()}`}>
+                              <div className="slide-inline-card-meta">
+                                <span>Slide {item.slideIndex}</span>
+                                <span>{item.slideType}</span>
+                              </div>
+                              <h4>{item.heading || `Slide ${item.slideIndex}`}</h4>
+                              {item.subheading && <p className="slide-inline-subheading">{item.subheading}</p>}
+                              {(item.bodyBlocks || []).length > 0 ? (
+                                <div className="slide-inline-body">
+                                  {(item.bodyBlocks || []).slice(0, 2).map((block, index) => (
+                                    <div key={index} className="slide-inline-bullet">{block}</div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="slide-inline-skeleton">
+                                  <span></span>
+                                  <span></span>
+                                </div>
+                              )}
+                            </article>
+                          ))}
+                        </div>
+                      ) : isGeneratingSlides ? (
+                        <div className="slide-inline-preview-grid">
+                          {placeholderSlides.map((slide) => (
+                            <article key={`${doc.id}-placeholder-${slide.slideIndex}`} className="slide-inline-card slide-inline-pending">
+                              <div className="slide-inline-card-meta">
+                                <span>Slide {slide.slideIndex}</span>
+                                <span>{slide.heading ? 'Outline' : 'Pending'}</span>
+                              </div>
+                              <h4>{slide.heading || 'Dang cho slide dau tien...'}</h4>
+                              {slide.goal && <p className="slide-inline-subheading">{slide.goal}</p>}
+                              <div className="slide-skeleton slide-inline-skeleton">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {!slideDeck && isGeneratingSlides && (
+                        <p className="slide-inline-footnote">
+                          Outline se xuat hien truoc. Ngay khi backend luu slide 1, card nay se render de ban doc truoc.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -379,6 +885,25 @@ function DocumentList() {
                         onClick={() => handleViewAnalysis(doc)}
                       >
                         📊 View Analysis
+                      </button>
+                      <button
+                        className="button"
+                        style={{ backgroundColor: '#b45309' }}
+                        onClick={() => navigate(`/slides/${doc.id}`)}
+                      >
+                        Slide Studio
+                      </button>
+                      <button
+                        className="button"
+                        style={{ backgroundColor: '#0f766e' }}
+                        onClick={() => handleGenerateSlides(doc.id)}
+                        disabled={isGeneratingSlides}
+                      >
+                        {isGeneratingSlides
+                          ? `Dang tao slide... ${activeSlideProgress?.percent || 0}%`
+                          : slideDeck
+                            ? 'Tao lai slide'
+                            : 'Tao slide dan dan'}
                       </button>
                       <button
                         className="button"

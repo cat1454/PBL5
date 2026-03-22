@@ -37,6 +37,9 @@ public class Document
     [Column("key_points")]
     public string? KeyPointsJson { get; set; } // JSON serialized
 
+    [Column("coverage_map")]
+    public string? CoverageMapJson { get; set; } // JSON serialized
+
     [Column("summary")]
     public string? Summary { get; set; }
 
@@ -61,6 +64,7 @@ public class Document
     // Navigation properties
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
     public virtual ICollection<GameSession> GameSessions { get; set; } = new List<GameSession>();
+    public virtual ICollection<SlideDeck> SlideDecks { get; set; } = new List<SlideDeck>();
 }
 
 public enum DocumentStatus

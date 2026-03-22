@@ -1,4 +1,6 @@
+using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace ELearnGamePlatform.Services.DocumentProcessing;
@@ -14,7 +16,7 @@ public class ImageProcessor : IDocumentProcessor
         _ocrService = ocrService;
     }
 
-    public async Task<string> ExtractTextAsync(string filePath, string fileType)
+    public async Task<string> ExtractTextAsync(string filePath, string fileType, IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
         if (!SupportedFileType(fileType))
         {
@@ -24,7 +26,20 @@ public class ImageProcessor : IDocumentProcessor
         try
         {
             _logger.LogInformation("Extracting text from image using OCR: {FilePath}", filePath);
-            var text = await _ocrService.ExtractTextFromImageAsync(filePath);
+            progress?.Report(new DocumentProcessingProgressUpdate
+            {
+                Percent = 5,
+                Stage = "ocr-image",
+                StageLabel = "OCR hinh anh",
+                Message = "Dang OCR hinh anh",
+                Detail = "Tien xu ly anh va nhan dang van ban",
+                StageIndex = 2,
+                StageCount = 6
+            });
+
+            var text = TextCleanupUtility.NormalizeForAi(
+                await _ocrService.ExtractTextFromImageAsync(filePath, progress),
+                preserveLineBreaks: true);
             return text;
         }
         catch (Exception ex)

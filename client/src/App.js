@@ -5,6 +5,7 @@ import DocumentUpload from './components/DocumentUpload';
 import DocumentList from './components/DocumentList';
 import QuizGame from './components/QuizGame';
 import FlashcardGame from './components/FlashcardGame';
+import SlideStudio from './components/SlideStudio';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
             <Route path="/documents" element={<DocumentList />} />
             <Route path="/quiz/:documentId" element={<QuizGame />} />
             <Route path="/flashcards/:documentId" element={<FlashcardGame />} />
+            <Route path="/slides/:documentId" element={<SlideStudio />} />
           </Routes>
         </main>
 

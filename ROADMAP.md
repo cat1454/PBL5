@@ -6,14 +6,14 @@
 - Backend hien tai: .NET 8 Web API + EF Core + PostgreSQL + Ollama + Tesseract.
 - Frontend hien tai: React 18.
 - Trang thai ky thuat hien tai:
-  - `dotnet build ELearnGamePlatform.sln` da build duoc.
-  - `npm run build` da build duoc, nhung con warning React hooks.
+  - `npm run build` da clean warning va build thanh cong.
+  - `dotnet build` hien dang bi chan boi local .NET SDK/workload resolver cua moi truong, khong lo compile error tu source P0 trong log hien tai.
 - Cac su that quan trong can bam theo khi mo rong:
-  - Docs trong repo con lech voi code runtime o mot so diem, dac biet la MongoDB vs PostgreSQL.
-  - `DemoMode.UseLocalFileStore` co trong config nhung chua thay wiring that su vao runtime.
+  - Docs chinh da duoc dong bo lai voi runtime PostgreSQL + EF Core.
+  - `DemoMode.UseLocalFileStore` da duoc go khoi runtime config; `local-store/` hien duoc xem la du lieu mau, khong phai active data source.
   - Frontend dang hardcode `demo-user`, chua co auth/user that.
-  - OCR tieng Viet chua day du: repo hien tai moi co `eng.traineddata`, chua co `vie.traineddata`.
-  - OCR PDF scan con phu thuoc `pdftoppm` trong PATH.
+  - OCR se fallback sang `eng` neu thieu `vie.traineddata`.
+  - OCR PDF scan uu tien Poppler bundled, neu khong co moi fallback sang `pdftoppm` trong PATH.
 
 ## 2. He thong dang lam duoc gi
 
@@ -39,7 +39,7 @@
 ## 3. He thong chua lam duoc gi / rui ro hien tai
 
 - Chua co auth, login, phan quyen, ownership that su.
-- Chua co demo mode that su du config co goi y.
+- Chua co demo mode that su; `local-store/` hien chi la du lieu mau.
 - Chua co test tu dong cho backend/frontend.
 - Job xu ly hien tai chua ben vung cho production:
   - dung `Task.Run`
@@ -59,19 +59,21 @@
 
 ### P0 - On dinh MVP
 
-- [ ] Muc tieu: Dong bo lai hien trang repo de MVP chay on dinh, de debug, de demo, va de nguoi moi co the setup dung.
-- [ ] Gia tri cho nguoi dung: Giam tinh trang upload duoc nhung OCR/AI loi ngam; giam nham lan do docs cu va config ao.
-- [ ] Hang muc can lam:
-  - [ ] Dong bo `README.md`, `ARCHITECTURE.md`, `RUN_GUIDE.md`, `HUONG_DAN_CHAY.md` voi code runtime hien tai.
-  - [ ] Quyet dinh ro `DemoMode.UseLocalFileStore`: wiring that su, hoac xoa neu khong dung.
-  - [ ] Enforce config upload that su tu `appsettings.json` thay vi hardcode scattered.
-  - [ ] Bo sung `vie.traineddata` va tai lieu hoa dung OCR tieng Viet.
-  - [ ] Lam ro yeu cau `pdftoppm`/Poppler trong setup va runtime.
-  - [ ] Review va sua cac warning build frontend lien quan `useEffect` dependencies.
-- [ ] Done when:
-  - [ ] Docs khop voi runtime PostgreSQL + EF Core + Ollama + Tesseract.
-  - [ ] Khong con config/dependency "gia" gay hieu nham trong onboarding.
-  - [ ] Upload + OCR + AI + generate question co huong dan setup ro rang va lap lai duoc.
+Cap nhat: hoan thanh pham vi P0 vao 2026-03-16.
+
+- [x] Muc tieu: Dong bo lai hien trang repo de MVP chay on dinh, de debug, de demo, va de nguoi moi co the setup dung.
+- [x] Gia tri cho nguoi dung: Giam tinh trang upload duoc nhung OCR/AI loi ngam; giam nham lan do docs cu va config ao.
+- [x] Hang muc can lam:
+  - [x] Dong bo `README.md`, `ARCHITECTURE.md`, `RUN_GUIDE.md`, `HUONG_DAN_CHAY.md` voi code runtime hien tai.
+  - [x] Chot ro che do demo: bo `DemoMode.UseLocalFileStore` khoi runtime config, giu `local-store/` o vai tro du lieu mau.
+  - [x] Enforce config upload that su tu `appsettings.json` thay vi hardcode scattered.
+  - [x] Lam ro OCR tieng Viet: docs hoa yeu cau `vie.traineddata`, them fallback runtime neu file nay chua co.
+  - [x] Lam ro yeu cau `pdftoppm`/Poppler trong setup va runtime, dong thoi uu tien Poppler bundled khi co san.
+  - [x] Review va sua cac warning build frontend lien quan `useEffect` dependencies.
+- [x] Done when:
+  - [x] Docs khop voi runtime PostgreSQL + EF Core + Ollama + Tesseract.
+  - [x] Khong con config/dependency "gia" gay hieu nham trong onboarding.
+  - [x] Upload + OCR + AI + generate question co huong dan setup ro rang va lap lai duoc.
 
 ### P1 - San pham cot loi
 
@@ -168,19 +170,19 @@
 
 ## 5. Kiem tra / acceptance checklist
 
-- [ ] `ROADMAP.md` de doc, de sua, de mo rong them bang tay.
-- [ ] Moi phase co du 4 dong co dinh:
-  - [ ] `Muc tieu`
-  - [ ] `Gia tri cho nguoi dung`
-  - [ ] `Hang muc can lam`
-  - [ ] `Done when`
-- [ ] Noi dung roadmap bam sat hien trang repo hien tai, khong lap lai docs cu da lech.
-- [ ] Phase slide ghi ro v1 la `HTML/PDF`, khong mo ta nhu da co san PPTX.
-- [ ] Cac interface/API cho slide duoc liet ke de lam moc implementation sau nay.
+- [x] `ROADMAP.md` de doc, de sua, de mo rong them bang tay.
+- [x] Moi phase co du 4 dong co dinh:
+  - [x] `Muc tieu`
+  - [x] `Gia tri cho nguoi dung`
+  - [x] `Hang muc can lam`
+  - [x] `Done when`
+- [x] Noi dung roadmap bam sat hien trang repo hien tai, khong lap lai docs cu da lech.
+- [x] Phase slide ghi ro v1 la `HTML/PDF`, khong mo ta nhu da co san PPTX.
+- [x] Cac interface/API cho slide duoc liet ke de lam moc implementation sau nay.
 
 ## 6. Open notes / decisions
 
-- [ ] Co giu `DemoMode.UseLocalFileStore` nhu mot che do demo that su, hay bo han de giam do phuc tap?
+- [ ] Co can xoa han thu muc `local-store/` hay giu lai lam mau test/manual troubleshooting?
 - [ ] Auth v1 uu tien muc nao: session cookie noi bo hay JWT?
 - [ ] Slide HTML preview nen dung:
   - [ ] template server-side don gian

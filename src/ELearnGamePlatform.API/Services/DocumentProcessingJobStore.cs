@@ -2,51 +2,47 @@ using System.Collections.Concurrent;
 
 namespace ELearnGamePlatform.API.Services;
 
-public interface IQuestionGenerationJobStore
+public interface IDocumentProcessingJobStore
 {
-    string CreateJob(int documentId, int count, string? questionType);
-    bool TryGetJob(string jobId, out QuestionGenerationJobState? state);
-    void UpdateJob(string jobId, Action<QuestionGenerationJobState> updater);
+    void StartJob(int documentId, string fileName);
+    bool TryGetJob(int documentId, out DocumentProcessingJobState? state);
+    void UpdateJob(int documentId, Action<DocumentProcessingJobState> updater);
 }
 
-public class QuestionGenerationJobStore : IQuestionGenerationJobStore
+public class DocumentProcessingJobStore : IDocumentProcessingJobStore
 {
-    private readonly ConcurrentDictionary<string, QuestionGenerationJobState> _jobs = new();
+    private readonly ConcurrentDictionary<int, DocumentProcessingJobState> _jobs = new();
 
-    public string CreateJob(int documentId, int count, string? questionType)
+    public void StartJob(int documentId, string fileName)
     {
         var now = DateTime.UtcNow;
-        var jobId = Guid.NewGuid().ToString("N");
-        var state = new QuestionGenerationJobState
+        _jobs[documentId] = new DocumentProcessingJobState
         {
-            JobId = jobId,
             DocumentId = documentId,
-            Count = count,
-            QuestionType = questionType,
+            FileName = fileName,
             Status = "queued",
             Percent = 0,
             Stage = "queued",
             StageLabel = "Cho xu ly",
-            Message = "Da tao job",
+            Message = "Da xep hang xu ly tai lieu",
+            StageIndex = 1,
+            StageCount = 6,
             CreatedAt = now,
             UpdatedAt = now,
             ElapsedSeconds = 0
         };
-
-        _jobs[jobId] = state;
-        return jobId;
     }
 
-    public bool TryGetJob(string jobId, out QuestionGenerationJobState? state)
+    public bool TryGetJob(int documentId, out DocumentProcessingJobState? state)
     {
-        var found = _jobs.TryGetValue(jobId, out var result);
+        var found = _jobs.TryGetValue(documentId, out var result);
         state = result;
         return found;
     }
 
-    public void UpdateJob(string jobId, Action<QuestionGenerationJobState> updater)
+    public void UpdateJob(int documentId, Action<DocumentProcessingJobState> updater)
     {
-        if (!_jobs.TryGetValue(jobId, out var state))
+        if (!_jobs.TryGetValue(documentId, out var state))
         {
             return;
         }
@@ -59,12 +55,10 @@ public class QuestionGenerationJobStore : IQuestionGenerationJobStore
     }
 }
 
-public class QuestionGenerationJobState
+public class DocumentProcessingJobState
 {
-    public string JobId { get; set; } = string.Empty;
     public int DocumentId { get; set; }
-    public int Count { get; set; }
-    public string? QuestionType { get; set; }
+    public string FileName { get; set; } = string.Empty;
     public string Status { get; set; } = "queued";
     public int Percent { get; set; }
     public string Stage { get; set; } = "queued";
@@ -76,11 +70,13 @@ public class QuestionGenerationJobState
     public string? UnitLabel { get; set; }
     public int? StageIndex { get; set; }
     public int? StageCount { get; set; }
-    public string? TopicTag { get; set; }
-    public int? QuestionsGenerated { get; set; }
     public int? ElapsedSeconds { get; set; }
     public int? EstimatedRemainingSeconds { get; set; }
     public string? Error { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string? EtaAnchorStage { get; set; }
+    public int? EtaAnchorCurrent { get; set; }
+    public int? EtaAnchorTotal { get; set; }
+    public DateTime? EtaAnchorAt { get; set; }
 }

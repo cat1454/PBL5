@@ -10,4 +10,5 @@ public class ProcessedContent
     public List<string> KeyPoints { get; set; } = new();
     public string? Summary { get; set; }
     public string? Language { get; set; }
+    public List<DocumentCoverageChunk> CoverageMap { get; set; } = new();
 }

@@ -7,15 +7,16 @@ function FlashcardGame() {
   const { documentId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [flashcards, setFlashcards] = useState([]);
+  const [allFlashcards, setAllFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [hideLowConfidence, setHideLowConfidence] = useState(false);
 
   useEffect(() => {
     const loadFlashcards = async () => {
       try {
         const data = await gameService.getFlashcards(documentId);
-        setFlashcards(data.flashcards);
+        setAllFlashcards(data.flashcards);
       } catch (err) {
         alert('Error loading flashcards. Please generate questions first.');
         console.error(err);
@@ -27,6 +28,15 @@ function FlashcardGame() {
 
     loadFlashcards();
   }, [documentId, navigate]);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setFlipped(false);
+  }, [hideLowConfidence, allFlashcards]);
+
+  const flashcards = hideLowConfidence
+    ? allFlashcards.filter((card) => !card.quality?.isLowConfidence)
+    : allFlashcards;
 
   const handleFlip = () => {
     setFlipped(!flipped);
@@ -58,8 +68,17 @@ function FlashcardGame() {
   if (flashcards.length === 0) {
     return (
       <div className="card">
-        <h2>Chua co flashcards</h2>
-        <p>Hay tao cau hoi truoc khi mo flashcards.</p>
+        <h2>{allFlashcards.length > 0 ? 'Tat ca flashcard hien dang bi an' : 'Chua co flashcards'}</h2>
+        <p>
+          {allFlashcards.length > 0
+            ? 'Tat bo loc an low-confidence de xem lai tat ca flashcard.'
+            : 'Hay tao cau hoi truoc khi mo flashcards.'}
+        </p>
+        {allFlashcards.length > 0 && (
+          <button className="button button-secondary" onClick={() => setHideLowConfidence(false)}>
+            Hien lai flashcard diem thap
+          </button>
+        )}
         <button className="button" onClick={() => navigate('/documents')}>
           Quay lai Documents
         </button>
@@ -70,6 +89,7 @@ function FlashcardGame() {
   const currentCard = flashcards[currentIndex];
   const progress = ((currentIndex + 1) / flashcards.length) * 100;
   const topicDisplay = formatTopicForDisplay(currentCard.topic);
+  const quality = currentCard.quality || {};
 
   return (
     <div className="game-container">
@@ -79,7 +99,17 @@ function FlashcardGame() {
             <h2>🃏 Flashcards</h2>
             <p className="section-subtitle">Cham vao the de lat mat sau va on lai dap an dung.</p>
           </div>
-          <span className="mini-topic-tag">{topicDisplay.friendlyLabel}</span>
+          <div className="quality-toolbar">
+            <span className="mini-topic-tag">{topicDisplay.friendlyLabel}</span>
+            <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
+              {hideLowConfidence ? 'Hien tat ca the' : 'An the diem thap'}
+            </button>
+            {quality.score !== undefined && quality.score !== null && (
+              <span className={`quality-chip ${quality.isLowConfidence ? 'low' : 'good'}`}>
+                Verifier {quality.score}/100
+              </span>
+            )}
+          </div>
         </div>
         {topicDisplay.mainTopic && (
           <p className="flashcard-meta" style={{ marginTop: '6px' }}>
@@ -102,6 +132,23 @@ function FlashcardGame() {
 
         <div className="flashcard" onClick={handleFlip}>
           <div className="flashcard-content">
+            {(quality.isLowConfidence || quality.isUnknown) && (
+              <div className="alert alert-info quality-warning">
+                <strong>{quality.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+                <p>
+                  {quality.isLowConfidence
+                    ? `The nay co diem verifier ${quality.score}/100. Nen kiem tra lai dap an va explanation.`
+                    : 'The nay da duoc chinh sua thu cong hoac chua duoc verifier lai.'}
+                </p>
+                {Array.isArray(quality.issues) && quality.issues.length > 0 && (
+                  <ul className="quality-issues">
+                    {quality.issues.slice(0, 2).map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {!flipped ? (
               <div>
                 <h3 style={{ color: '#667eea' }}>Question:</h3>

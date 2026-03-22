@@ -1,6 +1,6 @@
 namespace ELearnGamePlatform.Core.Entities;
 
-public class QuestionGenerationProgressUpdate
+public class DocumentProcessingProgressUpdate
 {
     public int Percent { get; set; }
     public string Stage { get; set; } = "running";
@@ -12,5 +12,4 @@ public class QuestionGenerationProgressUpdate
     public string? UnitLabel { get; set; }
     public int? StageIndex { get; set; }
     public int? StageCount { get; set; }
-    public string? TopicTag { get; set; }
 }

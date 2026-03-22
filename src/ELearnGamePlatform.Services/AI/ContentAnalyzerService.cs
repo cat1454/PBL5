@@ -1,5 +1,6 @@
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace ELearnGamePlatform.Services.AI;
@@ -10,7 +11,9 @@ public class ContentAnalyzerService : IContentAnalyzer
     private readonly ILogger<ContentAnalyzerService> _logger;
     private const int ChunkSize = 3500;
     private const int ChunkOverlap = 250;
-    private const int MaxChunksToAnalyze = 3;
+    private const int MaxParallelChunkAnalyses = 3;
+    private const int ChunkCompactionBatchSize = 4;
+    private const int MaxChunkAnalysesBeforeCompaction = 6;
 
     public ContentAnalyzerService(IOllamaService ollamaService, ILogger<ContentAnalyzerService> logger)
     {
@@ -18,45 +21,45 @@ public class ContentAnalyzerService : IContentAnalyzer
         _logger = logger;
     }
 
-    public async Task<ProcessedContent> AnalyzeContentAsync(string text)
+    public async Task<ProcessedContent> AnalyzeContentAsync(string text, IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
         try
         {
             var normalizedText = NormalizeText(text);
-            var chunks = LimitChunksForAnalysis(SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap));
+            var coverageMap = DocumentCoverageMapBuilder.Build(normalizedText);
+            var chunks = SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap);
 
-            _logger.LogInformation("Analyzing document content using {ChunkCount} chunks", chunks.Count);
+            _logger.LogInformation(
+                "Analyzing document content using {ChunkCount} chunks with max parallelism {MaxParallelChunkAnalyses}",
+                chunks.Count,
+                Math.Min(MaxParallelChunkAnalyses, Math.Max(1, chunks.Count)));
 
-            var chunkAnalyses = new List<ChunkAnalysis>();
-            for (int index = 0; index < chunks.Count; index++)
-            {
-                var chunkAnalysis = await AnalyzeChunkAsync(chunks[index], index + 1, chunks.Count);
-                if (chunkAnalysis != null)
-                {
-                    chunkAnalyses.Add(chunkAnalysis);
-                }
-            }
+            var chunkAnalyses = await AnalyzeChunksInParallelAsync(chunks, progress);
 
             if (!chunkAnalyses.Any())
             {
                 _logger.LogWarning("No chunk analyses were produced, using fallback");
-                return CreateFallbackProcessedContent(text);
+                return CreateFallbackProcessedContent(text, coverageMap);
             }
 
-            var result = await ConsolidateChunkAnalysesAsync(chunkAnalyses);
-            
+            var preparedAnalyses = CompactChunkAnalysesLocally(chunkAnalyses, progress);
+
+            ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hop nhat ket qua phan tich toan tai lieu", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 92);
+            var result = await ConsolidateChunkAnalysesAsync(preparedAnalyses);
+
             if (result == null)
             {
                 _logger.LogWarning("Failed to consolidate chunk analyses with AI, using local merge fallback");
-                return MergeChunkAnalysesLocally(chunkAnalyses, normalizedText);
+                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, coverageMap);
             }
 
-            return EnsureProcessedContentQuality(result, chunkAnalyses, normalizedText);
+            ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hoan thien tom tat, topics va key points", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 97);
+            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, coverageMap);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error analyzing content");
-            return CreateFallbackProcessedContent(text);
+            return CreateFallbackProcessedContent(text, DocumentCoverageMapBuilder.Build(NormalizeText(text)));
         }
     }
 
@@ -90,35 +93,110 @@ public class ContentAnalyzerService : IContentAnalyzer
         }
     }
 
+    private async Task<List<ChunkAnalysis>> AnalyzeChunksInParallelAsync(
+        IReadOnlyList<string> chunks,
+        IProgress<DocumentProcessingProgressUpdate>? progress)
+    {
+        if (chunks.Count == 0)
+        {
+            return new List<ChunkAnalysis>();
+        }
+
+        var maxParallelism = Math.Min(MaxParallelChunkAnalyses, Math.Max(1, chunks.Count));
+        var results = new ChunkAnalysis?[chunks.Count];
+        var completed = 0;
+        using var semaphore = new SemaphoreSlim(maxParallelism, maxParallelism);
+
+        ReportAnalysisProgress(
+            progress,
+            "analyzing-chunks",
+            "Phan tich noi dung",
+            $"Dang phan tich {chunks.Count} chunk voi toi da {maxParallelism} luong song song",
+            0,
+            chunks.Count,
+            "chunk",
+            5);
+
+        var tasks = chunks.Select((chunk, index) => AnalyzeChunkWithProgressAsync(
+            chunk,
+            index,
+            chunks.Count,
+            semaphore,
+            results,
+            () => Interlocked.Increment(ref completed),
+            progress,
+            maxParallelism));
+
+        await Task.WhenAll(tasks);
+
+        return results
+            .Where(result => result != null)
+            .Cast<ChunkAnalysis>()
+            .ToList();
+    }
+
+    private async Task AnalyzeChunkWithProgressAsync(
+        string chunk,
+        int index,
+        int totalChunks,
+        SemaphoreSlim semaphore,
+        ChunkAnalysis?[] results,
+        Func<int> onCompleted,
+        IProgress<DocumentProcessingProgressUpdate>? progress,
+        int maxParallelism)
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            results[index] = await AnalyzeChunkAsync(chunk, index + 1, totalChunks);
+        }
+        finally
+        {
+            semaphore.Release();
+
+            var completedCount = onCompleted();
+            ReportAnalysisProgress(
+                progress,
+                "analyzing-chunks",
+                "Phan tich noi dung",
+                $"Da xong {completedCount}/{totalChunks} chunk, dang chay toi da {maxParallelism} luong song song",
+                completedCount,
+                totalChunks,
+                "chunk",
+                MapProgress(5, 78, completedCount, totalChunks));
+        }
+    }
+
     private async Task<ChunkAnalysis?> AnalyzeChunkAsync(string chunk, int chunkNumber, int totalChunks)
     {
         try
         {
-            var systemPrompt = "You are an educational content analyzer. Extract precise study information in Vietnamese from the given chunk. Prioritize factual correctness and topic specificity.";
+            var systemPrompt = "You are an educational content analyzer. Extract precise study information in Vietnamese from the given chunk. Prioritize factual correctness, concrete topic naming, and usefulness for later quiz generation.";
 
             var prompt = $@"Analyze chunk {chunkNumber}/{totalChunks} from a larger educational document.
 
 Goals:
 1. Extract 3-6 specific topics from this chunk (use concrete names, avoid generic labels)
-2. Extract 5-10 concrete key points with factual details (definitions, formulas, rules, dates, steps, causes/effects when present)
+2. Extract 5-10 concrete key points with factual details such as definitions, formulas, rules, dates, ordered steps, causes, and effects when present
 3. Write a concise Vietnamese summary (2-4 sentences)
 4. Identify the language of the chunk
-5. Focus on what can later be used to generate quiz questions
+5. Focus on what can later be used to generate accurate quiz questions
 6. Each topic should be a concise noun phrase (2-7 words), non-overlapping, and directly grounded in the chunk
-7. Do NOT output vague labels like ""Tổng quan"", ""Nội dung chính"", ""Kiến thức cơ bản"" unless the chunk explicitly uses those exact terms
+7. Do NOT output vague labels like ""Tong quan"", ""Noi dung chinh"", ""Kien thuc co ban"" unless the chunk explicitly uses those exact terms
+8. Preserve dates, formulas, named entities, ordered steps, and definitions whenever they appear
 
 Chunk content:
 {chunk}
 
 Respond in valid JSON only:
 {{
-    ""topics"": [""chủ đề cụ thể 1"", ""chủ đề cụ thể 2""],
-    ""keyPoints"": [""ý chính có dữ kiện 1"", ""ý chính có dữ kiện 2""],
-    ""summary"": ""tóm tắt tiếng Việt ngắn gọn"",
-  ""language"": ""Vietnamese or English or mixed""
+    ""topics"": [""chu de cu the 1"", ""chu de cu the 2""],
+    ""keyPoints"": [""y chinh co du kien 1"", ""y chinh co du kien 2""],
+    ""summary"": ""tom tat tieng Viet ngan gon"",
+    ""language"": ""Vietnamese or English or mixed""
 }}";
 
-            var result = await _ollamaService.GenerateStructuredResponseAsync<ChunkAnalysis>(prompt, systemPrompt);
+            var result = await _ollamaService.GenerateStructuredResponseAsync<ChunkAnalysis>(prompt, systemPrompt, OllamaModelProfile.Analysis);
             if (result == null)
             {
                 _logger.LogWarning("Failed to analyze chunk {ChunkNumber}/{TotalChunks}", chunkNumber, totalChunks);
@@ -142,7 +220,7 @@ Key points:
 Summary: {chunk.Summary}
 Language: {chunk.Language}"));
 
-    var systemPrompt = "You are an educational content analyst. Merge chunk analyses into one full-document analysis in Vietnamese with clear topic coverage.";
+        var systemPrompt = "You are an educational content analyst. Merge chunk analyses into one full-document analysis in Vietnamese with clear topic coverage.";
         var prompt = $@"The following notes were extracted from multiple chunks of the SAME full document.
 Merge them into one complete analysis.
 
@@ -173,9 +251,10 @@ Respond in JSON format:
     private ProcessedContent EnsureProcessedContentQuality(
         ProcessedContent processed,
         List<ChunkAnalysis> chunkAnalyses,
-        string normalizedText)
+        string normalizedText,
+        List<DocumentCoverageChunk> coverageMap)
     {
-        var localMerged = MergeChunkAnalysesLocally(chunkAnalyses, normalizedText);
+        var localMerged = MergeChunkAnalysesLocally(chunkAnalyses, normalizedText, coverageMap);
 
         processed.MainTopics = processed.MainTopics
             .Where(topic => !string.IsNullOrWhiteSpace(topic))
@@ -209,10 +288,15 @@ Respond in JSON format:
             processed.Language = localMerged.Language;
         }
 
+        processed.CoverageMap = coverageMap;
+
         return processed;
     }
 
-    private ProcessedContent MergeChunkAnalysesLocally(List<ChunkAnalysis> chunkAnalyses, string normalizedText)
+    private ProcessedContent MergeChunkAnalysesLocally(
+        List<ChunkAnalysis> chunkAnalyses,
+        string normalizedText,
+        List<DocumentCoverageChunk> coverageMap)
     {
         var topics = chunkAnalyses
             .SelectMany(chunk => chunk.Topics ?? new List<string>())
@@ -245,15 +329,14 @@ Respond in JSON format:
             MainTopics = topics.Any() ? topics : new List<string> { "Tong quan noi dung" },
             KeyPoints = keyPoints.Any() ? keyPoints : normalizedText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(8).ToList(),
             Summary = !string.IsNullOrWhiteSpace(summary) ? summary : string.Join(" ", normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(120)) + "...",
-            Language = language
+            Language = language,
+            CoverageMap = coverageMap
         };
     }
 
     private static string NormalizeText(string text)
     {
-        return string.IsNullOrWhiteSpace(text)
-            ? string.Empty
-            : text.Replace("\r\n", "\n").Trim();
+        return TextCleanupUtility.NormalizeForAi(text, preserveLineBreaks: true);
     }
 
     private static List<string> SplitIntoChunks(string content, int chunkSize, int overlap)
@@ -294,48 +377,93 @@ Respond in JSON format:
         return chunks;
     }
 
-    private List<string> LimitChunksForAnalysis(List<string> chunks)
+    private List<ChunkAnalysis> CompactChunkAnalysesLocally(List<ChunkAnalysis> chunkAnalyses, IProgress<DocumentProcessingProgressUpdate>? progress)
     {
-        if (chunks.Count <= MaxChunksToAnalyze)
+        var workingSet = chunkAnalyses;
+        while (workingSet.Count > MaxChunkAnalysesBeforeCompaction)
         {
-            return chunks;
+            var groups = workingSet.Chunk(ChunkCompactionBatchSize).ToList();
+            var compacted = new List<ChunkAnalysis>(groups.Count);
+
+            for (var index = 0; index < groups.Count; index++)
+            {
+                ReportAnalysisProgress(progress, "compacting-analysis", "Nen ket qua phan tich", $"Dang nen cum phan tich {index + 1}/{groups.Count}", index + 1, groups.Count, "cum", MapProgress(80, 90, index + 1, groups.Count));
+                compacted.Add(ConvertProcessedToChunkAnalysis(MergeChunkAnalysesLocally(groups[index].ToList(), string.Empty, new List<DocumentCoverageChunk>())));
+            }
+
+            workingSet = compacted;
         }
 
-        var selectedChunks = new List<string>
-        {
-            chunks[0],
-            chunks[chunks.Count / 2],
-            chunks[^1]
-        };
-
-        _logger.LogInformation(
-            "Document produced {OriginalChunkCount} chunks. Limiting analysis to {SelectedChunkCount} representative chunks for faster response.",
-            chunks.Count,
-            selectedChunks.Count);
-
-        return selectedChunks;
+        return workingSet;
     }
 
-    private ProcessedContent CreateFallbackProcessedContent(string text)
+    private ProcessedContent CreateFallbackProcessedContent(string text, List<DocumentCoverageChunk> coverageMap)
     {
-        // Simple fallback when AI processing fails
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        
+
         return new ProcessedContent
         {
             MainTopics = new List<string> { "General Content" },
             KeyPoints = lines.Take(5).ToList(),
             Summary = string.Join(" ", words.Take(50)) + "...",
-            Language = "Unknown"
+            Language = "Unknown",
+            CoverageMap = coverageMap
         };
     }
 
-    private class ChunkAnalysis
+    private sealed class ChunkAnalysis
     {
         public List<string>? Topics { get; set; }
         public List<string>? KeyPoints { get; set; }
         public string? Summary { get; set; }
         public string? Language { get; set; }
+    }
+
+    private static void ReportAnalysisProgress(
+        IProgress<DocumentProcessingProgressUpdate>? progress,
+        string stage,
+        string stageLabel,
+        string message,
+        int? current,
+        int? total,
+        string? unitLabel,
+        int percent)
+    {
+        progress?.Report(new DocumentProcessingProgressUpdate
+        {
+            Percent = percent,
+            Stage = stage,
+            StageLabel = stageLabel,
+            Message = message,
+            Detail = message,
+            Current = current,
+            Total = total,
+            UnitLabel = unitLabel,
+            StageIndex = stage == "analyzing-chunks" ? 4 : 5,
+            StageCount = 6
+        });
+    }
+
+    private static int MapProgress(int startPercent, int endPercent, int current, int total)
+    {
+        if (total <= 0)
+        {
+            return endPercent;
+        }
+
+        var ratio = Math.Clamp(current / (double)total, 0d, 1d);
+        return startPercent + (int)Math.Round((endPercent - startPercent) * ratio);
+    }
+
+    private static ChunkAnalysis ConvertProcessedToChunkAnalysis(ProcessedContent processed)
+    {
+        return new ChunkAnalysis
+        {
+            Topics = processed.MainTopics,
+            KeyPoints = processed.KeyPoints,
+            Summary = processed.Summary,
+            Language = processed.Language
+        };
     }
 }

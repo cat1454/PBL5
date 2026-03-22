@@ -1,6 +1,8 @@
+using ELearnGamePlatform.Core.Entities;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using System.Text;
 
@@ -15,7 +17,7 @@ public class DocxProcessor : IDocumentProcessor
         _logger = logger;
     }
 
-    public Task<string> ExtractTextAsync(string filePath, string fileType)
+    public Task<string> ExtractTextAsync(string filePath, string fileType, IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
         if (!SupportedFileType(fileType))
         {
@@ -24,7 +26,18 @@ public class DocxProcessor : IDocumentProcessor
 
         try
         {
-            var text = ExtractTextFromDocx(filePath);
+            progress?.Report(new DocumentProcessingProgressUpdate
+            {
+                Percent = 5,
+                Stage = "reading-docx",
+                StageLabel = "Trich xuat DOCX",
+                Message = "Dang doc noi dung DOCX",
+                Detail = "Quet doan van va bang trong tai lieu",
+                StageIndex = 2,
+                StageCount = 6
+            });
+
+            var text = TextCleanupUtility.NormalizeForAi(ExtractTextFromDocx(filePath, progress), preserveLineBreaks: true);
             return Task.FromResult(text);
         }
         catch (Exception ex)
@@ -40,7 +53,7 @@ public class DocxProcessor : IDocumentProcessor
                fileType.Equals(".docx", StringComparison.OrdinalIgnoreCase);
     }
 
-    private string ExtractTextFromDocx(string filePath)
+    private string ExtractTextFromDocx(string filePath, IProgress<DocumentProcessingProgressUpdate>? progress)
     {
         var textBuilder = new StringBuilder();
 
@@ -48,17 +61,25 @@ public class DocxProcessor : IDocumentProcessor
         {
             if (wordDoc.MainDocumentPart?.Document.Body != null)
             {
-                foreach (var paragraph in wordDoc.MainDocumentPart.Document.Body.Elements<Paragraph>())
+                var paragraphs = wordDoc.MainDocumentPart.Document.Body.Elements<Paragraph>().ToList();
+                var tables = wordDoc.MainDocumentPart.Document.Body.Elements<Table>().ToList();
+                var totalUnits = Math.Max(1, paragraphs.Count + tables.Count);
+                var processedUnits = 0;
+
+                foreach (var paragraph in paragraphs)
                 {
                     var paragraphText = paragraph.InnerText;
                     if (!string.IsNullOrWhiteSpace(paragraphText))
                     {
                         textBuilder.AppendLine(paragraphText);
                     }
+
+                    processedUnits++;
+                    ReportDocxProgress(progress, processedUnits, totalUnits);
                 }
 
                 // Extract text from tables
-                foreach (var table in wordDoc.MainDocumentPart.Document.Body.Elements<Table>())
+                foreach (var table in tables)
                 {
                     foreach (var row in table.Elements<TableRow>())
                     {
@@ -72,10 +93,30 @@ public class DocxProcessor : IDocumentProcessor
                         }
                         textBuilder.AppendLine();
                     }
+
+                    processedUnits++;
+                    ReportDocxProgress(progress, processedUnits, totalUnits);
                 }
             }
         }
 
         return textBuilder.ToString();
+    }
+
+    private static void ReportDocxProgress(IProgress<DocumentProcessingProgressUpdate>? progress, int current, int total)
+    {
+        progress?.Report(new DocumentProcessingProgressUpdate
+        {
+            Percent = Math.Max(10, (int)Math.Round((current / (double)Math.Max(1, total)) * 100d)),
+            Stage = "reading-docx",
+            StageLabel = "Trich xuat DOCX",
+            Message = $"Dang doc cau truc DOCX {current}/{total}",
+            Detail = $"Da xu ly {current}/{total} khoi noi dung cua tai lieu",
+            Current = current,
+            Total = total,
+            UnitLabel = "khoi noi dung",
+            StageIndex = 2,
+            StageCount = 6
+        });
     }
 }

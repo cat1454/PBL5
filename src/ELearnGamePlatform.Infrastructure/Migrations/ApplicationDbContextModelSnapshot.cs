@@ -34,6 +34,10 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("CoverageMapJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("coverage_map");
+
                     b.Property<string>("ExtractedText")
                         .HasColumnType("text")
                         .HasColumnName("extracted_text");
@@ -214,6 +218,14 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("topic");
 
+                    b.Property<string>("VerifierIssuesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("verifier_issues");
+
+                    b.Property<int?>("VerifierScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("verifier_score");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DocumentId");
@@ -221,6 +233,143 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "QuestionType");
 
                     b.ToTable("questions");
+                });
+
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideDeck", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("integer")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("OutlineJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("outline");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subtitle")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("subtitle");
+
+                    b.Property<string>("ThemeKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("theme_key");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VerifierIssuesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("verifier_issues");
+
+                    b.Property<int?>("VerifierScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("verifier_score");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("DocumentId", "CreatedAt");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("slide_decks");
+                });
+
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccentTone")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("accent_tone");
+
+                    b.Property<string>("BodyJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("body");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Goal")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("goal");
+
+                    b.Property<string>("Heading")
+                        .HasMaxLength(240)
+                        .HasColumnType("character varying(240)")
+                        .HasColumnName("heading");
+
+                    b.Property<int>("SlideDeckId")
+                        .HasColumnType("integer")
+                        .HasColumnName("slide_deck_id");
+
+                    b.Property<int>("SlideIndex")
+                        .HasColumnType("integer")
+                        .HasColumnName("slide_index");
+
+                    b.Property<string>("SpeakerNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("speaker_notes");
+
+                    b.Property<int>("SlideType")
+                        .HasColumnType("integer")
+                        .HasColumnName("slide_type");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subheading")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("subheading");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SlideDeckId");
+
+                    b.HasIndex("SlideDeckId", "SlideIndex");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("slide_items");
                 });
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.GameSession", b =>
@@ -245,11 +394,40 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideDeck", b =>
+                {
+                    b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
+                        .WithMany("SlideDecks")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideItem", b =>
+                {
+                    b.HasOne("ELearnGamePlatform.Core.Entities.SlideDeck", "SlideDeck")
+                        .WithMany("Items")
+                        .HasForeignKey("SlideDeckId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SlideDeck");
+                });
+
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Document", b =>
                 {
                     b.Navigation("GameSessions");
 
                     b.Navigation("Questions");
+
+                    b.Navigation("SlideDecks");
+                });
+
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideDeck", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

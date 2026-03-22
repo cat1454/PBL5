@@ -1,7 +1,7 @@
+using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
-using ELearnGamePlatform.API.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ELearnGamePlatform.API.Controllers;
@@ -50,7 +50,7 @@ public class QuestionsController : ControllerBase
             jobId,
             status = "queued",
             progressUrl = $"/api/questions/generate/progress/{jobId}",
-            resultHint = $"Khi status=completed, gọi /api/questions/document/{request.DocumentId} để lấy câu hỏi mới"
+            resultHint = $"Khi status=completed, goi /api/questions/document/{request.DocumentId} de lay cau hoi moi"
         });
     }
 
@@ -76,7 +76,6 @@ public class QuestionsController : ControllerBase
             }
 
             var document = await _documentRepository.GetByIdAsync(request.DocumentId);
-            
             if (document == null)
             {
                 return NotFound("Document not found");
@@ -87,22 +86,24 @@ public class QuestionsController : ControllerBase
                 return BadRequest("Document has not been processed yet");
             }
 
+            var processedContent = BuildProcessedContentFromDocument(document);
             List<Question> questions;
-            
             if (request.QuestionType.HasValue)
             {
                 questions = await _questionGenerator.GenerateQuestionsByTypeAsync(
                     request.DocumentId,
                     document.ExtractedText,
                     request.QuestionType.Value,
-                    request.Count);
+                    request.Count,
+                    processedContent);
             }
             else
             {
                 questions = await _questionGenerator.GenerateQuestionsAsync(
                     request.DocumentId,
                     document.ExtractedText,
-                    request.Count);
+                    request.Count,
+                    processedContent);
             }
 
             await _questionRepository.ReplaceByDocumentIdAsync(request.DocumentId, questions);
@@ -113,7 +114,7 @@ public class QuestionsController : ControllerBase
             {
                 documentId = request.DocumentId,
                 questionsGenerated = questions.Count,
-                questions = questions
+                questions = questions.Select(BuildQuestionPayload)
             });
         }
         catch (Exception ex)
@@ -132,7 +133,17 @@ public class QuestionsController : ControllerBase
                 state.Status = "running";
                 state.Percent = 2;
                 state.Stage = "validating-document";
-                state.Message = "Đang kiểm tra tài liệu";
+                state.StageLabel = "Kiem tra dau vao";
+                state.StageIndex = 1;
+                state.StageCount = 7;
+                state.Message = "Dang kiem tra tai lieu";
+                state.Detail = "Xac minh document va noi dung dau vao";
+                state.UnitLabel = null;
+                state.Current = null;
+                state.Total = null;
+                state.TopicTag = null;
+                state.Error = null;
+                UpdateEta(state);
             });
 
             using var scope = _scopeFactory.CreateScope();
@@ -148,8 +159,14 @@ public class QuestionsController : ControllerBase
                     state.Status = "failed";
                     state.Percent = 100;
                     state.Stage = "failed";
+                    state.StageLabel = "That bai";
+                    state.Message = "Khong tim thay tai lieu";
+                    state.Detail = "DocumentId khong ton tai trong he thong";
                     state.Error = "Document not found";
-                    state.Message = "Không tìm thấy tài liệu";
+                    state.StageIndex = 7;
+                    state.StageCount = 7;
+                    state.EstimatedRemainingSeconds = 0;
+                    UpdateEta(state);
                 });
                 return;
             }
@@ -161,8 +178,14 @@ public class QuestionsController : ControllerBase
                     state.Status = "failed";
                     state.Percent = 100;
                     state.Stage = "failed";
+                    state.StageLabel = "That bai";
+                    state.Message = "Tai lieu chua du noi dung de sinh cau hoi";
+                    state.Detail = "Can xu ly xong ExtractedText truoc khi tao cau hoi";
                     state.Error = "Document has not been processed yet";
-                    state.Message = "Tài liệu chưa được xử lý nội dung";
+                    state.StageIndex = 7;
+                    state.StageCount = 7;
+                    state.EstimatedRemainingSeconds = 0;
+                    UpdateEta(state);
                 });
                 return;
             }
@@ -171,16 +194,11 @@ public class QuestionsController : ControllerBase
             {
                 _jobStore.UpdateJob(jobId, state =>
                 {
-                    state.Status = update.Stage == "failed" ? "failed" : "running";
-                    state.Percent = update.Percent;
-                    state.Stage = update.Stage;
-                    state.Message = update.Message;
-                    state.Current = update.Current;
-                    state.Total = update.Total;
-                    state.TopicTag = update.TopicTag;
+                    ApplyProgressUpdate(state, update);
                 });
             });
 
+            var processedContent = BuildProcessedContentFromDocument(document);
             List<Question> questions;
             if (request.QuestionType.HasValue)
             {
@@ -189,6 +207,7 @@ public class QuestionsController : ControllerBase
                     document.ExtractedText,
                     request.QuestionType.Value,
                     request.Count,
+                    processedContent,
                     progress);
             }
             else
@@ -197,14 +216,25 @@ public class QuestionsController : ControllerBase
                     request.DocumentId,
                     document.ExtractedText,
                     request.Count,
+                    processedContent,
                     progress);
             }
 
             _jobStore.UpdateJob(jobId, state =>
             {
+                state.Status = "running";
                 state.Percent = Math.Max(state.Percent, 96);
                 state.Stage = "saving-questions";
-                state.Message = "Đang lưu câu hỏi vào hệ thống";
+                state.StageLabel = "Luu ket qua";
+                state.StageIndex = 7;
+                state.StageCount = 7;
+                state.Message = "Dang luu cau hoi vao he thong";
+                state.Detail = $"Ghi {questions.Count} cau hoi vao database";
+                state.Current = questions.Count;
+                state.Total = questions.Count;
+                state.UnitLabel = "cau hoi";
+                state.EstimatedRemainingSeconds = 1;
+                UpdateEta(state);
             });
 
             await questionRepository.ReplaceByDocumentIdAsync(request.DocumentId, questions);
@@ -214,8 +244,14 @@ public class QuestionsController : ControllerBase
                 state.Status = "completed";
                 state.Percent = 100;
                 state.Stage = "completed";
-                state.Message = "Hoàn tất sinh câu hỏi";
+                state.StageLabel = "Hoan tat";
+                state.StageIndex = 7;
+                state.StageCount = 7;
+                state.Message = "Hoan tat sinh cau hoi";
+                state.Detail = $"Da tao va luu {questions.Count} cau hoi";
                 state.QuestionsGenerated = questions.Count;
+                state.EstimatedRemainingSeconds = 0;
+                UpdateEta(state);
             });
         }
         catch (Exception ex)
@@ -226,17 +262,138 @@ public class QuestionsController : ControllerBase
                 state.Status = "failed";
                 state.Percent = 100;
                 state.Stage = "failed";
+                state.StageLabel = "That bai";
+                state.StageIndex = 7;
+                state.StageCount = 7;
                 state.Error = ex.Message;
-                state.Message = "Sinh câu hỏi thất bại";
+                state.Message = "Sinh cau hoi that bai";
+                state.Detail = ex.Message;
+                state.EstimatedRemainingSeconds = 0;
+                UpdateEta(state);
             });
         }
+    }
+
+    private static void ApplyProgressUpdate(QuestionGenerationJobState state, QuestionGenerationProgressUpdate update)
+    {
+        state.Status = update.Stage switch
+        {
+            "failed" => "failed",
+            "completed" => "running",
+            _ => "running"
+        };
+        state.Percent = Math.Clamp(update.Percent, 0, 100);
+        state.Stage = string.IsNullOrWhiteSpace(update.Stage) ? state.Stage : update.Stage;
+        state.StageLabel = string.IsNullOrWhiteSpace(update.StageLabel) ? state.StageLabel : update.StageLabel;
+        state.Message = update.Message;
+        state.Detail = update.Detail;
+        state.Current = update.Current;
+        state.Total = update.Total;
+        state.UnitLabel = update.UnitLabel;
+        state.StageIndex = update.StageIndex ?? state.StageIndex;
+        state.StageCount = update.StageCount ?? state.StageCount;
+        state.TopicTag = update.TopicTag;
+
+        if (state.Status == "failed")
+        {
+            state.Error = update.Message;
+            state.EstimatedRemainingSeconds = 0;
+        }
+
+        UpdateEta(state);
+    }
+
+    private static void UpdateEta(QuestionGenerationJobState state)
+    {
+        var elapsedSeconds = Math.Max(0, (int)Math.Round((DateTime.UtcNow - state.CreatedAt).TotalSeconds));
+        state.ElapsedSeconds = elapsedSeconds;
+
+        if (state.Status is "completed" or "failed")
+        {
+            state.EstimatedRemainingSeconds = 0;
+            return;
+        }
+
+        if (state.Percent <= 3)
+        {
+            state.EstimatedRemainingSeconds = null;
+            return;
+        }
+
+        var estimatedTotalSeconds = elapsedSeconds / Math.Max(0.03d, state.Percent / 100d);
+        var estimatedRemaining = Math.Max(1, (int)Math.Round(estimatedTotalSeconds - elapsedSeconds));
+        state.EstimatedRemainingSeconds = estimatedRemaining;
+    }
+
+    private static ProcessedContent BuildProcessedContentFromDocument(Document document)
+    {
+        return new ProcessedContent
+        {
+            MainTopics = document.GetMainTopics(),
+            KeyPoints = document.GetKeyPoints(),
+            Summary = document.Summary,
+            Language = document.Language,
+            CoverageMap = document.GetCoverageMap()
+        };
     }
 
     [HttpGet("document/{documentId}")]
     public async Task<IActionResult> GetQuestionsByDocument(int documentId)
     {
         var questions = await _questionRepository.GetByDocumentIdAsync(documentId);
-        return Ok(questions.Select(q => new
+        return Ok(questions.Select(BuildQuestionPayload));
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetQuestion(int id)
+    {
+        var question = await _questionRepository.GetByIdAsync(id);
+        if (question == null)
+        {
+            return NotFound();
+        }
+
+        return Ok(BuildQuestionPayload(question));
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateQuestion(int id, [FromBody] Question question)
+    {
+        var existing = await _questionRepository.GetByIdAsync(id);
+        if (existing == null)
+        {
+            return NotFound();
+        }
+
+        question.Id = id;
+        question.VerifierScore = null;
+        question.SetVerifierIssues(new List<string>
+        {
+            "Cau hoi da duoc chinh sua thu cong sau khi verifier chay.",
+            "Can sinh lai neu muon co verifier score moi."
+        });
+        await _questionRepository.UpdateAsync(id, question);
+
+        return Ok(BuildQuestionPayload(question));
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteQuestion(int id)
+    {
+        var question = await _questionRepository.GetByIdAsync(id);
+        if (question == null)
+        {
+            return NotFound();
+        }
+
+        await _questionRepository.DeleteAsync(id);
+        return NoContent();
+    }
+
+    private static object BuildQuestionPayload(Question q)
+    {
+        var issues = q.GetVerifierIssues();
+        return new
         {
             q.Id,
             q.DocumentId,
@@ -247,51 +404,15 @@ public class QuestionsController : ControllerBase
             q.Explanation,
             q.Difficulty,
             q.Topic,
+            quality = new
+            {
+                score = q.VerifierScore,
+                issues,
+                isLowConfidence = q.VerifierScore.HasValue && q.VerifierScore.Value < 70,
+                isUnknown = !q.VerifierScore.HasValue
+            },
             q.CreatedAt
-        }));
-    }
-
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetQuestion(int id)
-    {
-        var question = await _questionRepository.GetByIdAsync(id);
-        
-        if (question == null)
-        {
-            return NotFound();
-        }
-
-        return Ok(question);
-    }
-
-    [HttpPut("{id}")]
-    public async Task<IActionResult> UpdateQuestion(int id, [FromBody] Question question)
-    {
-        var existing = await _questionRepository.GetByIdAsync(id);
-        
-        if (existing == null)
-        {
-            return NotFound();
-        }
-
-        question.Id = id;
-        await _questionRepository.UpdateAsync(id, question);
-        
-        return Ok(question);
-    }
-
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteQuestion(int id)
-    {
-        var question = await _questionRepository.GetByIdAsync(id);
-        
-        if (question == null)
-        {
-            return NotFound();
-        }
-
-        await _questionRepository.DeleteAsync(id);
-        return NoContent();
+        };
     }
 }
 

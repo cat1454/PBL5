@@ -14,6 +14,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<Document> Documents { get; set; }
     public DbSet<Question> Questions { get; set; }
     public DbSet<GameSession> GameSessions { get; set; }
+    public DbSet<SlideDeck> SlideDecks { get; set; }
+    public DbSet<SlideItem> SlideItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,6 +38,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.KeyPointsJson)
                 .HasColumnType("jsonb");
 
+            entity.Property(e => e.CoverageMapJson)
+                .HasColumnType("jsonb");
+
             entity.Property(e => e.Summary)
                 .HasColumnType("text");
 
@@ -48,6 +53,11 @@ public class ApplicationDbContext : DbContext
             entity.HasMany(d => d.GameSessions)
                 .WithOne(g => g.Document)
                 .HasForeignKey(g => g.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(d => d.SlideDecks)
+                .WithOne(deck => deck.Document)
+                .HasForeignKey(deck => deck.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -67,6 +77,9 @@ public class ApplicationDbContext : DbContext
 
             entity.Property(e => e.Explanation)
                 .HasColumnType("text");
+
+            entity.Property(e => e.VerifierIssuesJson)
+                .HasColumnType("jsonb");
         });
 
         // GameSession configuration
@@ -78,6 +91,39 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => new { e.UserId, e.CreatedAt });
 
             entity.Property(e => e.QuestionIdsJson)
+                .HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<SlideDeck>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.OutlineJson)
+                .HasColumnType("jsonb");
+
+            entity.HasMany(deck => deck.Items)
+                .WithOne(item => item.SlideDeck)
+                .HasForeignKey(item => item.SlideDeckId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SlideItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.SlideDeckId);
+            entity.HasIndex(e => new { e.SlideDeckId, e.SlideIndex });
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.BodyJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.SpeakerNotes)
+                .HasColumnType("text");
+
+            entity.Property(e => e.VerifierIssuesJson)
                 .HasColumnType("jsonb");
         });
     }

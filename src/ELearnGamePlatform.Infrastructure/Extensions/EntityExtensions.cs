@@ -32,6 +32,19 @@ public static class EntityExtensions
         document.KeyPointsJson = JsonSerializer.Serialize(keyPoints);
     }
 
+    public static List<DocumentCoverageChunk> GetCoverageMap(this Document document)
+    {
+        if (string.IsNullOrEmpty(document.CoverageMapJson))
+            return new List<DocumentCoverageChunk>();
+
+        return JsonSerializer.Deserialize<List<DocumentCoverageChunk>>(document.CoverageMapJson) ?? new List<DocumentCoverageChunk>();
+    }
+
+    public static void SetCoverageMap(this Document document, List<DocumentCoverageChunk> coverageMap)
+    {
+        document.CoverageMapJson = JsonSerializer.Serialize(coverageMap);
+    }
+
     // Question extensions
     public static List<QuestionOption> GetOptions(this Question question)
     {
@@ -44,6 +57,20 @@ public static class EntityExtensions
     public static void SetOptions(this Question question, List<QuestionOption> options)
     {
         question.OptionsJson = JsonSerializer.Serialize(options);
+    }
+
+    // Slide extensions
+    public static List<string> GetBodyBlocks(this SlideItem item)
+    {
+        if (string.IsNullOrEmpty(item.BodyJson))
+            return new List<string>();
+
+        return JsonSerializer.Deserialize<List<string>>(item.BodyJson) ?? new List<string>();
+    }
+
+    public static void SetBodyBlocks(this SlideItem item, List<string> bodyBlocks)
+    {
+        item.BodyJson = JsonSerializer.Serialize(bodyBlocks);
     }
 
     // GameSession extensions
