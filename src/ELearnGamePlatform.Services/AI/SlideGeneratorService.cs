@@ -17,6 +17,8 @@ public class SlideGeneratorService : ISlideGenerator
     private const int ChunkOverlap = 250;
     private const int EvidenceChunkLimit = 3;
     private const int SlideRetryLimit = 1;
+    private const int SlideAutoRepairLimit = 1;
+    private const int SlideRepairThreshold = 74;
     private static readonly HashSet<string> SupportedThemes = new(StringComparer.OrdinalIgnoreCase)
     {
         "editorial-sunrise",
@@ -143,7 +145,8 @@ public class SlideGeneratorService : ISlideGenerator
 
                 if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, out qualityIssues))
                 {
-                    ApplySlideVerifierMetadata(result, outlineSlide.SlideType, evidence, usedFallback: false);
+                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: false);
+                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result);
                     return result;
                 }
             }
@@ -157,7 +160,8 @@ public class SlideGeneratorService : ISlideGenerator
         }
 
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
-        ApplySlideVerifierMetadata(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
+        await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
+        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback);
         return fallback;
     }
 
@@ -742,7 +746,135 @@ Return JSON only:
         return issues.Count == 0;
     }
 
-    private static void ApplySlideVerifierMetadata(
+    private async Task ApplySlideVerifierMetadataAsync(
+        SlideContentResult content,
+        SlideItemType slideType,
+        IReadOnlyCollection<DocumentChunk> evidence,
+        bool usedFallback)
+    {
+        ApplyLocalSlideVerifierMetadata(content, slideType, evidence, usedFallback);
+
+        var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence);
+        if (aiReview == null)
+        {
+            return;
+        }
+
+        var mergedIssues = content.VerifierIssues
+            .Concat(aiReview.Issues ?? new List<string>())
+            .Where(issue => !string.IsNullOrWhiteSpace(issue))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+
+        if (aiReview.Score.HasValue)
+        {
+            content.VerifierScore = content.VerifierScore.HasValue
+                ? Math.Min(content.VerifierScore.Value, aiReview.Score.Value)
+                : aiReview.Score.Value;
+        }
+
+        if (aiReview.IsGrounded == false)
+        {
+            mergedIssues.Insert(0, "Verifier AI danh dau slide nay chua du grounded theo evidence duoc cap.");
+        }
+
+        content.VerifierIssues = mergedIssues;
+    }
+
+    private async Task<SlideContentResult> AutoRepairSlideIfNeededAsync(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        SlideOutlineSlide outlineSlide,
+        List<DocumentChunk> evidence,
+        SlideContentResult currentContent)
+    {
+        var bestContent = currentContent;
+
+        for (var attempt = 0; attempt < SlideAutoRepairLimit; attempt++)
+        {
+            if (!NeedsSlideAutoRepair(bestContent))
+            {
+                break;
+            }
+
+            var repairIssues = bestContent.VerifierIssues
+                .Concat(new[]
+                {
+                    "Auto-repair: hay sua slide de grounded hon, presentation-ready hon, va giam artifact/wording may."
+                })
+                .Where(issue => !string.IsNullOrWhiteSpace(issue))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+
+            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues);
+            if (repairedDraft == null)
+            {
+                break;
+            }
+
+            var repairedContent = NormalizeSlideContent(repairedDraft, outlineSlide, brief, evidence);
+            repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent);
+            if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, out _))
+            {
+                break;
+            }
+
+            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: false);
+
+            if (!ShouldPreferRepairedSlide(bestContent, repairedContent))
+            {
+                break;
+            }
+
+            _logger.LogInformation(
+                "Slide auto-repair improved heading {Heading} score from {OldScore} to {NewScore}",
+                outlineSlide.Heading,
+                bestContent.VerifierScore,
+                repairedContent.VerifierScore);
+
+            bestContent = repairedContent;
+        }
+
+        return bestContent;
+    }
+
+    private static bool NeedsSlideAutoRepair(SlideContentResult content)
+    {
+        var score = content.VerifierScore ?? 0;
+        if (score < SlideRepairThreshold)
+        {
+            return true;
+        }
+
+        return content.VerifierIssues.Any(issue =>
+            issue.Contains("grounded", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("artifact", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("dang rong", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("fallback", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("trung", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ShouldPreferRepairedSlide(SlideContentResult current, SlideContentResult repaired)
+    {
+        var currentScore = current.VerifierScore ?? 0;
+        var repairedScore = repaired.VerifierScore ?? 0;
+
+        if (repairedScore > currentScore)
+        {
+            return true;
+        }
+
+        if (repairedScore == currentScore)
+        {
+            return repaired.VerifierIssues.Count < current.VerifierIssues.Count;
+        }
+
+        return false;
+    }
+
+    private static void ApplyLocalSlideVerifierMetadata(
         SlideContentResult content,
         SlideItemType slideType,
         IReadOnlyCollection<DocumentChunk> evidence,
@@ -868,6 +1000,74 @@ Return JSON only:
 
         content.VerifierScore = Math.Clamp(score, 0, 100);
         content.VerifierIssues = warnings;
+    }
+
+    private async Task<SlideAiVerificationResult?> VerifySlideWithAiAsync(
+        SlideContentResult content,
+        SlideItemType slideType,
+        IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        try
+        {
+            var prompt = $@"Review the grounded slide content below.
+
+Allowed evidence only:
+{BuildSlideVerifierEvidenceBlock(evidence)}
+
+Slide payload:
+- slideType: {slideType}
+- heading: {content.Heading}
+- subheading: {content.Subheading}
+- goal: {content.Goal}
+- bodyBlocks:
+{BuildSlideVerifierBodyBlock(content.BodyBlocks)}
+- speakerNotes: {content.SpeakerNotes}
+
+Requirements:
+1. Use only the evidence above.
+2. Penalize unsupported statements, duplicated ideas, OCR artifacts, weak clarity, or presentation wording that is too generic.
+3. Score from 0 to 100.
+4. issues must be short Vietnamese bullets, maximum 5 items.
+5. isGrounded is true only when the visible slide content is supported by the evidence.
+
+Return JSON only:
+{{
+  ""score"": 86,
+  ""issues"": [""Y thu hai con hoi chung chung""],
+  ""isGrounded"": true
+}}";
+
+            return await _ollamaService.GenerateStructuredResponseAsync<SlideAiVerificationResult>(
+                prompt,
+                "You are a strict presentation verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.",
+                OllamaModelProfile.Verification);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI slide verifier failed. Keeping local verifier result only.");
+            return null;
+        }
+    }
+
+    private static string BuildSlideVerifierEvidenceBlock(IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        if (evidence.Count == 0)
+        {
+            return "- Khong co evidence chunk nao.";
+        }
+
+        return string.Join(Environment.NewLine, evidence.Select(chunk =>
+            $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}"));
+    }
+
+    private static string BuildSlideVerifierBodyBlock(IReadOnlyCollection<string> bodyBlocks)
+    {
+        if (bodyBlocks.Count == 0)
+        {
+            return "- Khong co body block";
+        }
+
+        return string.Join(Environment.NewLine, bodyBlocks.Select(block => $"- {block}"));
     }
 
     private static string BuildOutlineSnapshot(SlideOutlineResult outline)
@@ -1547,5 +1747,12 @@ Return JSON only:
         public List<string>? BodyBlocks { get; set; }
         public string? SpeakerNotes { get; set; }
         public string? AccentTone { get; set; }
+    }
+
+    private sealed class SlideAiVerificationResult
+    {
+        public int? Score { get; set; }
+        public List<string>? Issues { get; set; }
+        public bool? IsGrounded { get; set; }
     }
 }

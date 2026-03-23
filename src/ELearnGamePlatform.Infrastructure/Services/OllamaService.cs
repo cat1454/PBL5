@@ -40,19 +40,20 @@ public class OllamaService : IOllamaService
 
         try
         {
-            return await SendGenerateRequestAsync(requestedModel, prompt, systemPrompt);
+            return await SendGenerateRequestAsync(requestedModel, prompt, systemPrompt, profile);
         }
         catch (Exception ex) when (
-            profile == OllamaModelProfile.Analysis &&
+            profile != OllamaModelProfile.Generation &&
             !string.Equals(requestedModel, defaultModel, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning(
                 ex,
-                "Could not use analysis model {AnalysisModel}. Falling back to generation/default model {DefaultModel}.",
+                "Could not use {Profile} model {RequestedModel}. Falling back to generation/default model {DefaultModel}.",
+                profile,
                 requestedModel,
                 defaultModel);
 
-            return await SendGenerateRequestAsync(defaultModel, prompt, systemPrompt);
+            return await SendGenerateRequestAsync(defaultModel, prompt, systemPrompt, OllamaModelProfile.Generation);
         }
     }
 
@@ -92,7 +93,11 @@ public class OllamaService : IOllamaService
         }
     }
 
-    private async Task<string> SendGenerateRequestAsync(string model, string prompt, string? systemPrompt)
+    private async Task<string> SendGenerateRequestAsync(
+        string model,
+        string prompt,
+        string? systemPrompt,
+        OllamaModelProfile profile)
     {
         var request = new
         {
@@ -102,7 +107,7 @@ public class OllamaService : IOllamaService
             stream = false,
             options = new
             {
-                temperature = _settings.Temperature
+                temperature = ResolveTemperature(profile)
             }
         };
 
@@ -139,8 +144,20 @@ public class OllamaService : IOllamaService
         return profile switch
         {
             OllamaModelProfile.Analysis when !string.IsNullOrWhiteSpace(_settings.AnalysisModel) => _settings.AnalysisModel!,
+            OllamaModelProfile.Verification when !string.IsNullOrWhiteSpace(_settings.VerificationModel) => _settings.VerificationModel!,
             OllamaModelProfile.Generation when !string.IsNullOrWhiteSpace(_settings.GenerationModel) => _settings.GenerationModel!,
             _ => fallback
+        };
+    }
+
+    private double ResolveTemperature(OllamaModelProfile profile)
+    {
+        return profile switch
+        {
+            OllamaModelProfile.Analysis when _settings.AnalysisTemperature.HasValue => _settings.AnalysisTemperature.Value,
+            OllamaModelProfile.Verification when _settings.VerificationTemperature.HasValue => _settings.VerificationTemperature.Value,
+            OllamaModelProfile.Generation when _settings.GenerationTemperature.HasValue => _settings.GenerationTemperature.Value,
+            _ => _settings.Temperature
         };
     }
 

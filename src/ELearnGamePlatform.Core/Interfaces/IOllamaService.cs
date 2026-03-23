@@ -18,5 +18,6 @@ public interface IOllamaService
 public enum OllamaModelProfile
 {
     Analysis,
-    Generation
+    Generation,
+    Verification
 }

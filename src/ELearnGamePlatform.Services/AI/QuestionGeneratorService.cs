@@ -21,6 +21,8 @@ public class QuestionGeneratorService : IQuestionGenerator
     private const int EvidenceExcerptLength = 750;
     private const int TotalStageCount = 7;
     private const int QuestionRetryLimit = 1;
+    private const int QuestionAutoRepairLimit = 1;
+    private const int QuestionRepairThreshold = 72;
     private const string DefaultTopicTag = "noi-dung-trong-tam:chi-tiet-quan-trong";
 
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
@@ -318,7 +320,8 @@ Return JSON only:
                     usedFallback = true;
                 }
 
-                ApplyQuestionVerifierMetadata(question, type, bundle, questions, usedFallback);
+                await ApplyQuestionVerifierMetadataAsync(question, type, bundle, questions, usedFallback);
+                question = await AutoRepairQuestionIfNeededAsync(documentId, type, plan, bundle, question, questions, usedFallback);
                 questions.Add(question);
             }
 
@@ -904,7 +907,146 @@ Return JSON only:
         return issues.Count == 0;
     }
 
-    private static void ApplyQuestionVerifierMetadata(
+    private async Task ApplyQuestionVerifierMetadataAsync(
+        Question question,
+        QuestionType type,
+        EvidenceBundle bundle,
+        IReadOnlyCollection<Question> existingQuestions,
+        bool usedFallback)
+    {
+        ApplyLocalQuestionVerifierMetadata(question, type, bundle, existingQuestions, usedFallback);
+
+        var aiReview = await VerifyQuestionWithAiAsync(question, type, bundle);
+        if (aiReview == null)
+        {
+            return;
+        }
+
+        var mergedIssues = question.GetVerifierIssues()
+            .Concat(aiReview.Issues ?? new List<string>())
+            .Where(issue => !string.IsNullOrWhiteSpace(issue))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+
+        if (aiReview.Score.HasValue)
+        {
+            question.VerifierScore = question.VerifierScore.HasValue
+                ? Math.Min(question.VerifierScore.Value, aiReview.Score.Value)
+                : aiReview.Score.Value;
+        }
+
+        if (aiReview.IsGrounded == false)
+        {
+            mergedIssues.Insert(0, "Verifier AI danh dau cau hoi nay chua du grounded theo evidence duoc cap.");
+        }
+
+        question.SetVerifierIssues(mergedIssues);
+    }
+
+    private async Task<Question> AutoRepairQuestionIfNeededAsync(
+        int documentId,
+        QuestionType type,
+        QuestionPlan plan,
+        EvidenceBundle bundle,
+        Question currentQuestion,
+        IReadOnlyCollection<Question> existingQuestions,
+        bool usedFallback)
+    {
+        var bestQuestion = currentQuestion;
+
+        for (var attempt = 0; attempt < QuestionAutoRepairLimit; attempt++)
+        {
+            if (!NeedsQuestionAutoRepair(bestQuestion))
+            {
+                break;
+            }
+
+            var repairIssues = bestQuestion.GetVerifierIssues()
+                .Concat(new[]
+                {
+                    "Auto-repair: hay sua cau hoi de grounded hon, sach artifact hon, va ro rang hon cho nguoi hoc."
+                })
+                .Where(issue => !string.IsNullOrWhiteSpace(issue))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
+
+            var repairedItem = await RetryGenerateSingleQuestionAsync(type, plan, bundle, repairIssues);
+            if (repairedItem == null)
+            {
+                break;
+            }
+
+            var repairedQuestion = ConvertToQuestion(documentId, type, plan, bundle, repairedItem);
+            if (repairedQuestion == null)
+            {
+                break;
+            }
+
+            repairedQuestion = await PolishQuestionAsync(type, plan, bundle, repairedQuestion);
+            if (!IsQuestionQualityAcceptable(repairedQuestion, type, existingQuestions, out _))
+            {
+                break;
+            }
+
+            await ApplyQuestionVerifierMetadataAsync(repairedQuestion, type, bundle, existingQuestions, usedFallback: false);
+
+            if (!ShouldPreferRepairedQuestion(bestQuestion, repairedQuestion))
+            {
+                break;
+            }
+
+            _logger.LogInformation(
+                "Question auto-repair improved plan {PlanId} score from {OldScore} to {NewScore}",
+                plan.PlanId,
+                bestQuestion.VerifierScore,
+                repairedQuestion.VerifierScore);
+
+            bestQuestion = repairedQuestion;
+        }
+
+        return bestQuestion;
+    }
+
+    private static bool NeedsQuestionAutoRepair(Question question)
+    {
+        var score = question.VerifierScore ?? 0;
+        if (score < QuestionRepairThreshold)
+        {
+            return true;
+        }
+
+        var issues = question.GetVerifierIssues();
+        return issues.Any(issue =>
+            issue.Contains("grounded", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("artifact", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("dang rong", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("trung", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("fallback", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ShouldPreferRepairedQuestion(Question current, Question repaired)
+    {
+        var currentScore = current.VerifierScore ?? 0;
+        var repairedScore = repaired.VerifierScore ?? 0;
+
+        if (repairedScore > currentScore)
+        {
+            return true;
+        }
+
+        if (repairedScore == currentScore)
+        {
+            var currentIssues = current.GetVerifierIssues().Count;
+            var repairedIssues = repaired.GetVerifierIssues().Count;
+            return repairedIssues < currentIssues;
+        }
+
+        return false;
+    }
+
+    private static void ApplyLocalQuestionVerifierMetadata(
         Question question,
         QuestionType type,
         EvidenceBundle bundle,
@@ -1036,6 +1178,75 @@ Return JSON only:
 
         question.VerifierScore = Math.Clamp(score, 0, 100);
         question.SetVerifierIssues(warnings);
+    }
+
+    private async Task<QuestionAiVerificationResult?> VerifyQuestionWithAiAsync(
+        Question question,
+        QuestionType type,
+        EvidenceBundle bundle)
+    {
+        try
+        {
+            var prompt = $@"Review the grounded educational question below.
+
+Allowed evidence only:
+{BuildQuestionVerifierEvidenceBlock(bundle)}
+
+Question payload:
+- questionType: {type}
+- topic: {question.Topic}
+- questionText: {question.QuestionText}
+- correctAnswer: {question.CorrectAnswer}
+- explanation: {question.Explanation}
+- options:
+{BuildQuestionVerifierOptionsBlock(question.GetOptions())}
+
+Requirements:
+1. Use only the evidence above.
+2. Penalize unsupported facts, ambiguous answers, duplicate options, OCR artifacts, or unclear explanation.
+3. Score from 0 to 100.
+4. issues must be short Vietnamese bullets, maximum 5 items.
+5. isGrounded is true only when the question, answer, and explanation are supported by the evidence.
+
+Return JSON only:
+{{
+  ""score"": 84,
+  ""issues"": [""Van co 1 chi tiet chua neo ro evidence""],
+  ""isGrounded"": true
+}}";
+
+            return await _ollamaService.GenerateStructuredResponseAsync<QuestionAiVerificationResult>(
+                prompt,
+                "You are a strict educational verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.",
+                OllamaModelProfile.Verification);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI question verifier failed. Keeping local verifier result only.");
+            return null;
+        }
+    }
+
+    private static string BuildQuestionVerifierEvidenceBlock(EvidenceBundle bundle)
+    {
+        if (bundle.EvidenceChunks.Count == 0)
+        {
+            return "- Khong co evidence chunk nao.";
+        }
+
+        return string.Join(Environment.NewLine, bundle.EvidenceChunks.Select(chunk =>
+            $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}"));
+    }
+
+    private static string BuildQuestionVerifierOptionsBlock(IReadOnlyCollection<QuestionOption> options)
+    {
+        if (options.Count == 0)
+        {
+            return "- Khong co options";
+        }
+
+        return string.Join(Environment.NewLine, options.Select(option =>
+            $"- {option.Key}: {option.Text} {(option.IsCorrect ? "(marked-correct)" : string.Empty)}".Trim()));
     }
 
     private static List<QuestionOption> NormalizePolishedMultipleChoiceOptions(
@@ -2184,5 +2395,12 @@ Return JSON only:
         public List<QuestionOption>? Options { get; set; }
         public string? CorrectAnswer { get; set; }
         public string? Explanation { get; set; }
+    }
+
+    private sealed class QuestionAiVerificationResult
+    {
+        public int? Score { get; set; }
+        public List<string>? Issues { get; set; }
+        public bool? IsGrounded { get; set; }
     }
 }

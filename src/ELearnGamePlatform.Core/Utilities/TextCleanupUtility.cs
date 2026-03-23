@@ -21,6 +21,9 @@ public static class TextCleanupUtility
             .Replace("\uFEFF", string.Empty, StringComparison.Ordinal)
             .Replace("\u00AD", string.Empty, StringComparison.Ordinal);
 
+        normalized = NormalizeCommonOcrGlyphs(normalized);
+        normalized = StripLowSignalSeparatorLines(normalized);
+
         normalized = Regex.Replace(normalized, @"(?<=\p{L})-\s*\n\s*(?=\p{L})", string.Empty);
         normalized = Regex.Replace(normalized, @"(?<=\p{Ll})\s*\n\s*(?=[\p{Ll}\d\(\[])"," ");
         normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
@@ -117,10 +120,32 @@ public static class TextCleanupUtility
             return true;
         }
 
-        return Regex.IsMatch(text, @"(?<=[\p{L}])\d(?=[\p{L}]|\b)")
-            || Regex.IsMatch(text, @"(?<=\d)[\p{L}](?=[\p{L}]|\b)")
-            || Regex.IsMatch(text, @"\b(cau hoi du phong|grounded|preferredchunk|chunk id|lua chon tham chieu|dang cho ai)\b", RegexOptions.IgnoreCase)
-            || Regex.IsMatch(text, @"[^\p{L}\p{N}\s,.;:?!()\[\]""'/%+\-_:]{2,}");
+        return EstimateNoiseScore(text) >= 6
+            || Regex.IsMatch(text, @"\b(cau hoi du phong|grounded|preferredchunk|chunk id|lua chon tham chieu|dang cho ai)\b", RegexOptions.IgnoreCase);
+    }
+
+    public static int EstimateNoiseScore(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 100;
+        }
+
+        var score = 0;
+        score += Regex.Matches(text, @"(?<=[\p{L}])\d(?=[\p{L}]|\b)").Count * 2;
+        score += Regex.Matches(text, @"(?<=\d)[\p{L}](?=[\p{L}]|\b)").Count * 2;
+        score += Regex.Matches(text, @"\b[\p{L}]\b").Count >= 8 ? 3 : 0;
+        score += Regex.Matches(text, @"([^\p{L}\p{N}\s,.;:?!()\[\]""'/%+\-_:])\1{1,}").Count * 3;
+        score += Regex.Matches(text, @"\b[\p{L}\d]{1,2}[|\\/][\p{L}\d]{1,2}\b").Count * 3;
+        score += Regex.Matches(text, @"[^\p{L}\p{N}\s,.;:?!()\[\]""'/%+\-_:]{2,}").Count * 4;
+
+        var suspiciousCharacters = text.Count(ch =>
+            !char.IsLetterOrDigit(ch) &&
+            !char.IsWhiteSpace(ch) &&
+            ",.;:?!()[]\"'/%+-_:".IndexOf(ch) < 0);
+        score += suspiciousCharacters >= 6 ? suspiciousCharacters / 3 : 0;
+
+        return score;
     }
 
     private static string NormalizeNewlines(string text)
@@ -143,6 +168,7 @@ public static class TextCleanupUtility
         normalized = Regex.Replace(normalized, @"\s+\)", ")");
         normalized = Regex.Replace(normalized, @"\[\s+", "[");
         normalized = Regex.Replace(normalized, @"\s+\]", "]");
+        normalized = Regex.Replace(normalized, @"(?i)\b(\p{L}{2,})\s+\1\b", "$1");
         normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
         return normalized;
     }
@@ -207,6 +233,16 @@ public static class TextCleanupUtility
             return false;
         }
 
+        if (LooksLikeBulletLine(previousLine) || LooksLikeBulletLine(nextLine))
+        {
+            return false;
+        }
+
+        if (LooksLikeHeading(previousLine) && !Regex.IsMatch(nextLine, @"^[\p{Ll}\d\(\[]"))
+        {
+            return false;
+        }
+
         return Regex.IsMatch(nextLine, @"^[\p{Ll}\d\(\[]");
     }
 
@@ -214,7 +250,8 @@ public static class TextCleanupUtility
     {
         return Regex.IsMatch(line, @"^(page|trang)\s*\d+(\s*/\s*\d+)?$", RegexOptions.IgnoreCase)
             || Regex.IsMatch(line, @"^\d{1,4}\s*/\s*\d{1,4}$")
-            || Regex.IsMatch(line, @"^\d{1,4}$");
+            || Regex.IsMatch(line, @"^\d{1,4}$")
+            || Regex.IsMatch(line, @"^[-_=~.]{3,}$");
     }
 
     private static bool IsRemovableRepeatedLine(string? line)
@@ -231,5 +268,63 @@ public static class TextCleanupUtility
         }
 
         return !LooksLikeStandalonePageNoise(trimmed);
+    }
+
+    private static string NormalizeCommonOcrGlyphs(string text)
+    {
+        var normalized = text
+            .Replace('•', '-')
+            .Replace('·', '-')
+            .Replace('▪', '-')
+            .Replace('◦', '-')
+            .Replace('●', '-')
+            .Replace('–', '-')
+            .Replace('—', '-')
+            .Replace('−', '-')
+            .Replace('“', '"')
+            .Replace('”', '"')
+            .Replace('„', '"')
+            .Replace('‘', '\'')
+            .Replace('’', '\'')
+            .Replace('‚', '\'')
+            .Replace("ﬁ", "fi", StringComparison.Ordinal)
+            .Replace("ﬂ", "fl", StringComparison.Ordinal)
+            .Replace("ﬀ", "ff", StringComparison.Ordinal);
+
+        normalized = Regex.Replace(normalized, @"(?m)^\s*([•·▪◦●\-])\s+", "- ");
+        normalized = Regex.Replace(normalized, @"(?m)^\s*[|¦]{2,}\s*$", string.Empty);
+        return normalized;
+    }
+
+    private static string StripLowSignalSeparatorLines(string text)
+    {
+        return Regex.Replace(text, @"(?m)^\s*[-_=~.]{4,}\s*$", string.Empty);
+    }
+
+    private static bool LooksLikeBulletLine(string line)
+    {
+        return Regex.IsMatch(line, @"^\s*[-*]\s+\p{L}", RegexOptions.IgnoreCase);
+    }
+
+    private static bool LooksLikeHeading(string line)
+    {
+        if (line.Length is < 6 or > 120)
+        {
+            return false;
+        }
+
+        if (!Regex.IsMatch(line, @"[\p{L}]"))
+        {
+            return false;
+        }
+
+        var alphaCharacters = line.Count(char.IsLetter);
+        if (alphaCharacters == 0)
+        {
+            return false;
+        }
+
+        var uppercaseRatio = line.Count(char.IsUpper) / (double)alphaCharacters;
+        return uppercaseRatio >= 0.65d || Regex.IsMatch(line, @"^\d+(\.\d+)*\s+\p{L}");
     }
 }

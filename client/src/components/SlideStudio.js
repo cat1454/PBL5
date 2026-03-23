@@ -274,8 +274,38 @@ function SlideStudio() {
 
   const getThemeMeta = (themeKey) => THEME_OPTIONS.find((theme) => theme.key === themeKey) || THEME_OPTIONS[0];
 
+  const normalizeSlideType = (slideType) => {
+    if (typeof slideType === 'number' && Number.isFinite(slideType)) {
+      switch (slideType) {
+        case 0:
+          return 'title';
+        case 1:
+          return 'sectiondivider';
+        case 2:
+          return 'content';
+        case 3:
+          return 'quote';
+        case 4:
+          return 'highlight';
+        case 5:
+          return 'stat';
+        default:
+          return 'content';
+      }
+    }
+
+    if (typeof slideType === 'string') {
+      const normalized = slideType.trim().toLowerCase().replace(/[\s_-]+/g, '');
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return 'content';
+  };
+
   const getSlideTypeLabel = (slideType) => {
-    switch ((slideType || '').toLowerCase()) {
+    switch (normalizeSlideType(slideType)) {
       case 'title':
         return 'Cover';
       case 'sectiondivider':
@@ -542,7 +572,7 @@ function SlideStudio() {
               const hasContent = (item.bodyBlocks || []).length > 0;
 
               return (
-                <article key={item.id} className={`slide-preview-card gamma-slide-card slide-preview-${String(item.slideType || '').toLowerCase()} ${item.status?.toLowerCase?.() || ''}`}>
+                <article key={item.id} className={`slide-preview-card gamma-slide-card slide-preview-${normalizeSlideType(item.slideType)} ${item.status?.toLowerCase?.() || ''}`}>
                   <div className="slide-preview-meta">
                     <span>Slide {item.slideIndex}</span>
                     <div className="quality-toolbar">

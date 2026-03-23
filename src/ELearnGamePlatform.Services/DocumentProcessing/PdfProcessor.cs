@@ -209,10 +209,14 @@ public class PdfProcessor : IDocumentProcessor
         }
 
         var alphanumericCount = text.Count(char.IsLetterOrDigit);
-        var wordCount = text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        var wordCount = text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
         var signalRatio = alphanumericCount / (double)Math.Max(1, text.Length);
+        var noiseScore = TextCleanupUtility.EstimateNoiseScore(text);
 
-        return alphanumericCount >= 40 && wordCount >= 12 && signalRatio >= 0.35d;
+        return alphanumericCount >= 40
+            && wordCount >= 12
+            && signalRatio >= 0.35d
+            && noiseScore <= Math.Max(4, wordCount / 18);
     }
 
     private static string NormalizeDirectPdfText(string text)

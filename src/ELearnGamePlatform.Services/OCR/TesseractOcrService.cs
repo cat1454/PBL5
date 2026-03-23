@@ -15,10 +15,23 @@ namespace ELearnGamePlatform.Services.OCR;
 
 public class TesseractOcrService : IOcrService
 {
+    private const int PdfOcrResolution = 300;
+    private const int RescueVariantCount = 2;
     private readonly ILogger<TesseractOcrService> _logger;
     private readonly string _tessDataPath;
     private readonly string _ocrLanguages;
     private readonly string _pdfToPpmPath;
+    private static readonly OcrPass[] PrimaryPasses =
+    {
+        new(PageSegMode.Auto, "auto", 0.08f),
+        new(PageSegMode.SingleBlock, "single-block", 0.05f)
+    };
+
+    private static readonly OcrPass[] RescuePasses =
+    {
+        new(PageSegMode.SingleColumn, "single-column", 0.04f),
+        new(PageSegMode.SparseText, "sparse-text", 0.02f)
+    };
 
     public TesseractOcrService(ILogger<TesseractOcrService> logger)
     {
@@ -169,6 +182,9 @@ public class TesseractOcrService : IOcrService
             _logger.LogDebug(ex, "Could not set preserve_interword_spaces on Tesseract engine.");
         }
 
+        TrySetEngineVariable(engine, "user_defined_dpi", PdfOcrResolution.ToString());
+        TrySetEngineVariable(engine, "tessedit_do_invert", "0");
+
         return engine;
     }
 
@@ -178,33 +194,30 @@ public class TesseractOcrService : IOcrService
 
         try
         {
-            OcrCandidateResult? best = null;
+            var results = new List<OcrCandidateResult>();
 
             foreach (var candidate in candidates)
             {
-                using var img = Pix.LoadFromFile(candidate.Path);
-                using var page = engine.Process(img);
+                EvaluateCandidatePasses(candidate, engine, PrimaryPasses, results);
+            }
 
-                var text = NormalizeExtractedText(page.GetText());
-                var confidence = page.GetMeanConfidence();
-                var score = ScoreOcrText(text, confidence, candidate.ScoreBoost);
+            var best = GetBestResult(results);
 
-                if (best == null || score > best.Score)
+            if (!IsReliableOcrResult(best))
+            {
+                foreach (var rescueCandidate in SelectRescueCandidates(candidates, results))
                 {
-                    best = new OcrCandidateResult
-                    {
-                        Text = text,
-                        Score = score,
-                        Variant = candidate.Name,
-                        Confidence = confidence
-                    };
+                    EvaluateCandidatePasses(rescueCandidate, engine, RescuePasses, results);
                 }
+
+                best = GetBestResult(results);
             }
 
             _logger.LogDebug(
-                "OCR image {ImagePath} selected variant {Variant} with confidence {Confidence}",
+                "OCR image {ImagePath} selected variant {Variant} pass {PassName} with confidence {Confidence}",
                 imagePath,
                 best?.Variant ?? "none",
+                best?.PassName ?? "none",
                 best?.Confidence ?? 0f);
 
             return best?.Text ?? string.Empty;
@@ -234,7 +247,7 @@ public class TesseractOcrService : IOcrService
         var startInfo = new ProcessStartInfo
         {
             FileName = _pdfToPpmPath,
-            Arguments = $"-f {pageNumber} -l {pageNumber} -r 220 -png \"{pdfPath}\" \"{outputPrefix}\"",
+            Arguments = $"-f {pageNumber} -l {pageNumber} -r {PdfOcrResolution} -png \"{pdfPath}\" \"{outputPrefix}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -326,33 +339,83 @@ public class TesseractOcrService : IOcrService
             new() { Name = "original", Path = imagePath, DeleteAfterUse = false, ScoreBoost = 0f }
         };
 
-        var grayscale = await CreatePreprocessedVariantAsync(imagePath, "grayscale", contrast: 1.2f, binaryThreshold: null);
+        using var sourceImage = await Image.LoadAsync<Rgba32>(imagePath);
+        var shouldTryInversion = LooksLikeDarkBackground(sourceImage);
+
+        var grayscale = await CreatePreprocessedVariantAsync(
+            sourceImage,
+            imagePath,
+            "grayscale-sharp",
+            brightness: 1.03f,
+            contrast: 1.22f,
+            sharpen: 0.75f,
+            binaryThreshold: null);
         if (grayscale != null)
         {
             candidates.Add(grayscale);
         }
 
-        var binary = await CreatePreprocessedVariantAsync(imagePath, "binary", contrast: 1.35f, binaryThreshold: 0.62f);
-        if (binary != null)
+        var binaryStrong = await CreatePreprocessedVariantAsync(
+            sourceImage,
+            imagePath,
+            "binary-strong",
+            brightness: 1.05f,
+            contrast: 1.42f,
+            sharpen: 0.95f,
+            binaryThreshold: 0.61f);
+        if (binaryStrong != null)
         {
-            candidates.Add(binary);
+            candidates.Add(binaryStrong);
+        }
+
+        var binarySoft = await CreatePreprocessedVariantAsync(
+            sourceImage,
+            imagePath,
+            "binary-soft",
+            brightness: 1.02f,
+            contrast: 1.28f,
+            sharpen: 0.6f,
+            binaryThreshold: 0.54f);
+        if (binarySoft != null)
+        {
+            candidates.Add(binarySoft);
+        }
+
+        if (shouldTryInversion)
+        {
+            var inverted = await CreatePreprocessedVariantAsync(
+                sourceImage,
+                imagePath,
+                "inverted-binary",
+                brightness: 1.08f,
+                contrast: 1.34f,
+                sharpen: 0.8f,
+                binaryThreshold: 0.56f,
+                invert: true);
+            if (inverted != null)
+            {
+                candidates.Add(inverted);
+            }
         }
 
         return candidates;
     }
 
     private async Task<OcrCandidate?> CreatePreprocessedVariantAsync(
+        Image<Rgba32> sourceImage,
         string imagePath,
         string variantName,
+        float brightness,
         float contrast,
-        float? binaryThreshold)
+        float sharpen,
+        float? binaryThreshold,
+        bool invert = false)
     {
         try
         {
-            using var image = await Image.LoadAsync<Rgba32>(imagePath);
-
-            var shouldUpscale = image.Width < 1800;
-            var targetWidth = shouldUpscale ? 1800 : image.Width;
+            using var image = sourceImage.Clone();
+            var targetWidth = ResolveTargetWidth(image.Width);
+            var shouldUpscale = targetWidth > image.Width;
             var targetHeight = shouldUpscale
                 ? Math.Max(1, (int)Math.Round(image.Height * (targetWidth / (double)image.Width)))
                 : image.Height;
@@ -367,7 +430,18 @@ public class TesseractOcrService : IOcrService
                 }
 
                 context.Grayscale();
+                if (invert)
+                {
+                    context.Invert();
+                }
+
+                context.Brightness(brightness);
                 context.Contrast(contrast);
+                if (sharpen > 0f)
+                {
+                    context.GaussianSharpen(sharpen);
+                }
+
                 if (binaryThreshold.HasValue)
                 {
                     context.BinaryThreshold(binaryThreshold.Value);
@@ -376,7 +450,7 @@ public class TesseractOcrService : IOcrService
 
             var preprocessedPath = Path.Combine(
                 Path.GetDirectoryName(imagePath) ?? string.Empty,
-                $"{variantName}_{Path.GetFileNameWithoutExtension(imagePath)}.png");
+                $"{variantName}_{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(imagePath)}.png");
 
             await image.SaveAsync(preprocessedPath);
             return new OcrCandidate
@@ -384,7 +458,7 @@ public class TesseractOcrService : IOcrService
                 Name = variantName,
                 Path = preprocessedPath,
                 DeleteAfterUse = true,
-                ScoreBoost = binaryThreshold.HasValue ? 0.05f : 0.02f
+                ScoreBoost = (binaryThreshold.HasValue ? 0.06f : 0.03f) + (invert ? 0.01f : 0f)
             };
         }
         catch (Exception ex)
@@ -427,9 +501,20 @@ public class TesseractOcrService : IOcrService
         }
 
         var words = text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        var averageWordLength = words.Length == 0 ? 0f : (float)words.Average(word => word.Length);
         var alphaNumeric = text.Count(char.IsLetterOrDigit);
         var signalRatio = alphaNumeric / (float)Math.Max(1, text.Length);
-        return words.Length + (text.Length * 0.02f) + (confidence * 100f) + (signalRatio * 35f) + scoreBoost;
+        var noiseScore = TextCleanupUtility.EstimateNoiseScore(text);
+        var longTokenBonus = words.Count(word => word.Length >= 4) * 0.35f;
+        var penalty = (noiseScore * 7.5f) + (Math.Max(0f, 3.6f - averageWordLength) * 5f);
+
+        return words.Length
+            + (text.Length * 0.02f)
+            + (confidence * 100f)
+            + (signalRatio * 35f)
+            + longTokenBonus
+            + scoreBoost
+            - penalty;
     }
 
     private static void ReportImageOcrProgress(
@@ -481,11 +566,137 @@ public class TesseractOcrService : IOcrService
         public float ScoreBoost { get; init; }
     }
 
+    private sealed class OcrPass
+    {
+        public OcrPass(PageSegMode mode, string name, float scoreBoost)
+        {
+            Mode = mode;
+            Name = name;
+            ScoreBoost = scoreBoost;
+        }
+
+        public PageSegMode Mode { get; }
+        public string Name { get; }
+        public float ScoreBoost { get; }
+    }
+
     private sealed class OcrCandidateResult
     {
         public string Text { get; init; } = string.Empty;
         public float Score { get; init; }
         public string Variant { get; init; } = string.Empty;
+        public string VariantPath { get; init; } = string.Empty;
+        public string PassName { get; init; } = string.Empty;
         public float Confidence { get; init; }
+    }
+
+    private void EvaluateCandidatePasses(
+        OcrCandidate candidate,
+        TesseractEngine engine,
+        IReadOnlyCollection<OcrPass> passes,
+        List<OcrCandidateResult> results)
+    {
+        using var img = Pix.LoadFromFile(candidate.Path);
+
+        foreach (var pass in passes)
+        {
+            engine.DefaultPageSegMode = pass.Mode;
+            using var page = engine.Process(img);
+
+            var text = NormalizeExtractedText(page.GetText());
+            var confidence = page.GetMeanConfidence();
+            var score = ScoreOcrText(text, confidence, candidate.ScoreBoost + pass.ScoreBoost);
+            results.Add(new OcrCandidateResult
+            {
+                Text = text,
+                Score = score,
+                Variant = candidate.Name,
+                VariantPath = candidate.Path,
+                PassName = pass.Name,
+                Confidence = confidence
+            });
+        }
+    }
+
+    private static OcrCandidateResult? GetBestResult(IEnumerable<OcrCandidateResult> results)
+    {
+        return results
+            .OrderByDescending(result => result.Score)
+            .FirstOrDefault();
+    }
+
+    private static bool IsReliableOcrResult(OcrCandidateResult? result)
+    {
+        if (result == null || string.IsNullOrWhiteSpace(result.Text))
+        {
+            return false;
+        }
+
+        var words = result.Text.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        var noiseScore = TextCleanupUtility.EstimateNoiseScore(result.Text);
+        return words.Length >= 18
+            && result.Confidence >= 0.72f
+            && noiseScore <= Math.Max(2, words.Length / 35);
+    }
+
+    private static IEnumerable<OcrCandidate> SelectRescueCandidates(
+        IEnumerable<OcrCandidate> candidates,
+        IEnumerable<OcrCandidateResult> results)
+    {
+        var selectedPaths = results
+            .OrderByDescending(result => result.Score)
+            .Select(result => result.VariantPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(RescueVariantCount)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return candidates.Where(candidate => selectedPaths.Contains(candidate.Path)).ToList();
+    }
+
+    private static int ResolveTargetWidth(int width)
+    {
+        if (width < 1100)
+        {
+            return 2600;
+        }
+
+        if (width < 1800)
+        {
+            return 2200;
+        }
+
+        return width;
+    }
+
+    private static bool LooksLikeDarkBackground(Image<Rgba32> image)
+    {
+        var stepX = Math.Max(1, image.Width / 48);
+        var stepY = Math.Max(1, image.Height / 48);
+        double brightnessTotal = 0;
+        var samples = 0;
+
+        for (var y = 0; y < image.Height; y += stepY)
+        {
+            for (var x = 0; x < image.Width; x += stepX)
+            {
+                var pixel = image[x, y];
+                brightnessTotal += ((0.2126d * pixel.R) + (0.7152d * pixel.G) + (0.0722d * pixel.B)) / 255d;
+                samples++;
+            }
+        }
+
+        return samples > 0 && (brightnessTotal / samples) < 0.45d;
+    }
+
+    private void TrySetEngineVariable(TesseractEngine engine, string name, string value)
+    {
+        try
+        {
+            engine.SetVariable(name, value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not set Tesseract variable {VariableName}.", name);
+        }
     }
 }

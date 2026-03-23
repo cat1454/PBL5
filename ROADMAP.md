@@ -1,193 +1,208 @@
 # ROADMAP - ELearn Game Platform
 
-## 1. Tong quan san pham hien tai
+Cap nhat: 2026-03-23
 
-- San pham hien tai dang o muc MVP: upload tai lieu -> OCR/trich xuat text -> AI phan tich noi dung -> sinh cau hoi -> hoc bang quiz/flashcards.
-- Backend hien tai: .NET 8 Web API + EF Core + PostgreSQL + Ollama + Tesseract.
-- Frontend hien tai: React 18.
-- Trang thai ky thuat hien tai:
-  - `npm run build` da clean warning va build thanh cong.
-  - `dotnet build` hien dang bi chan boi local .NET SDK/workload resolver cua moi truong, khong lo compile error tu source P0 trong log hien tai.
-- Cac su that quan trong can bam theo khi mo rong:
-  - Docs chinh da duoc dong bo lai voi runtime PostgreSQL + EF Core.
-  - `DemoMode.UseLocalFileStore` da duoc go khoi runtime config; `local-store/` hien duoc xem la du lieu mau, khong phai active data source.
-  - Frontend dang hardcode `demo-user`, chua co auth/user that.
-  - OCR se fallback sang `eng` neu thieu `vie.traineddata`.
-  - OCR PDF scan uu tien Poppler bundled, neu khong co moi fallback sang `pdftoppm` trong PATH.
+## 1. Muc tieu roadmap
 
-## 2. He thong dang lam duoc gi
+- Muc tieu cua 2 tuan tiep theo la nang tam he thong tu "MVP chay duoc" thanh "ban demo co suc thuyet phuc", uu tien trai nghiem nguoi dung truoc.
+- Roadmap nay xep thu tu uu tien theo tac dong thuc te den hoc sinh, sinh vien, giang vien huong dan, va kha nang demo PBL.
+- Nguyen tac chot cho sprint nay:
+  - UI/UX duoc dua len uu tien cao nhat.
+  - Chi mo rong backend khi no phuc vu truc tiep cho UX, game mode, hoac slide template.
+  - Khong mo them scope ha tang lon neu chua can cho demo.
 
-- Upload va luu file PDF, DOCX, PNG, JPG.
-- Xu ly nen sau upload de trich xuat noi dung.
-- OCR cho image va PDF scan.
-- Phan tich noi dung bang AI de lay:
-  - main topics
-  - key points
-  - summary
-  - language
-- Sinh cau hoi tu dong bang Ollama, co progress polling va fallback khi AI tra ve du lieu khong hop le.
-- Luu documents, questions, game sessions tren PostgreSQL qua EF Core.
-- Frontend da co luong nguoi dung MVP:
-  - upload tai lieu
-  - xem danh sach tai lieu
-  - theo doi trang thai xu ly
-  - xem phan tich noi dung
-  - tao bo cau hoi
-  - choi quiz
-  - hoc flashcards
+## 2. Hien trang repo
 
-## 3. He thong chua lam duoc gi / rui ro hien tai
+- Da co cac luong chinh:
+  - Upload tai lieu.
+  - OCR va trich xuat text.
+  - AI phan tich noi dung.
+  - Sinh cau hoi.
+  - Hoc bang quiz va flashcards.
+  - Sinh va chinh sua slide trong Slide Studio.
+- Da co nang cap AI gan day:
+  - OCR multi-pass va cleanup text manh hon.
+  - Router nhieu model cho analysis, generation, verification.
+  - Verifier AI va auto-repair 1 vong cho question va slide.
+- Diem yeu lon nhat hien tai:
+  - UI/UX chua dong bo, gia tri backend chua duoc the hien tot tren frontend.
+  - Game mode con it, chua tao cam giac "hoc ma van thay choi".
+  - Chua co slide template san de demo nhanh.
+  - Chua co benchmark va timing log de do chat luong that.
+  - Job state van dua vao memory, chua ben vung neu restart app.
+  - Chua co auth va test tu dong co he thong.
 
-- Chua co auth, login, phan quyen, ownership that su.
-- Chua co demo mode that su; `local-store/` hien chi la du lieu mau.
-- Chua co test tu dong cho backend/frontend.
-- Job xu ly hien tai chua ben vung cho production:
-  - dung `Task.Run`
-  - progress store in-memory
-  - restart app se mat job state
-- Frontend chua mo ra het nang luc backend:
-  - chua cho chon `QuestionType`
-  - chua co `Test` mode
-  - chua dung game session flow mot cach day du
-- OCR va pipeline AI con nhay cam voi moi truong chay:
-  - thieu du lieu OCR tieng Viet
-  - phu thuoc Ollama local
-  - phu thuoc tool PDF scan OCR ben ngoai
-- Tai lieu huong dan trong repo can dong bo lai de nguoi moi khong hieu sai he thong.
+## 3. Thu tu uu tien
 
-## 4. Roadmap + backlog
+### P0 - UI/UX redesign cho core journey
 
-### P0 - On dinh MVP
+- Muc tieu: Lam lai trai nghiem tu upload -> phan tich -> tao cau hoi -> choi game -> tao slide thanh mot flow ro rang, dep, de demo, de hoc.
+- Vi sao uu tien cao nhat:
+  - Day la thu user nhin thay dau tien.
+  - Backend hien tai da du nang luc de "nang cap cam nhan san pham" ma khong can doi them he thong lon.
+  - Cai thien UX se giup game mode va slide template phat huy gia tri ngay.
+- Pham vi:
+  - Lam lai dashboard tai lieu.
+  - Lam lai trang thai progress, error, retry, quality badge.
+  - Lam lai flow review cau hoi va flow choi game.
+  - Lam lai Slide Studio theo huong de preview, de chon template, de sua.
+  - Chuan hoa visual system: color, spacing, typography, card, button, empty state, loading state.
+- Done when:
+  - Nguoi moi vao he thong co the hieu 3 hanh dong chinh trong 10 giay: "Tai tai lieu", "Hoc ngay", "Tao slide".
+  - Moi AI job deu co progress va error message ro rang.
+  - Giao dien desktop/mobile khong bi vo layout.
+  - Quiz, flashcard, slide studio co cung mot ngon ngu thiet ke.
+- Danh gia:
+  - Tac dong: Rat cao
+  - Do kho: Trung binh
+  - Do uu tien: So 1
 
-Cap nhat: hoan thanh pham vi P0 vao 2026-03-16.
+### P1 - Mo rong game mode cho hoc sinh, sinh vien
 
-- [x] Muc tieu: Dong bo lai hien trang repo de MVP chay on dinh, de debug, de demo, va de nguoi moi co the setup dung.
-- [x] Gia tri cho nguoi dung: Giam tinh trang upload duoc nhung OCR/AI loi ngam; giam nham lan do docs cu va config ao.
-- [x] Hang muc can lam:
-  - [x] Dong bo `README.md`, `ARCHITECTURE.md`, `RUN_GUIDE.md`, `HUONG_DAN_CHAY.md` voi code runtime hien tai.
-  - [x] Chot ro che do demo: bo `DemoMode.UseLocalFileStore` khoi runtime config, giu `local-store/` o vai tro du lieu mau.
-  - [x] Enforce config upload that su tu `appsettings.json` thay vi hardcode scattered.
-  - [x] Lam ro OCR tieng Viet: docs hoa yeu cau `vie.traineddata`, them fallback runtime neu file nay chua co.
-  - [x] Lam ro yeu cau `pdftoppm`/Poppler trong setup va runtime, dong thoi uu tien Poppler bundled khi co san.
-  - [x] Review va sua cac warning build frontend lien quan `useEffect` dependencies.
-- [x] Done when:
-  - [x] Docs khop voi runtime PostgreSQL + EF Core + Ollama + Tesseract.
-  - [x] Khong con config/dependency "gia" gay hieu nham trong onboarding.
-  - [x] Upload + OCR + AI + generate question co huong dan setup ro rang va lap lai duoc.
+- Muc tieu: Tang "do choi duoc" va "do quay lai hoc" bang 2 game mode moi de bo sung cho quiz/flashcards.
+- Vi sao dung ngay sau UI/UX:
+  - Neu giao dien dep hon nhung gameplay van don dieu thi gia tri san pham van cham tang.
+  - Game mode moi tao diem khac biet ro rang khi demo.
+- Uu tien game mode:
+  - `Streak Mode`: tra loi lien tiep de giu chuoi, sai la reset.
+  - `Match Pairs`: ghep khai niem - dinh nghia, thuat ngu - giai thich.
+  - `Weakness Mode`: hoi lai phan da sai hoac low-confidence.
+- Pham vi sprint nay:
+  - Lam chac 2 mode dau tien.
+  - `Weakness Mode` de o backlog neu con thoi gian.
+- Done when:
+  - User co the chon it nhat 2 game mode moi tu cung mot document.
+  - Ket qua choi hien thi tien do, diem, va feedback ro rang.
+  - Game moi tai su dung duoc question data hien co, khong can pipeline rieng.
+- Danh gia:
+  - Tac dong: Cao
+  - Do kho: Trung binh
+  - Do uu tien: So 2
 
-### P1 - San pham cot loi
+### P2 - Slide templates san de demo nhanh
 
-- [ ] Muc tieu: Dua MVP len muc san pham co nguoi dung that, du lieu that, va xu ly loi ro rang hon.
-- [ ] Gia tri cho nguoi dung: Moi nguoi co kho tai lieu rieng, tien trinh xu ly dang tin hon, va co the quay lai du lieu cua minh.
-- [ ] Hang muc can lam:
-  - [ ] Them auth co ban: login, user identity, ownership tai lieu.
-  - [ ] Bo hardcode `demo-user` trong frontend.
-  - [ ] Them retry/fail handling cho upload, OCR, content analysis, question generation.
-  - [ ] Doi job progress store in-memory sang co the song sot qua restart hoac co job table/queue toi thieu.
-  - [ ] Hien thi loi than thien voi nguoi dung thay vi chi log backend.
-  - [ ] Bo sung validation ve file size, file type, va trang thai document truoc khi cho generate question.
-- [ ] Done when:
-  - [ ] Moi document gan voi user that su.
-  - [ ] User khong thay hoac sua du lieu cua user khac.
-  - [ ] Neu OCR/AI loi, he thong tra ve trang thai va huong xu ly ro rang.
-  - [ ] Job generate question co the theo doi duoc ma khong phu thuoc hoan toan vao RAM cua process.
+- Muc tieu: Bien Slide Studio tu "co the generate" thanh "co the tao deck dep, co dinh huong, de chon nhanh".
+- Vi sao xep sau game:
+  - Slide da co MVP backend.
+  - Gia tri tiep theo nam o viec cho user chon style va muc dich, khong nam o them 1 pipeline moi.
+- Template uu tien:
+  - `On Tap Nhanh`
+  - `Bai Giang 10 Phut`
+  - `Tom Tat Chuong`
+  - `PBL Defense`
+- Pham vi:
+  - Them template picker.
+  - Moi template co theme, tone, audience, outline mac dinh.
+  - Preview slide phai thay ro su khac nhau giua cac template.
+- Done when:
+  - User co the generate slide theo it nhat 3 template co phong cach khac nhau.
+  - Template duoc ap dung xuyen suot tu outline den preview.
+  - Slide co the demo tot tren desktop va mobile.
+- Danh gia:
+  - Tac dong: Cao
+  - Do kho: Trung binh
+  - Do uu tien: So 3
 
-### P2 - Hoc tap tuong tac
+### P3 - Do luong chat luong AI/OCR
 
-- [ ] Muc tieu: Mo rong trai nghiem hoc tap tu MVP demo sang mot bo cong cu hoc tap day du hon.
-- [ ] Gia tri cho nguoi dung: Nguoi hoc duoc chon cach on tap phu hop thay vi chi co 1 flow mac dinh.
-- [ ] Hang muc can lam:
-  - [ ] Cho phep chon `QuestionType` tren UI khi sinh cau hoi.
-  - [ ] Them `Test` mode tren frontend thay vi chi co Quiz va Flashcards.
-  - [ ] Dung game session API de luu mot lan hoc that su.
-  - [ ] Luu lich su hoc, diem, so cau dung/sai, va thong ke co ban theo document.
-  - [ ] Them man hinh xem ket qua hoc truoc do.
-  - [ ] Nghien cuu ranking/topic weakness de goi y on tap theo lo hong kien thuc.
-- [ ] Done when:
-  - [ ] User co the tao va choi nhieu che do hoc tu cung mot document.
-  - [ ] Ket qua moi lan hoc duoc luu va xem lai duoc.
-  - [ ] UI da khai thac duoc phan lon API hoc tap co san.
+- Muc tieu: Dung so lieu that de toi uu OCR, summary, question, slide thay vi dieu chinh bang cam tinh.
+- Vi sao chua dat len tren P0/P1/P2:
+  - Day la tang "lam san pham manh that su", nhung user khong nhin thay ngay bang UX va game.
+  - Van can lam trong sprint de tranh toi uu mu.
+- Hang muc:
+  - Tao bo benchmark 20-50 tai lieu mau.
+  - Log timing tung stage: OCR, analysis, generation, verification, auto-repair.
+  - Log score verifier cho question va slide.
+  - Them confidence theo trang OCR va re-OCR cho trang diem thap.
+  - Them profile `fast / balanced / quality`.
+- Done when:
+  - Co bang so lieu de biet flow nao cham nhat va flow nao loi nhieu nhat.
+  - Co the so sanh truoc/sau moi lan doi model hoac doi prompt.
+  - OCR khong can re-run toan bo file neu chi 1 vai trang diem thap.
+- Danh gia:
+  - Tac dong: Rat cao
+  - Do kho: Trung binh den cao
+  - Do uu tien: So 4
 
-### P3 - Chat luong van hanh
+### P4 - Do ben he thong va kha nang mo rong
 
-- [ ] Muc tieu: Tang do tin cay ky thuat, kha nang quan sat, va kha nang dua len moi truong that.
-- [ ] Gia tri cho nguoi dung: He thong it loi hon, de bao tri hon, va it phu thuoc vao test tay.
-- [ ] Hang muc can lam:
-  - [ ] Them test tu dong cho backend services, controllers, va repositories quan trong.
-  - [ ] Them test frontend cho luong upload, document list, quiz/flashcards.
-  - [ ] Them health checks cho DB, Ollama, OCR dependencies.
-  - [ ] Chuan hoa logging va error codes de debug production.
-  - [ ] Tao deployment checklist: env vars, database migration, OCR assets, Ollama model, storage path.
-  - [ ] Xem xet metrics toi thieu cho upload time, OCR time, AI time, failed jobs.
-- [ ] Done when:
-  - [ ] Co bo test co y nghia cho core flows.
-  - [ ] Co cach biet he thong hong o dau ma khong can doc log thu cong qua nhieu.
-  - [ ] Co checklist dua he thong len moi truong moi ma khong doan mo.
+- Muc tieu: Giam technical debt de he thong san sang cho user that va du an lon hon.
+- Hang muc:
+  - Chuyen job state tu memory sang persistent store.
+  - Them auth va bo `demo-user`.
+  - Them test tu dong cho core flows.
+  - Them health checks va logging co cau truc.
+  - Them validation va failure handling day du hon.
+- Ly do xep sau:
+  - Rat quan trong cho trung han.
+  - Khong phai diem tao khac biet lon nhat cho demo 2 tuan toi.
+- Done when:
+  - Restart app khong lam mat job dang xu ly.
+  - Moi tai lieu va session hoc gan voi user that.
+  - Core flows co test co y nghia.
+- Danh gia:
+  - Tac dong: Cao
+  - Do kho: Cao
+  - Do uu tien: So 5
 
-### P4 - Auto slide tu tai lieu
+## 4. Roadmap 2 tuan
 
-- [ ] Muc tieu: Tu document da upload, tao deck bai giang de preview tren web va export PDF.
-- [ ] Gia tri cho nguoi dung: Giam thoi gian bien tai lieu thanh bai giang; dung cho hoc, demo, va thuyet trinh nhanh.
-- [ ] Hang muc can lam:
-  - [ ] Chi cho tao slide khi document da co `ExtractedText + ProcessedContent`.
-  - [ ] Dinh nghia output v1:
-    - [ ] 5-12 slide
-    - [ ] moi slide co 1 tieu de
-    - [ ] moi slide co 3-5 bullet
-    - [ ] co the co speaker notes
-  - [ ] Tach ro 2 lop:
-    - [ ] slide schema/doc lap voi renderer
-    - [ ] renderer HTML de preview va print/export PDF
-  - [ ] Du kien them domain/types:
-    - [ ] `SlideDeck`
-    - [ ] `SlideItem`
-    - [ ] `SlideDeckStatus`
-  - [ ] Du kien them service:
-    - [ ] `ISlideGenerator`
-  - [ ] Du kien them repository:
-    - [ ] `ISlideRepository`
-  - [ ] Du kien them API:
-    - [ ] `POST /api/slides/generate/start`
-    - [ ] `GET /api/slides/generate/progress/{jobId}`
-    - [ ] `GET /api/slides/document/{documentId}`
-    - [ ] `GET /api/slides/document/{documentId}/html`
-  - [ ] Du kien them pipeline:
-    - [ ] tai su dung `ExtractedText`, `MainTopics`, `KeyPoints`, `Summary`
-    - [ ] AI tao outline slide
-    - [ ] AI/renderer map outline thanh slide items
-    - [ ] backend render HTML theo template co dinh
-    - [ ] frontend co man hinh preview slide deck
-    - [ ] export PDF di theo huong print/export tu HTML preview
-  - [ ] Chot ro rang v1 khong lam PPTX.
-  - [ ] Giu schema slide trung lap thap voi renderer de sau nay co the them renderer PPTX ma khong pha lai pipeline.
-- [ ] Done when:
-  - [ ] Document da xu ly xong moi duoc phep generate slide.
-  - [ ] Progress endpoint co `queued`, `running`, `completed`, `failed`.
-  - [ ] Slide deck duoc luu theo `documentId` va mo lai duoc.
-  - [ ] HTML preview doc duoc tren desktop/mobile.
-  - [ ] Export PDF giu dung thu tu slide va noi dung bullet.
-  - [ ] OCR/LLM loi thi tra ve trang thai loi ro rang, khong im lang.
+### Tuan 1 - Dat lai trai nghiem cot loi
 
-## 5. Kiem tra / acceptance checklist
+- Ngay 1:
+  - Audit UX toan bo flow hien tai.
+  - Chot visual direction.
+  - Chot danh sach component can lam lai.
+- Ngay 2:
+  - Dung design tokens va component base.
+  - Chuan hoa button, badge, card, progress, modal, empty state.
+- Ngay 3:
+  - Lam lai `DocumentList` va dashboard tai lieu.
+  - Them AI timeline va action chinh ro rang.
+- Ngay 4:
+  - Lam lai flow generate question.
+  - Them review state cho quality, verifier, auto-repair.
+- Ngay 5:
+  - Lam lai `SlideStudio`.
+  - Them khuon preview ro rang va san cho template picker.
 
-- [x] `ROADMAP.md` de doc, de sua, de mo rong them bang tay.
-- [x] Moi phase co du 4 dong co dinh:
-  - [x] `Muc tieu`
-  - [x] `Gia tri cho nguoi dung`
-  - [x] `Hang muc can lam`
-  - [x] `Done when`
-- [x] Noi dung roadmap bam sat hien trang repo hien tai, khong lap lai docs cu da lech.
-- [x] Phase slide ghi ro v1 la `HTML/PDF`, khong mo ta nhu da co san PPTX.
-- [x] Cac interface/API cho slide duoc liet ke de lam moc implementation sau nay.
+### Tuan 2 - Tang gia tri demo va gia tri hoc tap
 
-## 6. Open notes / decisions
+- Ngay 6:
+  - Them `Streak Mode`.
+- Ngay 7:
+  - Them `Match Pairs`.
+- Ngay 8:
+  - Them slide template picker va 3-4 template dau tien.
+- Ngay 9:
+  - Them timing log va benchmark co ban.
+  - Do OCR, question, slide tren bo tai lieu mau.
+- Ngay 10:
+  - Polish giao dien.
+  - Fix edge cases cho demo.
+  - Chot script demo va screenshot.
 
-- [ ] Co can xoa han thu muc `local-store/` hay giu lai lam mau test/manual troubleshooting?
-- [ ] Auth v1 uu tien muc nao: session cookie noi bo hay JWT?
-- [ ] Slide HTML preview nen dung:
-  - [ ] template server-side don gian
-  - [ ] route frontend rieng cho preview
-  - [ ] hoac ket hop ca hai
-- [ ] PDF export v1 nen theo huong print CSS trong browser hay renderer backend?
-- [ ] Co can speaker notes trong v1 hay de sang v1.1?
-- [ ] Khi them PPTX sau nay, co can chot truoc slide schema versioning khong?
+## 5. Scope lock cho sprint nay
+
+- Khong mo rong qua 2 game mode moi trong 2 tuan nay.
+- Khong lam auth day du neu no khong phai blocker.
+- Khong doi kien truc lon o backend neu UX van co the di truoc.
+- Khong them qua 4 slide template o sprint dau.
+- Khong dong thoi theo duoi qua nhieu game "hoanh trang" nhu PvP realtime hay co che phuc tap.
+
+## 6. Backlog sau sprint 2 tuan
+
+- `Weakness Mode` va learning history.
+- `Ask Document` hoac hoi dap truc tiep tren tai lieu.
+- Teacher review flow cho question/slide low-confidence.
+- Auth, ownership, va dashboard ca nhan.
+- Persistent jobs va job recovery.
+- Test tu dong va deployment checklist.
+
+## 7. Acceptance checklist cho roadmap nay
+
+- [x] Thu tu uu tien moi dat UI/UX len hang dau.
+- [x] Game mode moi va slide template duoc dua vao trung tam sprint.
+- [x] Slide duoc xem la module da co MVP, khong con bi mo ta nhu "chua ton tai".
+- [x] Roadmap co moc 2 tuan cu the de trien khai.
+- [x] Van giu duong nang cap tiep theo cho benchmark, reliability, auth, va test.

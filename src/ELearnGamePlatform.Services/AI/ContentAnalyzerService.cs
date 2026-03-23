@@ -171,7 +171,7 @@ public class ContentAnalyzerService : IContentAnalyzer
     {
         try
         {
-            var systemPrompt = "You are an educational content analyzer. Extract precise study information in Vietnamese from the given chunk. Prioritize factual correctness, concrete topic naming, and usefulness for later quiz generation.";
+            var systemPrompt = "You are an educational content analyzer. Use only the information explicitly present in the provided text chunk. Do not invent, supplement, or resolve missing facts with outside knowledge. Write concise Vietnamese output that is factual, grounded, and useful for later quiz generation.";
 
             var prompt = $@"Analyze chunk {chunkNumber}/{totalChunks} from a larger educational document.
 
@@ -184,6 +184,10 @@ Goals:
 6. Each topic should be a concise noun phrase (2-7 words), non-overlapping, and directly grounded in the chunk
 7. Do NOT output vague labels like ""Tong quan"", ""Noi dung chinh"", ""Kien thuc co ban"" unless the chunk explicitly uses those exact terms
 8. Preserve dates, formulas, named entities, ordered steps, and definitions whenever they appear
+9. Use only information from the chunk content below
+10. Do not infer facts, fill missing details, or add outside knowledge
+11. If a statement in the chunk is incomplete, unclear, or internally inconsistent, mention it conservatively in summary or key points instead of guessing
+12. Keep wording accurate, clear, and concise
 
 Chunk content:
 {chunk}
@@ -220,7 +224,7 @@ Key points:
 Summary: {chunk.Summary}
 Language: {chunk.Language}"));
 
-        var systemPrompt = "You are an educational content analyst. Merge chunk analyses into one full-document analysis in Vietnamese with clear topic coverage.";
+        var systemPrompt = "You are an educational content analyst. Merge chunk analyses into one grounded full-document analysis in Vietnamese. Use only the information present in the supplied chunk analyses. Do not invent facts or resolve ambiguity by guessing.";
         var prompt = $@"The following notes were extracted from multiple chunks of the SAME full document.
 Merge them into one complete analysis.
 
@@ -233,6 +237,9 @@ Requirements:
 6. Prefer concrete domain concepts over generic wording
 7. Merge synonymous topics into one canonical topic name
 8. Each main topic should be 2-7 words and suitable for downstream topic-tag mapping
+9. Use only the information found in the chunk analyses below
+10. If chunk analyses are incomplete, unclear, or slightly inconsistent, keep the wording conservative and do not guess the missing facts
+11. Prefer precision and brevity over broad but vague summaries
 
 Chunk analyses:
 {consolidatedInput}
