@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
@@ -53,6 +54,7 @@ public class SlidesController : ControllerBase
         }
 
         var jobId = _jobStore.CreateJob(request.DocumentId, request.DesiredSlideCount);
+        _jobStore.TryGetJob(jobId, out var state);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, request));
 
         return Accepted(new
@@ -60,7 +62,8 @@ public class SlidesController : ControllerBase
             jobId,
             status = "queued",
             progressUrl = $"/api/slides/generate/progress/{jobId}",
-            resultUrl = $"/api/slides/document/{request.DocumentId}"
+            resultUrl = $"/api/slides/document/{request.DocumentId}",
+            progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state)
         });
     }
 
@@ -72,7 +75,7 @@ public class SlidesController : ControllerBase
             return NotFound("Job not found");
         }
 
-        return Ok(state);
+        return Ok(JobProgressPayloadFactory.BuildSlide(state));
     }
 
     [HttpGet("document/{documentId}")]
@@ -377,25 +380,7 @@ public class SlidesController : ControllerBase
                 lowConfidenceCount = deck.Items.Count(item => (item.VerifierScore ?? 100) < 70),
                 unknownCount = deck.Items.Count(item => !item.VerifierScore.HasValue)
             },
-            generationProgress = jobState == null ? null : new
-            {
-                jobState.JobId,
-                jobState.Status,
-                jobState.Percent,
-                jobState.Stage,
-                jobState.StageLabel,
-                jobState.Message,
-                jobState.Detail,
-                jobState.Current,
-                jobState.Total,
-                jobState.UnitLabel,
-                jobState.StageIndex,
-                jobState.StageCount,
-                jobState.SlidesGenerated,
-                jobState.ElapsedSeconds,
-                jobState.EstimatedRemainingSeconds,
-                jobState.Error
-            }
+            generationProgress = JobProgressPayloadFactory.BuildSlide(jobState, deck)
         };
     }
 

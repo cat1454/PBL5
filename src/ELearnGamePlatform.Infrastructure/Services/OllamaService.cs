@@ -3,8 +3,9 @@ using ELearnGamePlatform.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Diagnostics;
 
 namespace ELearnGamePlatform.Infrastructure.Services;
 
@@ -99,18 +100,20 @@ public class OllamaService : IOllamaService
         string? systemPrompt,
         OllamaModelProfile profile)
     {
-        var request = new
+        var request = new OllamaGenerateRequest
         {
-            model,
-            prompt = prompt,
-            system = systemPrompt,
-            stream = false,
-            options = new
+            Model = model,
+            Prompt = prompt,
+            System = systemPrompt,
+            Stream = false,
+            KeepAlive = ResolveKeepAlive(),
+            Options = new OllamaGenerateOptions
             {
-                temperature = ResolveTemperature(profile)
+                Temperature = ResolveTemperature(profile)
             }
         };
 
+        var startedAt = Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync("/api/generate", request, _jsonOptions);
         if (!response.IsSuccessStatusCode)
         {
@@ -118,7 +121,13 @@ public class OllamaService : IOllamaService
             throw new HttpRequestException($"Ollama request failed for model '{model}' with status {(int)response.StatusCode}: {errorBody}");
         }
 
-        var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
+        var result = await response.Content.ReadFromJsonAsync<OllamaResponse>(_jsonOptions);
+        if (result == null)
+        {
+            throw new InvalidOperationException($"Ollama returned an empty response for model '{model}'.");
+        }
+
+        LogTiming(result, model, profile, prompt.Length, startedAt.Elapsed);
         return result?.Response ?? string.Empty;
     }
 
@@ -159,6 +168,63 @@ public class OllamaService : IOllamaService
             OllamaModelProfile.Generation when _settings.GenerationTemperature.HasValue => _settings.GenerationTemperature.Value,
             _ => _settings.Temperature
         };
+    }
+
+    private string? ResolveKeepAlive()
+    {
+        return string.IsNullOrWhiteSpace(_settings.KeepAlive)
+            ? null
+            : _settings.KeepAlive.Trim();
+    }
+
+    private void LogTiming(
+        OllamaResponse response,
+        string model,
+        OllamaModelProfile profile,
+        int promptLength,
+        TimeSpan wallClockElapsed)
+    {
+        if (!_settings.EnableTimingLogs)
+        {
+            return;
+        }
+
+        var totalMs = ToMilliseconds(response.TotalDuration) ?? wallClockElapsed.TotalMilliseconds;
+        var loadMs = ToMilliseconds(response.LoadDuration);
+        var promptEvalMs = ToMilliseconds(response.PromptEvalDuration);
+        var evalMs = ToMilliseconds(response.EvalDuration);
+        var keepAlive = ResolveKeepAlive() ?? "server-default";
+        var responseLength = response.Response?.Length ?? 0;
+
+        _logger.LogInformation(
+            "Ollama {Profile} model {Model}: total={TotalMs}ms load={LoadMs}ms prompt_eval={PromptEvalMs}ms eval={EvalMs}ms prompt_tokens={PromptTokens} response_tokens={ResponseTokens} chars_in={PromptChars} chars_out={ResponseChars} keep_alive={KeepAlive}",
+            profile,
+            model,
+            Math.Round(totalMs, 1),
+            loadMs.HasValue ? Math.Round(loadMs.Value, 1) : null,
+            promptEvalMs.HasValue ? Math.Round(promptEvalMs.Value, 1) : null,
+            evalMs.HasValue ? Math.Round(evalMs.Value, 1) : null,
+            response.PromptEvalCount,
+            response.EvalCount,
+            promptLength,
+            responseLength,
+            keepAlive);
+
+        if (loadMs.HasValue && totalMs > 0 && loadMs.Value / totalMs >= 0.35d)
+        {
+            _logger.LogWarning(
+                "Ollama model {Model} spent {LoadPercent}% of total time loading. keep_alive={KeepAlive} may need to be increased or the number of model switches reduced.",
+                model,
+                Math.Round(loadMs.Value / totalMs * 100d, 1),
+                keepAlive);
+        }
+    }
+
+    private static double? ToMilliseconds(long? durationNanoseconds)
+    {
+        return durationNanoseconds.HasValue
+            ? durationNanoseconds.Value / 1_000_000d
+            : null;
     }
 
     private string ExtractJsonFromResponse(string response)
@@ -221,10 +287,51 @@ Output rules (must follow exactly):
 5. If a field has no data, return empty string or empty array instead of null when possible.";
     }
 
-    private class OllamaResponse
+    private sealed class OllamaGenerateRequest
+    {
+        public required string Model { get; init; }
+        public required string Prompt { get; init; }
+
+        [JsonPropertyName("system")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? System { get; init; }
+
+        public bool Stream { get; init; }
+
+        [JsonPropertyName("keep_alive")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? KeepAlive { get; init; }
+
+        public required OllamaGenerateOptions Options { get; init; }
+    }
+
+    private sealed class OllamaGenerateOptions
+    {
+        public double Temperature { get; init; }
+    }
+
+    private sealed class OllamaResponse
     {
         public string? Model { get; set; }
         public string? Response { get; set; }
         public bool Done { get; set; }
+
+        [JsonPropertyName("total_duration")]
+        public long? TotalDuration { get; set; }
+
+        [JsonPropertyName("load_duration")]
+        public long? LoadDuration { get; set; }
+
+        [JsonPropertyName("prompt_eval_count")]
+        public int? PromptEvalCount { get; set; }
+
+        [JsonPropertyName("prompt_eval_duration")]
+        public long? PromptEvalDuration { get; set; }
+
+        [JsonPropertyName("eval_count")]
+        public int? EvalCount { get; set; }
+
+        [JsonPropertyName("eval_duration")]
+        public long? EvalDuration { get; set; }
     }
 }

@@ -192,7 +192,8 @@ Luu:
 ### AI
 
 - Ollama
-- `llama3.2`
+- `qwen2.5-edu-json:latest` cho analysis/verification
+- `qwen3:14b` cho generation
 
 ## 6. Gioi han kien truc hien tai
 

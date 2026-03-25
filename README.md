@@ -122,15 +122,15 @@ Neu thieu `vie.traineddata`, OCR se fallback sang tieng Anh va log canh bao.
 
 Repo hien tai dang cau hinh theo huong multi-model:
 
-- `AnalysisModel = qwen2.5:7b`
-- `GenerationModel = qwen3:8b`
-- `VerificationModel = qwen2.5:7b`
+- `AnalysisModel = qwen2.5-edu-json:latest`
+- `GenerationModel = qwen3:14b`
+- `VerificationModel = qwen2.5-edu-json:latest`
 
 Pull nhanh:
 
 ```powershell
-ollama pull qwen2.5:7b
-ollama pull qwen3:8b
+ollama pull qwen3:14b
+ollama create qwen2.5-edu-json:latest -f qwen2.5-edu-json.modelfile
 ollama list
 ```
 
@@ -148,8 +148,8 @@ Neu muon doi model, sua trong:
 ### Buoc 2: chuan bi Ollama
 
 ```powershell
-ollama pull qwen2.5:7b
-ollama pull qwen3:8b
+ollama pull qwen3:14b
+ollama create qwen2.5-edu-json:latest -f qwen2.5-edu-json.modelfile
 ollama list
 ```
 
@@ -227,11 +227,13 @@ Mau cau hinh:
   },
   "OllamaSettings": {
     "BaseUrl": "http://localhost:11434",
-    "Model": "qwen3:8b",
-    "AnalysisModel": "qwen2.5:7b",
-    "GenerationModel": "qwen3:8b",
-    "VerificationModel": "qwen2.5:7b",
+    "Model": "qwen3:14b",
+    "AnalysisModel": "qwen2.5-edu-json:latest",
+    "GenerationModel": "qwen3:14b",
+    "VerificationModel": "qwen2.5-edu-json:latest",
     "TimeoutSeconds": 120,
+    "KeepAlive": "15m",
+    "EnableTimingLogs": true,
     "Temperature": 0.3,
     "AnalysisTemperature": 0.15,
     "GenerationTemperature": 0.35,
@@ -306,5 +308,5 @@ Thu tu uu tien gan nhat da duoc cap nhat trong:
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md)
 - [RUN_GUIDE.md](./RUN_GUIDE.md)
-- [HUONG_DAN_CHAY.md](./HUONG_DAN_CHAY.md)
+- [FRONTEND_HANDOFF.md](./FRONTEND_HANDOFF.md)
 - [ROADMAP.md](./ROADMAP.md)

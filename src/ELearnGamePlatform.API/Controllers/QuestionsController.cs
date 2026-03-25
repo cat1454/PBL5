@@ -1,3 +1,4 @@
+using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
@@ -42,6 +43,7 @@ public class QuestionsController : ControllerBase
         }
 
         var jobId = _jobStore.CreateJob(request.DocumentId, request.Count, request.QuestionType?.ToString());
+        _jobStore.TryGetJob(jobId, out var state);
 
         _ = Task.Run(() => RunGenerateQuestionsJobAsync(jobId, request));
 
@@ -50,7 +52,8 @@ public class QuestionsController : ControllerBase
             jobId,
             status = "queued",
             progressUrl = $"/api/questions/generate/progress/{jobId}",
-            resultHint = $"Khi status=completed, goi /api/questions/document/{request.DocumentId} de lay cau hoi moi"
+            resultHint = $"Khi status=completed, goi /api/questions/document/{request.DocumentId} de lay cau hoi moi",
+            progress = state == null ? null : JobProgressPayloadFactory.BuildQuestion(state)
         });
     }
 
@@ -62,7 +65,7 @@ public class QuestionsController : ControllerBase
             return NotFound("Job not found");
         }
 
-        return Ok(state);
+        return Ok(JobProgressPayloadFactory.BuildQuestion(state));
     }
 
     [HttpPost("generate")]

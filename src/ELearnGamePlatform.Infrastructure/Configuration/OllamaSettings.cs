@@ -8,6 +8,8 @@ public class OllamaSettings
     public string? GenerationModel { get; set; }
     public string? VerificationModel { get; set; }
     public int TimeoutSeconds { get; set; } = 120;
+    public string? KeepAlive { get; set; } = "15m";
+    public bool EnableTimingLogs { get; set; } = true;
     public double Temperature { get; set; } = 0.7;
     public double? AnalysisTemperature { get; set; }
     public double? GenerationTemperature { get; set; }

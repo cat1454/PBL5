@@ -1,3 +1,4 @@
+using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
@@ -91,6 +92,7 @@ public class DocumentsController : ControllerBase
 
             var createdDocument = await _documentRepository.CreateAsync(document);
             _documentJobStore.StartJob(createdDocument.Id, createdDocument.FileName);
+            _documentJobStore.TryGetJob(createdDocument.Id, out var progressState);
 
             // Start background processing with new scope
             _ = Task.Run(() => ProcessDocumentAsync(createdDocument.Id));
@@ -100,7 +102,9 @@ public class DocumentsController : ControllerBase
                 id = createdDocument.Id,
                 fileName = createdDocument.FileName,
                 status = createdDocument.Status.ToString(),
-                message = "File uploaded successfully. Processing started."
+                message = "File uploaded successfully. Processing started.",
+                progressUrl = $"/api/documents/{createdDocument.Id}/progress",
+                progress = JobProgressPayloadFactory.BuildDocument(progressState, createdDocument)
             });
         }
         catch (Exception ex)
@@ -121,6 +125,20 @@ public class DocumentsController : ControllerBase
         }
 
         return Ok(BuildDocumentPayload(document, questionsCount: document.Questions.Count));
+    }
+
+    [HttpGet("{id}/progress")]
+    public async Task<IActionResult> GetDocumentProgress(int id)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        _documentJobStore.TryGetJob(id, out var progressState);
+        return Ok(JobProgressPayloadFactory.BuildDocument(progressState, document));
     }
 
     [HttpGet("user/{userId}")]
@@ -344,23 +362,7 @@ public class DocumentsController : ControllerBase
             createdAt = doc.CreatedAt,
             updatedAt = doc.UpdatedAt,
             questionsCount,
-            processingProgress = progressState == null ? null : new
-            {
-                status = progressState.Status,
-                percent = progressState.Percent,
-                stage = progressState.Stage,
-                stageLabel = progressState.StageLabel,
-                message = progressState.Message,
-                detail = progressState.Detail,
-                current = progressState.Current,
-                total = progressState.Total,
-                unitLabel = progressState.UnitLabel,
-                stageIndex = progressState.StageIndex,
-                stageCount = progressState.StageCount,
-                elapsedSeconds = progressState.ElapsedSeconds,
-                estimatedRemainingSeconds = progressState.EstimatedRemainingSeconds,
-                error = progressState.Error
-            }
+            processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, doc)
         };
     }
 
