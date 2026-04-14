@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService, questionService, slideService } from '../services/api';
-
+import AnalysisContent from './AnalysisContent';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function DocumentList() {

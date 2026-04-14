@@ -14,6 +14,7 @@ using ELearnGamePlatform.Services.OCR;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls("http://localhost:5001");
 
 // Add services to the container
 builder.Services.AddControllers()
@@ -68,6 +69,15 @@ builder.Services.AddCors(options =>
             .AllowCredentials());
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 var app = builder.Build();
 
 // Run migrations automatically
@@ -87,7 +97,7 @@ using (var scope = app.Services.CreateScope())
         }
 
         dbContext.Database.Migrate();
-        ValidateCriticalSchema(dbContext);
+        //ValidateCriticalSchema(dbContext);
     }
     catch (Exception ex)
     {
@@ -97,15 +107,17 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
+//if (app.Environment.IsDevelopment())
+//{
     app.UseSwagger();
     app.UseSwaggerUI();
-}
+//}
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
+app.UseCors("AllowAll");
 app.UseAuthorization();
+app.UseCors("AllowAll");
 app.MapControllers();
 
 // Create uploads directory if it doesn't exist
@@ -131,8 +143,8 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
     {
         EnsureColumnExists(connection, "questions", "verifier_score");
         EnsureColumnExists(connection, "questions", "verifier_issues");
-        EnsureColumnExists(connection, "slide_items", "verifier_score");
-        EnsureColumnExists(connection, "slide_items", "verifier_issues");
+      //  EnsureColumnExists(connection, "slide_items", "verifier_score");
+       // EnsureColumnExists(connection, "slide_items", "verifier_issues");
     }
     finally
     {

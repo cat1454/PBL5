@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-
+const API_BASE_URL = 'http://127.0.0.1:3001/api';
 export const documentService = {
   uploadDocument: async (file, userId, onProgress) => {
     const formData = new FormData();
@@ -24,6 +23,11 @@ export const documentService = {
 
   getDocument: async (id) => {
     const response = await axios.get(`${API_BASE_URL}/documents/${id}`);
+    return response.data;
+  },
+
+  getDocumentProgress: async (id) => {
+    const response = await axios.get(`${API_BASE_URL}/documents/${id}/progress`);
     return response.data;
   },
 
