@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService } from '../services/api';
 
-function DocumentUpload() {
+function DocumentUpload({ onUploadSuccess }) {
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -39,49 +39,53 @@ function DocumentUpload() {
     setError('');
 
     try {
-      // In a real app, get userId from authentication context
       const userId = 'demo-user';
       const result = await documentService.uploadDocument(file, userId, (progress) => {
         setUploadProgress(progress);
       });
       
-      setMessage(`Da upload "${result.fileName}". He thong dang OCR, phan tich noi dung va chuan bi tao cau hoi.`);
       setUploadProgress(100);
+
+      // --- DÒNG QUAN TRỌNG NHẤT ÔNG CẦN THÊM Ở ĐÂY ---
+      if (onUploadSuccess) {
+        onUploadSuccess(result); // Báo cho App.js biết tên file để đổi giao diện
+      }
+      // ----------------------------------------------
+
+      setMessage(`Đã upload xong...`);
       setFile(null);
-      // Reset file input
       e.target.reset();
       
-      // Optionally refresh document list or redirect
       setTimeout(() => {
         setMessage('');
         setUploadProgress(0);
-      }, 5000);
+        setUploading(false);
+      }, 2000);
+
     } catch (err) {
-      setError(err.response?.data?.message || 'Error uploading file. Please try again.');
-    } finally {
+      setError(err.response?.data?.message || 'Error uploading file.');
       setUploading(false);
-    }
-  };
+    }};
 
   return (
     <div className="card">
-      <h2>📤 Upload Document</h2>
-      <p className="section-subtitle">Upload tai lieu hoc tap de AI trich xuat noi dung, chia topic va tao bo cau hoi tu dong.</p>
+      {/* <h2>📤 Upload Document</h2>
+      <p className="section-subtitle">Upload tai lieu hoc tap de AI trich xuat noi dung, chia topic va tao bo cau hoi tu dong.</p> */}
 
-      <div className="tips-panel">
+      {/* <div className="tips-panel">
         <span className="mini-topic-tag">PDF</span>
         <span className="mini-topic-tag">DOCX</span>
         <span className="mini-topic-tag">PNG</span>
         <span className="mini-topic-tag">JPG</span>
         <p>Meo: tai lieu ro chu, co cau truc theo muc/chuong se cho bo cau hoi tot hon.</p>
-      </div>
+      </div> */}
       
       {message && <div className="alert alert-success">{message}</div>}
       {error && <div className="alert alert-error">{error}</div>}
       
       <form onSubmit={handleUpload}>
         <div className="input-group">
-          <label htmlFor="file-upload">Chon tai lieu:</label>
+          <label htmlFor="file-upload">📤 Upload Document</label>
           <input
             id="file-upload"
             type="file"

@@ -16,6 +16,307 @@
   font-size: 2em;
 }
 
+.app-shell-header {
+  height: 52px;
+  background: linear-gradient(90deg, #6366f1 0%, #4338ca 100%); /* Màu tím Gradient */
+  color: white;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+.app-shell-header-inner {
+  display: flex;
+  justify-content: space-between; 
+  align-items: center;
+  width: 100%;
+  max-width: 1200px; 
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.app-shell-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.app-shell-brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.app-shell-brand-copy {
+  min-width: 0;
+}
+
+.app-shell-brand-copy strong,
+.app-shell-brand-copy span {
+  display: block;
+}
+
+.app-shell-brand-copy strong {
+  font-size: 1.1rem;
+}
+
+.app-shell-brand-copy span {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.92rem;
+}
+
+.app-shell-user {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.app-shell-user-meta {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+}
+.user-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.app-shell-user-meta span:last-child {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.app-shell-user-meta strong,
+.app-shell-user-meta span {
+  display: block;
+}
+
+.app-shell-user-meta span {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.9rem;
+}
+
+.app-shell-user-avatar {
+  width: 36px;
+  height: 36px;
+  background: #fbbf24; 
+  color: #92400e;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.app-shell-body {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: calc(100vh - 52px);
+  background-color: #f5f7fb;
+}
+
+.app-sidebar {
+  width: 230px;
+  background: #fbfcff;
+  background-color: #fcfcfd;
+  border-right: 1px solid #dbe4ff;
+  border-right: 1px solid #e5e7eb;
+}
+
+.app-sidebar-inner {
+  position: sticky;
+  top: 52px;
+  padding: 24px 0px;
+}
+
+.app-sidebar-nav {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.app-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px; 
+  padding: 10px 20px;
+  border-radius: 0 99px 99px 0; 
+  margin-right: 16px;
+  margin: 0px 10px;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  text-decoration: none;            
+  color: #475467;                    
+  transition: all 0.3s ease;         
+}
+
+.app-sidebar-link:hover {
+  background-color: #f0f2ff;         
+  transform: translateX(4px);           
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+  text-decoration: none;            
+}
+
+.app-sidebar-link.active {
+  background: #f5f3ff; 
+  color: #4338ca;
+  font-weight: 600;
+  box-shadow: none; 
+  border-left: 4px solid #4338ca; 
+}
+.app-sidebar-link.active:hover {
+  transform: scale(1.05);
+  filter: brightness(0.95); 
+}
+
+.app-shell-content {
+  background: #f5f7fb;
+  min-width: 0;
+  font-size: 14px;
+  padding: 0 !important;
+}
+.tab-button {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-button:hover {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+.tab-button.active {
+  background-color: #eef2ff;
+  color: #4338ca;
+}
+
+/* 3. Vùng chứa nội dung bên dưới Toolbar */
+.workspace-view {
+  padding: 24px;
+  min-height: calc(100vh - 108px); /* Full màn hình trừ header/toolbar */
+}
+.workspace-toolbar {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  padding: 0 24px;
+  height: 56px;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Ép cái khung nội dung sát lên trên cùng */
+.app-shell-content-inner {
+  padding-top: 0 !important; 
+  margin-top: 0 !important;
+}
+
+/* Nếu còn cái Header cũ nào lọt lưới thì ẩn nốt */
+.app-page-header {
+  display: none !important;
+}
+.workspace-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Thanh Breadcrumb gọn gàng */
+.workspace-breadcrumb {
+  font-size: 13px;
+  color: #94a3b8;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 5px 0;
+}
+
+.file-name {
+  color: #6366f1;
+  font-weight: bold;
+}
+
+/* Thanh Toolbar tối giản */
+.workspace-toolbar {
+  display: flex;
+  gap: 8px;
+  background: white;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.workspace-toolbar button {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.workspace-toolbar button.active {
+  background: #f1f5f9;
+  color: #1e293b;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* Frame nội dung - Đây là nơi "sâu" nhất của app */
+.workspace-main-frame {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  min-height: 400px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+
+.app-page-header h1 {
+  margin: 0;
+  color: #182230;
+  font-size: 2.2rem;
+  line-height: 1.05;
+}
+
+.app-page-header p {
+  margin: 10px 0 0;
+  color: #667085;
+  font-size: 1.02rem;
+}
+
+.dashboard-home .card:first-child {
+  margin-bottom: 16px;
+}
+
 .nav {
   display: flex;
   gap: 20px;
@@ -774,6 +1075,32 @@ main {
 }
 
 @media (max-width: 768px) {
+  .app-shell-header-inner,
+  .app-shell-user,
+  .app-shell-body {
+    background-color: #f4f7fe;
+    display: block;
+  }
+
+  .app-shell-user {
+    margin-top: 16px;
+  }
+
+  .app-shell-user-meta {
+    text-align: left;
+    margin-bottom: 10px;
+  }
+
+  .app-sidebar {
+    border-right: none;
+    border-bottom: 1px solid #dbe4ff;
+  }
+
+  .app-sidebar-inner {
+    position: static;
+    padding: 16px;
+  }
+
   .document-item {
     flex-direction: column;
     align-items: stretch;
