@@ -5,8 +5,10 @@ namespace ELearnGamePlatform.API.Services;
 public interface ISlideGenerationJobStore
 {
     string CreateJob(int documentId, int desiredSlideCount);
+    string CreateFolderJob(int folderProjectId, int desiredSlideCount);
     bool TryGetJob(string jobId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForDocument(int documentId, out SlideGenerationJobState? state);
+    bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
     void UpdateJob(string jobId, Action<SlideGenerationJobState> updater);
 }
 
@@ -14,6 +16,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 {
     private readonly ConcurrentDictionary<string, SlideGenerationJobState> _jobs = new();
     private readonly ConcurrentDictionary<int, string> _latestJobByDocument = new();
+    private readonly ConcurrentDictionary<int, string> _latestJobByFolder = new();
 
     public string CreateJob(int documentId, int desiredSlideCount)
     {
@@ -39,6 +42,30 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         return jobId;
     }
 
+    public string CreateFolderJob(int folderProjectId, int desiredSlideCount)
+    {
+        var now = DateTime.UtcNow;
+        var jobId = Guid.NewGuid().ToString("N");
+        var state = new SlideGenerationJobState
+        {
+            JobId = jobId,
+            FolderProjectId = folderProjectId,
+            DesiredSlideCount = desiredSlideCount,
+            Status = "queued",
+            Percent = 0,
+            Stage = "queued",
+            StageLabel = "Cho xu ly",
+            Message = "Da tao job sinh slide",
+            CreatedAt = now,
+            UpdatedAt = now,
+            ElapsedSeconds = 0
+        };
+
+        _jobs[jobId] = state;
+        _latestJobByFolder[folderProjectId] = jobId;
+        return jobId;
+    }
+
     public bool TryGetJob(string jobId, out SlideGenerationJobState? state)
     {
         var found = _jobs.TryGetValue(jobId, out var result);
@@ -50,6 +77,17 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
     {
         state = null;
         if (!_latestJobByDocument.TryGetValue(documentId, out var jobId))
+        {
+            return false;
+        }
+
+        return TryGetJob(jobId, out state);
+    }
+
+    public bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state)
+    {
+        state = null;
+        if (!_latestJobByFolder.TryGetValue(folderProjectId, out var jobId))
         {
             return false;
         }
@@ -75,7 +113,8 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 public class SlideGenerationJobState
 {
     public string JobId { get; set; } = string.Empty;
-    public int DocumentId { get; set; }
+    public int? DocumentId { get; set; }
+    public int? FolderProjectId { get; set; }
     public int DesiredSlideCount { get; set; }
     public int? SlideDeckId { get; set; }
     public string Status { get; set; } = "queued";

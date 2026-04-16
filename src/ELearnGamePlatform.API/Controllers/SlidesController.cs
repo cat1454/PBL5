@@ -16,6 +16,7 @@ public class SlidesController : ControllerBase
     private readonly IDocumentRepository _documentRepository;
     private readonly ISlideDeckRepository _slideDeckRepository;
     private readonly ISlideGenerator _slideGenerator;
+    private readonly ISlideImageService _slideImageService;
     private readonly ISlideGenerationJobStore _jobStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SlidesController> _logger;
@@ -24,6 +25,7 @@ public class SlidesController : ControllerBase
         IDocumentRepository documentRepository,
         ISlideDeckRepository slideDeckRepository,
         ISlideGenerator slideGenerator,
+        ISlideImageService slideImageService,
         ISlideGenerationJobStore jobStore,
         IServiceScopeFactory scopeFactory,
         ILogger<SlidesController> logger)
@@ -31,6 +33,7 @@ public class SlidesController : ControllerBase
         _documentRepository = documentRepository;
         _slideDeckRepository = slideDeckRepository;
         _slideGenerator = slideGenerator;
+        _slideImageService = slideImageService;
         _jobStore = jobStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -55,7 +58,16 @@ public class SlidesController : ControllerBase
 
         var jobId = _jobStore.CreateJob(request.DocumentId, request.DesiredSlideCount);
         _jobStore.TryGetJob(jobId, out var state);
-        _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, request));
+        _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
+        {
+            DocumentId = request.DocumentId,
+            DesiredSlideCount = request.DesiredSlideCount,
+            ThemeKey = request.ThemeKey,
+            Audience = request.Audience,
+            Tone = request.Tone,
+            NarrativeGoal = request.NarrativeGoal,
+            LanguageStyle = request.LanguageStyle
+        }));
 
         return Accepted(new
         {
@@ -129,21 +141,31 @@ public class SlidesController : ControllerBase
                 return NotFound("Slide item not found");
             }
 
-            item.Heading = string.IsNullOrWhiteSpace(request.Heading) ? item.Heading : request.Heading.Trim();
-            item.Subheading = request.Subheading?.Trim();
-            item.Goal = request.Goal?.Trim();
-            item.SpeakerNotes = request.SpeakerNotes?.Trim();
-            item.AccentTone = request.AccentTone?.Trim();
-            item.SetBodyBlocks(request.BodyBlocks?
-                .Where(block => !string.IsNullOrWhiteSpace(block))
-                .Select(block => block.Trim())
-                .ToList() ?? new List<string>());
+            if (request.EditorState != null)
+            {
+                item.ApplyEditorState(request.EditorState);
+                item.AccentTone = request.AccentTone?.Trim() ?? item.AccentTone;
+            }
+            else
+            {
+                item.Heading = string.IsNullOrWhiteSpace(request.Heading) ? item.Heading : request.Heading.Trim();
+                item.Subheading = request.Subheading?.Trim();
+                item.Goal = request.Goal?.Trim();
+                item.SpeakerNotes = request.SpeakerNotes?.Trim();
+                item.AccentTone = request.AccentTone?.Trim();
+                item.SetBodyBlocks(request.BodyBlocks?
+                    .Where(block => !string.IsNullOrWhiteSpace(block))
+                    .Select(block => block.Trim())
+                    .ToList() ?? new List<string>());
+                item.SetEditorState(item.BuildDefaultEditorState());
+            }
             item.VerifierScore = null;
             item.SetVerifierIssues(new List<string>
             {
                 "Slide da duoc chinh sua thu cong sau khi verifier chay.",
                 "Can sinh lai hoac verifier lai neu muon diem tin cay moi."
             });
+            RefreshImageScaffold(item);
 
             await _slideDeckRepository.UpdateItemAsync(item);
             return Ok(BuildSlideItemPayload(item));
@@ -154,7 +176,91 @@ public class SlidesController : ControllerBase
         }
     }
 
-    private async Task RunGenerateSlidesJobAsync(string jobId, GenerateSlidesRequest request)
+    [HttpPost("{deckId}/items/{itemId}/images/refresh")]
+    public async Task<IActionResult> RefreshSlideItemImages(int deckId, int itemId)
+    {
+        try
+        {
+            var item = await _slideImageService.RefreshImagesAsync(deckId, itemId, HttpContext.RequestAborted);
+            if (item == null)
+            {
+                return NotFound("Slide item not found");
+            }
+
+            return Ok(BuildSlideItemPayload(item));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpGet("folders/{folderId}")]
+    public async Task<IActionResult> GetDeckByFolder(int folderId)
+    {
+        try
+        {
+            var deck = await _slideDeckRepository.GetLatestByFolderIdAsync(folderId);
+            if (deck == null)
+            {
+                return NoContent();
+            }
+
+            var sources = await _documentRepository.GetByFolderProjectIdAsync(folderId);
+            _jobStore.TryGetLatestJobForFolder(folderId, out var jobState);
+            return Ok(BuildDeckPayload(deck, jobState, IsFolderDeckStale(deck, sources)));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpGet("folders/{folderId}/html")]
+    public async Task<IActionResult> GetFolderDeckHtml(int folderId)
+    {
+        try
+        {
+            var deck = await _slideDeckRepository.GetLatestByFolderIdAsync(folderId);
+            if (deck == null)
+            {
+                return NotFound("Slide deck not found");
+            }
+
+            var html = _slideGenerator.RenderDeckHtml(deck, deck.Items.OrderBy(item => item.SlideIndex).ToList());
+            return Content(html, "text/html; charset=utf-8");
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpPost("{deckId}/items/{itemId}/images/select")]
+    public async Task<IActionResult> SelectSlideItemImage(int deckId, int itemId, [FromBody] SelectSlideImageRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.CandidateKey))
+        {
+            return BadRequest("CandidateKey is required");
+        }
+
+        try
+        {
+            var item = await _slideImageService.SelectImageAsync(deckId, itemId, request.CandidateKey.Trim(), HttpContext.RequestAborted);
+            if (item == null)
+            {
+                return NotFound("Image candidate not found");
+            }
+
+            return Ok(BuildSlideItemPayload(item));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    private async Task RunGenerateSlidesJobAsync(string jobId, SlideGenerationTarget target)
     {
         SlideDeck? persistedDeck = null;
 
@@ -162,38 +268,35 @@ public class SlidesController : ControllerBase
         {
             using var scope = _scopeFactory.CreateScope();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
+            var folderProjectRepository = scope.ServiceProvider.GetRequiredService<IFolderProjectRepository>();
             var slideDeckRepository = scope.ServiceProvider.GetRequiredService<ISlideDeckRepository>();
             var slideGenerator = scope.ServiceProvider.GetRequiredService<ISlideGenerator>();
+            var slideImageService = scope.ServiceProvider.GetRequiredService<ISlideImageService>();
 
             UpdateJob(jobId, state =>
             {
                 state.Status = "running";
                 state.Percent = 3;
-                state.Stage = "validating-document";
-                state.StageLabel = "Kiem tra tai lieu";
+                state.Stage = target.FolderProjectId.HasValue ? "validating-folder" : "validating-document";
+                state.StageLabel = target.FolderProjectId.HasValue ? "Kiem tra folder" : "Kiem tra tai lieu";
                 state.Message = "Dang kiem tra du lieu truoc khi tao slide";
-                state.Detail = "Can document da OCR va phan tich xong";
+                state.Detail = target.FolderProjectId.HasValue
+                    ? "Can it nhat 1 source da OCR/analyze xong va duoc chon cho slide"
+                    : "Can document da OCR va phan tich xong";
                 state.StageIndex = 1;
                 state.StageCount = 6;
                 state.Error = null;
                 UpdateEta(state);
             });
 
-            var document = await documentRepository.GetByIdAsync(request.DocumentId);
-            if (document == null)
+            var context = await ResolveGenerationContextAsync(target, documentRepository, folderProjectRepository);
+            if (!context.Success)
             {
-                FailJob(jobId, "Document not found", "Khong tim thay tai lieu");
+                FailJob(jobId, context.Error ?? "Khong the tao slide deck", context.ErrorMessage ?? "Khong the tao slide deck");
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(document.ExtractedText))
-            {
-                FailJob(jobId, "Document has not been processed yet", "Tai lieu chua co noi dung ExtractedText");
-                return;
-            }
-
-            var processedContent = BuildProcessedContentFromDocument(document);
-            var brief = BuildBrief(request);
+            var brief = BuildBrief(target);
             var outlineProgress = new Progress<SlideGenerationProgressUpdate>(update =>
             {
                 UpdateJob(jobId, state =>
@@ -203,15 +306,16 @@ public class SlidesController : ControllerBase
             });
 
             var outline = await slideGenerator.GenerateOutlineAsync(
-                document.ExtractedText,
-                processedContent,
+                context.ExtractedText,
+                context.ProcessedContent,
                 brief,
-                request.DesiredSlideCount,
+                target.DesiredSlideCount,
                 outlineProgress);
 
             var deck = new SlideDeck
             {
-                DocumentId = document.Id,
+                DocumentId = context.DocumentId,
+                FolderProjectId = context.FolderProjectId,
                 Status = SlideDeckStatus.GeneratingSlides,
                 Title = outline.Title,
                 Subtitle = outline.Subtitle,
@@ -221,10 +325,12 @@ public class SlidesController : ControllerBase
 
             var placeholderItems = outline.Slides
                 .OrderBy(slide => slide.SlideIndex)
-                .Select(slide => CreatePlaceholderItem(slide))
+                .Select(CreatePlaceholderItem)
                 .ToList();
 
-            persistedDeck = await slideDeckRepository.ReplaceForDocumentAsync(deck, placeholderItems);
+            persistedDeck = context.FolderProjectId.HasValue
+                ? await slideDeckRepository.ReplaceForFolderAsync(deck, placeholderItems)
+                : await slideDeckRepository.ReplaceForDocumentAsync(deck, placeholderItems);
 
             UpdateJob(jobId, state =>
             {
@@ -272,8 +378,8 @@ public class SlidesController : ControllerBase
                 });
 
                 var content = await slideGenerator.GenerateSlideAsync(
-                    document.ExtractedText,
-                    processedContent,
+                    context.ExtractedText,
+                    context.ProcessedContent,
                     brief,
                     outlineSlide,
                     index + 1,
@@ -288,6 +394,9 @@ public class SlidesController : ControllerBase
                 item.VerifierScore = content.VerifierScore;
                 item.SetVerifierIssues(content.VerifierIssues);
                 item.SetBodyBlocks(content.BodyBlocks);
+                item.SetEditorState(item.BuildDefaultEditorState());
+                RefreshImageScaffold(item);
+                await slideImageService.SourceImagesForItemAsync(item);
                 item.Status = SlideItemStatus.Completed;
                 await slideDeckRepository.UpdateItemAsync(item);
 
@@ -354,12 +463,14 @@ public class SlidesController : ControllerBase
         }
     }
 
-    private object BuildDeckPayload(SlideDeck deck, SlideGenerationJobState? jobState)
+    private object BuildDeckPayload(SlideDeck deck, SlideGenerationJobState? jobState, bool isStale = false)
     {
         return new
         {
             id = deck.Id,
             documentId = deck.DocumentId,
+            folderProjectId = deck.FolderProjectId,
+            ownerType = deck.FolderProjectId.HasValue ? "folder" : "document",
             status = deck.Status.ToString(),
             title = deck.Title,
             subtitle = deck.Subtitle,
@@ -368,6 +479,7 @@ public class SlidesController : ControllerBase
             createdAt = deck.CreatedAt,
             updatedAt = deck.UpdatedAt,
             completedAt = deck.CompletedAt,
+            isStale,
             items = deck.Items
                 .OrderBy(item => item.SlideIndex)
                 .Select(BuildSlideItemPayload)
@@ -386,6 +498,11 @@ public class SlidesController : ControllerBase
 
     private static object BuildSlideItemPayload(SlideItem item)
     {
+        var imagePlan = item.GetImagePlan() ?? BuildDefaultImagePlan(item);
+        var imageCandidates = NormalizeImageCandidates(item.GetImageCandidates(), item.SelectedImageKey);
+        var selectedImage = ResolveSelectedImage(imageCandidates, item.SelectedImageKey);
+        var imageState = BuildImageState(item, imagePlan, imageCandidates, selectedImage);
+
         return new
         {
             item.Id,
@@ -399,6 +516,10 @@ public class SlidesController : ControllerBase
             bodyBlocks = item.GetBodyBlocks(),
             item.SpeakerNotes,
             item.AccentTone,
+            editorState = item.GetEditorState(),
+            imageState,
+            selectedImage,
+            imageCandidates,
             quality = BuildQualityPayload(item.VerifierScore, item.GetVerifierIssues()),
             item.CreatedAt,
             item.UpdatedAt
@@ -445,6 +566,8 @@ public class SlidesController : ControllerBase
             Goal = slide.Goal
         };
         item.SetBodyBlocks(new List<string>());
+        item.SetEditorState(item.BuildDefaultEditorState());
+        RefreshImageScaffold(item, preserveExistingCandidates: false);
         return item;
     }
 
@@ -460,7 +583,7 @@ public class SlidesController : ControllerBase
         };
     }
 
-    private static SlideDeckBrief BuildBrief(GenerateSlidesRequest request)
+    private static SlideDeckBrief BuildBrief(SlideGenerationTarget request)
     {
         return new SlideDeckBrief
         {
@@ -474,6 +597,134 @@ public class SlidesController : ControllerBase
                 ? "Tieng Viet ngan gon, chuyen nghiep, de doc tren slide"
                 : request.LanguageStyle.Trim()
         };
+    }
+
+    private static ProcessedContent BuildProcessedContentFromSources(IReadOnlyCollection<Document> sources)
+    {
+        var orderedSources = sources
+            .Where(source => !string.IsNullOrWhiteSpace(source.ExtractedText))
+            .OrderBy(source => source.FolderSourceOrder)
+            .ThenBy(source => source.CreatedAt)
+            .ToList();
+
+        return new ProcessedContent
+        {
+            MainTopics = orderedSources
+                .SelectMany(source => source.GetMainTopics())
+                .Where(topic => !string.IsNullOrWhiteSpace(topic))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(24)
+                .ToList(),
+            KeyPoints = orderedSources
+                .SelectMany(source => source.GetKeyPoints())
+                .Where(point => !string.IsNullOrWhiteSpace(point))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(40)
+                .ToList(),
+            Summary = string.Join("\n\n", orderedSources
+                .Select(source => string.IsNullOrWhiteSpace(source.Summary)
+                    ? null
+                    : $"{source.FileName}: {source.Summary.Trim()}")
+                .Where(value => !string.IsNullOrWhiteSpace(value))),
+            Language = orderedSources
+                .Select(source => source.Language)
+                .FirstOrDefault(language => !string.IsNullOrWhiteSpace(language)),
+            CoverageMap = orderedSources
+                .SelectMany((source, sourceIndex) => source.GetCoverageMap().Select((chunk, chunkIndex) => new DocumentCoverageChunk
+                {
+                    ChunkNumber = sourceIndex * 1000 + chunkIndex + 1,
+                    ChunkId = $"{source.Id}-{chunk.ChunkId}",
+                    Zone = chunk.Zone,
+                    Label = $"{source.FileName}: {chunk.Label}",
+                    Summary = chunk.Summary,
+                    EvidenceExcerpt = chunk.EvidenceExcerpt,
+                    KeyFacts = chunk.KeyFacts
+                }))
+                .ToList()
+        };
+    }
+
+    private static string BuildCombinedExtractedText(IReadOnlyCollection<Document> sources)
+    {
+        return string.Join(
+            "\n\n==============================\n\n",
+            sources
+                .Where(source => !string.IsNullOrWhiteSpace(source.ExtractedText))
+                .OrderBy(source => source.FolderSourceOrder)
+                .ThenBy(source => source.CreatedAt)
+                .Select(source => $"Nguon: {source.FileName}\n\n{source.ExtractedText?.Trim()}"));
+    }
+
+    private async Task<SlideGenerationContext> ResolveGenerationContextAsync(
+        SlideGenerationTarget target,
+        IDocumentRepository documentRepository,
+        IFolderProjectRepository folderProjectRepository)
+    {
+        if (target.DocumentId.HasValue)
+        {
+            var document = await documentRepository.GetByIdAsync(target.DocumentId.Value);
+            if (document == null)
+            {
+                return SlideGenerationContext.Fail("Document not found", "Khong tim thay tai lieu");
+            }
+
+            if (string.IsNullOrWhiteSpace(document.ExtractedText))
+            {
+                return SlideGenerationContext.Fail("Document has not been processed yet", "Tai lieu chua co noi dung ExtractedText");
+            }
+
+            return SlideGenerationContext.FromDocument(
+                document.Id,
+                document.ExtractedText,
+                BuildProcessedContentFromDocument(document));
+        }
+
+        if (target.FolderProjectId.HasValue)
+        {
+            var folder = await folderProjectRepository.GetByIdAsync(target.FolderProjectId.Value);
+            if (folder == null)
+            {
+                return SlideGenerationContext.Fail("Folder project not found", "Khong tim thay folder project");
+            }
+
+            var selectedSources = folder.Documents
+                .Where(source => source.IncludeInFolderSlides)
+                .OrderBy(source => source.FolderSourceOrder)
+                .ThenBy(source => source.CreatedAt)
+                .ToList();
+
+            if (selectedSources.Count == 0)
+            {
+                return SlideGenerationContext.Fail("No folder sources selected for slides", "Can chon it nhat 1 source de tao slide");
+            }
+
+            var readySources = selectedSources
+                .Where(source => source.Status == DocumentStatus.Completed && !string.IsNullOrWhiteSpace(source.ExtractedText))
+                .ToList();
+
+            if (readySources.Count == 0)
+            {
+                return SlideGenerationContext.Fail("Selected sources are not ready", "Nguon duoc chon cho slide chua OCR/analyze xong");
+            }
+
+            return SlideGenerationContext.FromFolder(
+                folder.Id,
+                BuildCombinedExtractedText(readySources),
+                BuildProcessedContentFromSources(readySources));
+        }
+
+        return SlideGenerationContext.Fail("Missing slide generation owner", "Khong xac dinh duoc owner cua slide deck");
+    }
+
+    private static bool IsFolderDeckStale(SlideDeck deck, IEnumerable<Document> sources)
+    {
+        if (!deck.FolderProjectId.HasValue)
+        {
+            return false;
+        }
+
+        var comparisonPoint = deck.CompletedAt ?? deck.UpdatedAt;
+        return sources.Any(source => source.CreatedAt > comparisonPoint || source.UpdatedAt > comparisonPoint);
     }
 
     private void FailJob(string jobId, string error, string message)
@@ -556,26 +807,319 @@ public class SlidesController : ControllerBase
     {
         return StatusCode(StatusCodes.Status503ServiceUnavailable, new
         {
-            message = "Slide feature schema is not initialized. Run database migrations to create slide_decks and slide_items."
+            message = "Slide feature schema is not initialized. Run database migrations to create slide_decks, slide_items, and slide image metadata columns."
+        });
+    }
+
+    [HttpPost("folders/{folderId}/generate/start")]
+    public async Task<IActionResult> StartGenerateSlidesForFolder(int folderId, [FromBody] GenerateFolderSlidesRequest request)
+    {
+        if (request.DesiredSlideCount is < 5 or > 12)
+        {
+            return BadRequest("DesiredSlideCount must be between 5 and 12");
+        }
+
+        try
+        {
+            _ = await _slideDeckRepository.GetLatestByFolderIdAsync(folderId);
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+
+        var jobId = _jobStore.CreateFolderJob(folderId, request.DesiredSlideCount);
+        _jobStore.TryGetJob(jobId, out var state);
+        _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
+        {
+            FolderProjectId = folderId,
+            DesiredSlideCount = request.DesiredSlideCount,
+            ThemeKey = request.ThemeKey,
+            Audience = request.Audience,
+            Tone = request.Tone,
+            NarrativeGoal = request.NarrativeGoal,
+            LanguageStyle = request.LanguageStyle
+        }));
+
+        return Accepted(new
+        {
+            jobId,
+            status = "queued",
+            progressUrl = $"/api/slides/generate/progress/{jobId}",
+            resultUrl = $"/api/slides/folders/{folderId}",
+            progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state)
         });
     }
 
     private static bool IsSlideSchemaMissing(PostgresException ex)
     {
-        if (ex.SqlState != PostgresErrorCodes.UndefinedTable)
+        if (ex.SqlState != PostgresErrorCodes.UndefinedTable && ex.SqlState != PostgresErrorCodes.UndefinedColumn)
         {
             return false;
         }
 
         var messageText = ex.MessageText ?? string.Empty;
         return messageText.Contains("slide_decks", StringComparison.OrdinalIgnoreCase)
-            || messageText.Contains("slide_items", StringComparison.OrdinalIgnoreCase);
+            || messageText.Contains("slide_items", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("folder_projects", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("folder_project_id", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("image_plan", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("image_candidates", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("selected_image_key", StringComparison.OrdinalIgnoreCase)
+            || messageText.Contains("editor_state", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void RefreshImageScaffold(SlideItem item, bool preserveExistingCandidates = true)
+    {
+        var candidates = preserveExistingCandidates ? item.GetImageCandidates() : new List<SlideImageCandidate>();
+        item.SetImagePlan(BuildDefaultImagePlan(item));
+        item.SetImageCandidates(candidates);
+
+        if (candidates.Count == 0)
+        {
+            item.SelectedImageKey = null;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.SelectedImageKey))
+        {
+            var selectedCandidate = candidates.FirstOrDefault(candidate =>
+                candidate.IsSelected && !string.IsNullOrWhiteSpace(candidate.Key));
+            item.SelectedImageKey = selectedCandidate?.Key;
+            return;
+        }
+
+        if (candidates.Count > 0 && !candidates.Any(candidate =>
+                string.Equals(candidate.Key, item.SelectedImageKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            item.SelectedImageKey = null;
+        }
+    }
+
+    private static SlideImagePlan BuildDefaultImagePlan(SlideItem item)
+    {
+        var needsImage = item.SlideType is not (SlideItemType.SectionDivider or SlideItemType.Quote);
+        var heading = SanitizeImageText(item.Heading, 160) ?? $"Slide {item.SlideIndex}";
+        var subheading = SanitizeImageText(item.Subheading, 220);
+        var goal = SanitizeImageText(item.Goal, 180);
+        var visualRole = needsImage ? ResolveVisualRole(item.SlideType) : "none";
+        var descriptor = string.Join(", ", new[] { heading, goal }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var searchQueries = new List<string>();
+
+        if (needsImage)
+        {
+            searchQueries.Add(heading);
+
+            if (!string.IsNullOrWhiteSpace(goal) && !string.Equals(goal, heading, StringComparison.OrdinalIgnoreCase))
+            {
+                searchQueries.Add($"{heading} {goal}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(subheading))
+            {
+                searchQueries.Add($"{heading} {subheading}");
+            }
+        }
+
+        return new SlideImagePlan
+        {
+            NeedsImage = needsImage,
+            VisualRole = visualRole,
+            AltText = needsImage
+                ? $"Minh hoa cho slide {item.SlideIndex}: {heading}"
+                : $"Slide {item.SlideIndex} uu tien text-only",
+            RedactedPrompt = needsImage
+                ? $"Tao mot hinh anh slide-style theo huong {visualRole}, minh hoa cho: {descriptor}."
+                : null,
+            SearchQueries = searchQueries
+                .Where(query => !string.IsNullOrWhiteSpace(query))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToList(),
+            GenerationPrompt = needsImage
+                ? $"Mot hinh anh ngang 16:9, bo cuc sach, phu hop voi slide trinh bay, minh hoa cho: {descriptor}."
+                : null,
+            NegativePrompt = needsImage
+                ? "Khong watermark, khong text overlay, khong giao dien phan mem, khong noi dung nhay cam."
+                : null,
+            StatusHint = needsImage ? "queued" : "no-image-needed",
+            LastResultMessage = needsImage
+                ? "Image workflow se chay ngay sau khi slide duoc sinh xong."
+                : "Slide nay uu tien text-only."
+        };
+    }
+
+    private static string ResolveVisualRole(SlideItemType slideType)
+    {
+        return slideType switch
+        {
+            SlideItemType.Title => "hero",
+            SlideItemType.Highlight => "background",
+            SlideItemType.Stat => "side-accent-right",
+            SlideItemType.Content => "side-accent-right",
+            _ => "supporting"
+        };
+    }
+
+    private static List<SlideImageCandidate> NormalizeImageCandidates(
+        IReadOnlyCollection<SlideImageCandidate> candidates,
+        string? selectedImageKey)
+    {
+        var normalized = candidates
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Key))
+            .Select(candidate => new SlideImageCandidate
+            {
+                Key = candidate.Key,
+                SourceType = string.IsNullOrWhiteSpace(candidate.SourceType) ? "web" : candidate.SourceType,
+                Provider = candidate.Provider,
+                OriginUrl = candidate.OriginUrl,
+                LocalAssetUrl = candidate.LocalAssetUrl,
+                ThumbnailUrl = candidate.ThumbnailUrl,
+                AltText = candidate.AltText,
+                LicenseLabel = candidate.LicenseLabel,
+                AttributionText = candidate.AttributionText,
+                Width = candidate.Width,
+                Height = candidate.Height,
+                Score = candidate.Score,
+                IsSelected = candidate.IsSelected,
+                LayoutMode = candidate.LayoutMode
+            })
+            .ToList();
+
+        var effectiveSelectedKey = string.IsNullOrWhiteSpace(selectedImageKey)
+            ? normalized.FirstOrDefault(candidate => candidate.IsSelected)?.Key
+            : selectedImageKey;
+
+        if (string.IsNullOrWhiteSpace(effectiveSelectedKey))
+        {
+            return normalized;
+        }
+
+        foreach (var candidate in normalized)
+        {
+            candidate.IsSelected = string.Equals(candidate.Key, effectiveSelectedKey, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return normalized;
+    }
+
+    private static SlideImageCandidate? ResolveSelectedImage(
+        IReadOnlyCollection<SlideImageCandidate> candidates,
+        string? selectedImageKey)
+    {
+        if (!string.IsNullOrWhiteSpace(selectedImageKey))
+        {
+            var match = candidates.FirstOrDefault(candidate =>
+                string.Equals(candidate.Key, selectedImageKey, StringComparison.OrdinalIgnoreCase));
+
+            if (match != null)
+            {
+                return match;
+            }
+        }
+
+        return candidates.FirstOrDefault(candidate => candidate.IsSelected);
+    }
+
+    private static SlideImageState BuildImageState(
+        SlideItem item,
+        SlideImagePlan imagePlan,
+        IReadOnlyCollection<SlideImageCandidate> candidates,
+        SlideImageCandidate? selectedImage)
+    {
+        var needsImage = imagePlan.NeedsImage;
+        var status = ResolveImageStatus(item.Status, imagePlan, needsImage, candidates.Count, selectedImage);
+
+        return new SlideImageState
+        {
+            NeedsImage = needsImage,
+            Status = status,
+            Message = imagePlan.LastResultMessage ?? ResolveImageMessage(status, candidates.Count),
+            Detail = needsImage
+                ? $"visualRole: {imagePlan.VisualRole ?? "supporting"}"
+                : "Slide nay duoc de xuat giu text-only.",
+            CandidateCount = candidates.Count,
+            SelectedImageKey = selectedImage?.Key ?? item.SelectedImageKey,
+            Error = status == "failed" ? "Image pipeline gap loi o pha truoc." : null
+        };
+    }
+
+    private static string ResolveImageStatus(
+        SlideItemStatus slideStatus,
+        SlideImagePlan imagePlan,
+        bool needsImage,
+        int candidateCount,
+        SlideImageCandidate? selectedImage)
+    {
+        if (!needsImage)
+        {
+            return "no-image-needed";
+        }
+
+        if (selectedImage != null || candidateCount > 0)
+        {
+            return "ready";
+        }
+
+        if (!string.IsNullOrWhiteSpace(imagePlan.StatusHint))
+        {
+            return imagePlan.StatusHint;
+        }
+
+        return slideStatus switch
+        {
+            SlideItemStatus.Pending or SlideItemStatus.Generating => "queued",
+            SlideItemStatus.Failed => "failed",
+            _ => "not-requested"
+        };
+    }
+
+    private static string ResolveImageMessage(string status, int candidateCount)
+    {
+        return status switch
+        {
+            "no-image-needed" => "Slide nay uu tien text-only de giu nhip doc va de bao toan do ro cua thong diep.",
+            "ready" when candidateCount > 0 => $"Da co {candidateCount} image candidate cho slide nay.",
+            "ready" => "Da co media duoc gan cho slide nay.",
+            "queued" => "Image workflow se duoc noi vao o phase tiep theo sau khi slide on dinh.",
+            "failed" => "Image workflow gap loi va can thu lai sau khi backend image pipeline san sang.",
+            _ => "Image pipeline chua duoc chay cho slide nay."
+        };
+    }
+
+    private static string? SanitizeImageText(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = string.Join(" ", value
+            .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            .Trim();
+
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        return normalized[..maxLength].Trim();
     }
 }
 
 public class GenerateSlidesRequest
 {
     public required int DocumentId { get; set; }
+    public int DesiredSlideCount { get; set; } = 8;
+    public string? ThemeKey { get; set; }
+    public string? Audience { get; set; }
+    public string? Tone { get; set; }
+    public string? NarrativeGoal { get; set; }
+    public string? LanguageStyle { get; set; }
+}
+
+public class GenerateFolderSlidesRequest
+{
     public int DesiredSlideCount { get; set; } = 8;
     public string? ThemeKey { get; set; }
     public string? Audience { get; set; }
@@ -592,4 +1136,59 @@ public class UpdateSlideItemRequest
     public List<string>? BodyBlocks { get; set; }
     public string? SpeakerNotes { get; set; }
     public string? AccentTone { get; set; }
+    public SlideEditorState? EditorState { get; set; }
+}
+
+public class SelectSlideImageRequest
+{
+    public string? CandidateKey { get; set; }
+}
+
+internal sealed class SlideGenerationTarget
+{
+    public int? DocumentId { get; init; }
+    public int? FolderProjectId { get; init; }
+    public int DesiredSlideCount { get; init; } = 8;
+    public string? ThemeKey { get; init; }
+    public string? Audience { get; init; }
+    public string? Tone { get; init; }
+    public string? NarrativeGoal { get; init; }
+    public string? LanguageStyle { get; init; }
+}
+
+internal sealed class SlideGenerationContext
+{
+    public bool Success { get; private init; }
+    public int? DocumentId { get; private init; }
+    public int? FolderProjectId { get; private init; }
+    public string ExtractedText { get; private init; } = string.Empty;
+    public ProcessedContent ProcessedContent { get; private init; } = new();
+    public string? Error { get; private init; }
+    public string? ErrorMessage { get; private init; }
+
+    public static SlideGenerationContext FromDocument(int documentId, string extractedText, ProcessedContent processedContent)
+        => new()
+        {
+            Success = true,
+            DocumentId = documentId,
+            ExtractedText = extractedText,
+            ProcessedContent = processedContent
+        };
+
+    public static SlideGenerationContext FromFolder(int folderProjectId, string extractedText, ProcessedContent processedContent)
+        => new()
+        {
+            Success = true,
+            FolderProjectId = folderProjectId,
+            ExtractedText = extractedText,
+            ProcessedContent = processedContent
+        };
+
+    public static SlideGenerationContext Fail(string error, string errorMessage)
+        => new()
+        {
+            Success = false,
+            Error = error,
+            ErrorMessage = errorMessage
+        };
 }

@@ -90,6 +90,127 @@ public static class EntityExtensions
         item.BodyJson = JsonSerializer.Serialize(bodyBlocks);
     }
 
+    public static SlideEditorState BuildDefaultEditorState(this SlideItem item)
+    {
+        return new SlideEditorState
+        {
+            LayoutVariant = item.SlideType switch
+            {
+                SlideItemType.Title => "cover",
+                SlideItemType.SectionDivider => "divider",
+                SlideItemType.Highlight => "highlight",
+                SlideItemType.Stat => "stat",
+                _ => "standard"
+            },
+            Title = new SlideTextBlockState
+            {
+                Text = item.Heading ?? string.Empty,
+                FontFamily = item.SlideType == SlideItemType.Title ? "Georgia" : "Trebuchet MS",
+                FontSize = item.SlideType == SlideItemType.Title ? 34 : 24,
+                Bold = true,
+                Align = "left"
+            },
+            Subtitle = new SlideTextBlockState
+            {
+                Text = item.Subheading ?? string.Empty,
+                FontFamily = "Segoe UI",
+                FontSize = 16,
+                Align = "left"
+            },
+            Goal = new SlideTextBlockState
+            {
+                Text = item.Goal ?? string.Empty,
+                FontFamily = "Segoe UI",
+                FontSize = 14,
+                Bold = true,
+                Align = "left"
+            },
+            Body = new SlideTextBlockState
+            {
+                Text = string.Join('\n', item.GetBodyBlocks()),
+                FontFamily = "Segoe UI",
+                FontSize = 18,
+                Align = "left",
+                Bullet = item.SlideType != SlideItemType.Quote
+            },
+            Notes = new SlideTextBlockState
+            {
+                Text = item.SpeakerNotes ?? string.Empty,
+                FontFamily = "Segoe UI",
+                FontSize = 14,
+                Align = "left"
+            }
+        };
+    }
+
+    public static SlideEditorState GetEditorState(this SlideItem item)
+    {
+        if (string.IsNullOrEmpty(item.EditorStateJson))
+            return item.BuildDefaultEditorState();
+
+        try
+        {
+            return NormalizeEditorState(JsonSerializer.Deserialize<SlideEditorState>(item.EditorStateJson), item);
+        }
+        catch
+        {
+            return item.BuildDefaultEditorState();
+        }
+    }
+
+    public static void SetEditorState(this SlideItem item, SlideEditorState? editorState)
+    {
+        item.EditorStateJson = JsonSerializer.Serialize(NormalizeEditorState(editorState, item));
+    }
+
+    public static void ApplyEditorState(this SlideItem item, SlideEditorState? editorState)
+    {
+        var normalized = NormalizeEditorState(editorState, item);
+        item.Heading = normalized.Title.Text;
+        item.Subheading = normalized.Subtitle.Text;
+        item.Goal = normalized.Goal.Text;
+        item.SpeakerNotes = normalized.Notes.Text;
+        item.SetBodyBlocks(normalized.Body.Text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(block => block.Trim())
+            .Where(block => !string.IsNullOrWhiteSpace(block))
+            .ToList());
+        item.SetEditorState(normalized);
+    }
+
+    private static SlideEditorState NormalizeEditorState(SlideEditorState? editorState, SlideItem item)
+    {
+        var fallback = item.BuildDefaultEditorState();
+        var source = editorState ?? fallback;
+
+        return new SlideEditorState
+        {
+            LayoutVariant = string.IsNullOrWhiteSpace(source.LayoutVariant) ? fallback.LayoutVariant : source.LayoutVariant.Trim(),
+            Title = NormalizeTextBlock(source.Title, fallback.Title),
+            Subtitle = NormalizeTextBlock(source.Subtitle, fallback.Subtitle),
+            Goal = NormalizeTextBlock(source.Goal, fallback.Goal),
+            Body = NormalizeTextBlock(source.Body, fallback.Body),
+            Notes = NormalizeTextBlock(source.Notes, fallback.Notes)
+        };
+    }
+
+    private static SlideTextBlockState NormalizeTextBlock(SlideTextBlockState? block, SlideTextBlockState fallback)
+    {
+        var source = block ?? fallback;
+
+        return new SlideTextBlockState
+        {
+            Text = source.Text ?? fallback.Text ?? string.Empty,
+            FontFamily = string.IsNullOrWhiteSpace(source.FontFamily) ? fallback.FontFamily : source.FontFamily.Trim(),
+            FontSize = source.FontSize <= 0 ? fallback.FontSize : source.FontSize,
+            Bold = source.Bold,
+            Italic = source.Italic,
+            Underline = source.Underline,
+            Align = string.IsNullOrWhiteSpace(source.Align) ? fallback.Align : source.Align.Trim().ToLowerInvariant(),
+            Bullet = source.Bullet
+        };
+    }
+
     public static List<string> GetVerifierIssues(this SlideItem item)
     {
         if (string.IsNullOrEmpty(item.VerifierIssuesJson))
@@ -101,6 +222,32 @@ public static class EntityExtensions
     public static void SetVerifierIssues(this SlideItem item, List<string> issues)
     {
         item.VerifierIssuesJson = JsonSerializer.Serialize(issues);
+    }
+
+    public static SlideImagePlan? GetImagePlan(this SlideItem item)
+    {
+        if (string.IsNullOrEmpty(item.ImagePlanJson))
+            return null;
+
+        return JsonSerializer.Deserialize<SlideImagePlan>(item.ImagePlanJson);
+    }
+
+    public static void SetImagePlan(this SlideItem item, SlideImagePlan? plan)
+    {
+        item.ImagePlanJson = plan == null ? null : JsonSerializer.Serialize(plan);
+    }
+
+    public static List<SlideImageCandidate> GetImageCandidates(this SlideItem item)
+    {
+        if (string.IsNullOrEmpty(item.ImageCandidatesJson))
+            return new List<SlideImageCandidate>();
+
+        return JsonSerializer.Deserialize<List<SlideImageCandidate>>(item.ImageCandidatesJson) ?? new List<SlideImageCandidate>();
+    }
+
+    public static void SetImageCandidates(this SlideItem item, List<SlideImageCandidate> candidates)
+    {
+        item.ImageCandidatesJson = JsonSerializer.Serialize(candidates ?? new List<SlideImageCandidate>());
     }
 
     // GameSession extensions

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, slideService } from '../services/api';
+import { buildSlideImageViewModel } from '../services/slideImages';
 
 const THEME_OPTIONS = [
   {
@@ -71,6 +72,8 @@ function SlideStudio() {
   const [deckBrief, setDeckBrief] = useState(DEFAULT_BRIEF);
   const [briefDirty, setBriefDirty] = useState(false);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
+  const [expandedMediaSlideId, setExpandedMediaSlideId] = useState(null);
+  const [mediaBusySlideId, setMediaBusySlideId] = useState(null);
 
   const loadDocument = useCallback(async () => {
     try {
@@ -254,6 +257,48 @@ function SlideStudio() {
     }
   };
 
+  const handleRefreshImages = async (item) => {
+    if (!deck) {
+      return;
+    }
+
+    try {
+      setMediaBusySlideId(item.id);
+      const updated = await slideService.refreshSlideItemImages(deck.id, item.id);
+      setDeck((current) => ({
+        ...current,
+        items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
+      }));
+      setFeedback(`Da cap nhat image candidates cho slide ${item.slideIndex}.`);
+    } catch (err) {
+      console.error(err);
+      setError('Khong refresh duoc image candidates cho slide nay.');
+    } finally {
+      setMediaBusySlideId(null);
+    }
+  };
+
+  const handleSelectImage = async (item, candidateKey) => {
+    if (!deck) {
+      return;
+    }
+
+    try {
+      setMediaBusySlideId(item.id);
+      const updated = await slideService.selectSlideItemImage(deck.id, item.id, candidateKey);
+      setDeck((current) => ({
+        ...current,
+        items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
+      }));
+      setFeedback(`Da chon anh cho slide ${item.slideIndex}.`);
+    } catch (err) {
+      console.error(err);
+      setError('Khong chon duoc anh cho slide nay.');
+    } finally {
+      setMediaBusySlideId(null);
+    }
+  };
+
   const formatEta = (seconds) => {
     if (typeof seconds !== 'number') {
       return 'Dang tinh ETA...';
@@ -339,6 +384,7 @@ function SlideStudio() {
     ? allPreviewItems.filter((item) => !item.quality?.isLowConfidence)
     : allPreviewItems;
   const completedSlides = previewItems.filter((item) => item.status === 'Completed').length;
+  const slidesWithSelectedMedia = allPreviewItems.filter((item) => buildSlideImageViewModel(item).selectedImage).length;
   const lowConfidenceCount = deck?.qualitySummary?.lowConfidenceCount
     ?? allPreviewItems.filter((item) => item.quality?.isLowConfidence).length;
 
@@ -545,6 +591,7 @@ function SlideStudio() {
               <span>{themeMeta.label}</span>
               <span>{deckBrief.audience}</span>
               <span>{deckBrief.tone}</span>
+              <span>{slidesWithSelectedMedia} media ready</span>
             </div>
           </section>
 
@@ -570,6 +617,9 @@ function SlideStudio() {
               const isEditing = editingSlideId === item.id;
               const draft = drafts[item.id];
               const hasContent = (item.bodyBlocks || []).length > 0;
+              const imageVm = buildSlideImageViewModel(item);
+              const isMediaOpen = expandedMediaSlideId === item.id;
+              const isMediaBusy = mediaBusySlideId === item.id;
 
               return (
                 <article key={item.id} className={`slide-preview-card gamma-slide-card slide-preview-${normalizeSlideType(item.slideType)} ${item.status?.toLowerCase?.() || ''}`}>
@@ -604,6 +654,27 @@ function SlideStudio() {
                       {item.subheading && <p className="slide-preview-subheading">{item.subheading}</p>}
                       {item.goal && <div className="slide-preview-goal">{item.goal}</div>}
 
+                      <div className={`slide-media-shell slide-media-shell-preview slide-media-shell-${imageVm.badgeTone}${imageVm.selectedImage ? ' has-image' : ''}`}>
+                        {imageVm.selectedImage?.localAssetUrl ? (
+                          <img src={imageVm.selectedImage.localAssetUrl} alt={imageVm.selectedImage.altText || item.heading || `Slide ${item.slideIndex}`} />
+                        ) : (
+                          <div className="slide-media-placeholder">
+                            <strong>{imageVm.badgeLabel}</strong>
+                            <span>{imageVm.statusLabel}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="slide-media-meta">
+                        <span className={`slide-media-badge tone-${imageVm.badgeTone}`}>{imageVm.badgeLabel}</span>
+                        {imageVm.selectedImage?.provider && (
+                          <span className="slide-media-source">{imageVm.selectedImage.provider}</span>
+                        )}
+                      </div>
+
+                      <p className="slide-media-helper">{imageVm.helperText}</p>
+                      {imageVm.attributionText && <p className="slide-media-attribution">{imageVm.attributionText}</p>}
+
                       {!hasContent && (item.status === 'Pending' || item.status === 'Generating') ? (
                         <div className="slide-skeleton">
                           <span></span>
@@ -634,13 +705,87 @@ function SlideStudio() {
                       )}
 
                       <div className="slide-preview-actions">
-                        {item.status === 'Completed' || hasContent ? (
-                          <button className="button button-secondary" onClick={() => handleEdit(item)}>Sua slide</button>
-                        ) : (
-                          <button className="button button-secondary" disabled>Dang cho noi dung</button>
-                        )}
+                        <div className="slide-preview-action-group">
+                          {item.status === 'Completed' || hasContent ? (
+                            <button className="button button-secondary" onClick={() => handleEdit(item)}>Sua slide</button>
+                          ) : (
+                            <button className="button button-secondary" disabled>Dang cho noi dung</button>
+                          )}
+                          <button
+                            className="button button-secondary"
+                            onClick={() => setExpandedMediaSlideId(isMediaOpen ? null : item.id)}
+                          >
+                            {isMediaOpen
+                              ? 'An media'
+                              : imageVm.needsImage
+                                ? (imageVm.hasCandidates || imageVm.selectedImage ? 'Doi anh' : 'Media zone')
+                                : 'Text-only'}
+                          </button>
+                          {imageVm.needsImage && (
+                            <button
+                              className="button button-secondary"
+                              onClick={() => handleRefreshImages(item)}
+                              disabled={isMediaBusy}
+                            >
+                              {isMediaBusy ? 'Dang tim anh...' : (imageVm.hasCandidates ? 'Tim lai anh' : 'Tim anh')}
+                            </button>
+                          )}
+                        </div>
                         <span className={`slide-status slide-status-${String(item.status || '').toLowerCase()}`}>{item.status}</span>
                       </div>
+
+                      {isMediaOpen && (
+                        <div className="slide-media-tray">
+                          <div className="slide-media-tray-head">
+                            <div>
+                              <strong>Media inspector scaffold</strong>
+                              <p>Slide {item.slideIndex} se dung tray nay de doi anh, bo anh, va xem attribution o cac phase tiep theo.</p>
+                            </div>
+                            <button className="button button-secondary" onClick={() => setExpandedMediaSlideId(null)}>
+                              Dong
+                            </button>
+                          </div>
+
+                          {imageVm.hasCandidates ? (
+                            <div className="slide-media-thumb-grid">
+                              {imageVm.candidates.map((candidate) => (
+                                <article key={candidate.key} className={`slide-media-thumb ${candidate.key === imageVm.selectedImage?.key ? 'selected' : ''}`}>
+                                  <div className="slide-media-thumb-figure">
+                                    {candidate.localAssetUrl ? (
+                                      <img src={candidate.localAssetUrl} alt={candidate.altText || `Candidate ${candidate.key}`} />
+                                    ) : (
+                                      <div className="slide-media-thumb-placeholder">No preview</div>
+                                    )}
+                                  </div>
+                                  <div className="slide-media-thumb-meta">
+                                    <span className={`slide-media-badge tone-${candidate.sourceType === 'generated' ? 'generated' : 'web'}`}>
+                                      {candidate.sourceType === 'generated' ? 'AI Generated' : 'Web'}
+                                    </span>
+                                    <strong>{candidate.provider}</strong>
+                                    {(candidate.licenseLabel || candidate.attributionText) && (
+                                      <small>{[candidate.licenseLabel, candidate.attributionText].filter(Boolean).join(' · ')}</small>
+                                    )}
+                                    <button
+                                      className="button button-secondary"
+                                      onClick={() => handleSelectImage(item, candidate.key)}
+                                      disabled={isMediaBusy || candidate.key === imageVm.selectedImage?.key}
+                                    >
+                                      {candidate.key === imageVm.selectedImage?.key ? 'Dang duoc chon' : 'Chon anh nay'}
+                                    </button>
+                                  </div>
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="slide-media-empty">
+                              <strong>Chua co image candidates</strong>
+                              <p>
+                                Bam <strong>Tim anh</strong> de lay anh web an toan nguon va luu candidate cho slide nay.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </article>

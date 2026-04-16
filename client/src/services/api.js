@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:3001/api';
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '/api').replace(/\/$/, '');
 export const documentService = {
   uploadDocument: async (file, userId, onProgress) => {
     const formData = new FormData();
@@ -38,6 +38,62 @@ export const documentService = {
 
   deleteDocument: async (id) => {
     await axios.delete(`${API_BASE_URL}/documents/${id}`);
+  },
+};
+
+export const folderService = {
+  createFolder: async ({ name, description, userId }) => {
+    const response = await axios.post(`${API_BASE_URL}/folders`, {
+      name,
+      description,
+      userId,
+    });
+    return response.data;
+  },
+
+  getUserFolders: async (userId) => {
+    const response = await axios.get(`${API_BASE_URL}/folders/user/${userId}`);
+    return response.data;
+  },
+
+  getFolder: async (id) => {
+    const response = await axios.get(`${API_BASE_URL}/folders/${id}`);
+    return response.data;
+  },
+
+  deleteFolder: async (id) => {
+    await axios.delete(`${API_BASE_URL}/folders/${id}`);
+  },
+
+  uploadSource: async (folderId, file, userId, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('userId', userId);
+
+    const response = await axios.post(`${API_BASE_URL}/folders/${folderId}/sources/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (onProgress) {
+          onProgress(percentCompleted);
+        }
+      },
+    });
+    return response.data;
+  },
+
+  getSources: async (folderId) => {
+    const response = await axios.get(`${API_BASE_URL}/folders/${folderId}/sources`);
+    return response.data;
+  },
+
+  updateSourceSelection: async (folderId, sourceId, includeInFolderSlides) => {
+    const response = await axios.put(`${API_BASE_URL}/folders/${folderId}/sources/${sourceId}/slide-selection`, {
+      includeInFolderSlides,
+    });
+    return response.data;
   },
 };
 
@@ -140,8 +196,29 @@ export const slideService = {
     return response.data;
   },
 
+  startGenerateSlidesForFolder: async (folderId, options = 8) => {
+    const payload = typeof options === 'number'
+      ? { desiredSlideCount: options }
+      : options;
+
+    const response = await axios.post(`${API_BASE_URL}/slides/folders/${folderId}/generate/start`, {
+      desiredSlideCount: payload?.desiredSlideCount || 8,
+      themeKey: payload?.themeKey,
+      audience: payload?.audience,
+      tone: payload?.tone,
+      narrativeGoal: payload?.narrativeGoal,
+      languageStyle: payload?.languageStyle,
+    });
+    return response.data;
+  },
+
   getDeckByDocument: async (documentId) => {
     const response = await axios.get(`${API_BASE_URL}/slides/document/${documentId}`);
+    return response.status === 204 ? null : response.data;
+  },
+
+  getDeckByFolder: async (folderId) => {
+    const response = await axios.get(`${API_BASE_URL}/slides/folders/${folderId}`);
     return response.status === 204 ? null : response.data;
   },
 
@@ -150,5 +227,18 @@ export const slideService = {
     return response.data;
   },
 
+  refreshSlideItemImages: async (deckId, itemId) => {
+    const response = await axios.post(`${API_BASE_URL}/slides/${deckId}/items/${itemId}/images/refresh`);
+    return response.data;
+  },
+
+  selectSlideItemImage: async (deckId, itemId, candidateKey) => {
+    const response = await axios.post(`${API_BASE_URL}/slides/${deckId}/items/${itemId}/images/select`, {
+      candidateKey,
+    });
+    return response.data;
+  },
+
   getDeckHtmlUrl: (documentId) => `${API_BASE_URL}/slides/document/${documentId}/html`,
+  getFolderDeckHtmlUrl: (folderId) => `${API_BASE_URL}/slides/folders/${folderId}/html`,
 };

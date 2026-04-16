@@ -50,6 +50,15 @@ public class Document
     [Column("status")]
     public DocumentStatus Status { get; set; } = DocumentStatus.Uploaded;
 
+    [Column("folder_project_id")]
+    public int? FolderProjectId { get; set; }
+
+    [Column("include_in_folder_slides")]
+    public bool IncludeInFolderSlides { get; set; }
+
+    [Column("folder_source_order")]
+    public int FolderSourceOrder { get; set; }
+
     [Required]
     [MaxLength(100)]
     [Column("uploaded_by")]
@@ -62,6 +71,9 @@ public class Document
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation properties
+    [ForeignKey("FolderProjectId")]
+    public virtual FolderProject? FolderProject { get; set; }
+
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
     public virtual ICollection<GameSession> GameSessions { get; set; } = new List<GameSession>();
     public virtual ICollection<SlideDeck> SlideDecks { get; set; } = new List<SlideDeck>();
