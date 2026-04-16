@@ -1,0 +1,258 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.app{display:flex;flex-direction:column;height:680px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;background:var(--color-background-primary);font-size:13px;color:var(--color-text-primary)}
+.topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:52px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary);flex-shrink:0}
+.main{display:grid;grid-template-columns:220px 1fr 200px;flex:1;overflow:hidden;min-height:0}
+.sidebar,.rpanel{overflow-y:auto;border-right:0.5px solid var(--color-border-tertiary)}
+.rpanel{border-right:none;border-left:0.5px solid var(--color-border-tertiary)}
+.center{display:flex;flex-direction:column;overflow:hidden}
+.toolbar{display:flex;align-items:center;gap:4px;padding:6px 12px;border-bottom:0.5px solid var(--color-border-tertiary);flex-shrink:0;flex-wrap:wrap}
+.canvas{flex:1;background:var(--color-background-tertiary);display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto}
+.slide-card{background:var(--color-background-primary);border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);width:100%;max-width:560px;min-height:320px;padding:32px 36px}
+.slide-thumb{display:flex;gap:8px;padding:8px 10px;border-radius:var(--border-radius-md);cursor:pointer;border:0.5px solid transparent}
+.slide-thumb.active{border-color:#7F77DD;background:#EEEDFE}
+.slide-thumb-img{width:64px;height:44px;border-radius:4px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px}
+.thumb-line{height:3px;border-radius:2px;background:var(--color-border-secondary);margin:0 6px}
+.src-item{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.src-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;font-weight:500}
+.badge{font-size:10px;padding:2px 6px;border-radius:var(--border-radius-md);font-weight:500}
+.tb-btn{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:4px;padding:4px 7px;font-size:12px;cursor:pointer;color:var(--color-text-primary);min-width:28px;text-align:center}
+.tb-sep{width:0.5px;height:18px;background:var(--color-border-tertiary);margin:0 2px}
+.rp-btn{display:flex;align-items:center;gap:8px;padding:8px 10px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:6px;cursor:pointer;background:var(--color-background-primary);width:100%;color:var(--color-text-primary);font-size:12px}
+.rp-btn:hover{background:var(--color-background-secondary)}
+.rp-primary{background:#7F77DD;border-color:#7F77DD;color:white}
+.rp-primary:hover{background:#534AB7;border-color:#534AB7}
+.rp-danger{border-color:var(--color-border-danger);color:var(--color-text-danger)}
+.rp-danger:hover{background:var(--color-background-danger)}
+.section-label{font-size:11px;font-weight:500;color:var(--color-text-secondary);padding:10px 10px 6px;text-transform:uppercase;letter-spacing:.4px}
+.ai-tag{font-size:10px;background:#EEEDFE;color:#3C3489;padding:2px 6px;border-radius:var(--border-radius-md);font-weight:500}
+.selected-box{border:1.5px solid #7F77DD;border-radius:4px;padding:2px 4px;background:#EEEDFE20}
+.ai-hint{background:#FAEEDA;border-radius:var(--border-radius-md);padding:8px 10px;margin-top:16px;font-size:12px;color:#633806;display:flex;gap:6px;align-items:flex-start}
+.spinning{animation:spin 1.5s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+
+<div class="app">
+  <div class="topbar">
+    <button class="tb-btn" style="padding:4px 8px">&#8592;</button>
+    <span style="font-weight:500;font-size:14px">Giáo án: Lịch sử Việt Nam thế kỷ XX</span>
+    <span style="color:var(--color-text-secondary);font-size:12px">6 slide</span>
+    <span style="color:var(--color-text-secondary);font-size:12px">|</span>
+    <span style="color:var(--color-text-secondary);font-size:12px">Cập nhật: 1 giờ trước</span>
+    <span style="color:var(--color-text-secondary);font-size:12px;display:flex;align-items:center;gap:4px"><span class="spinning" style="font-size:12px">&#9696;</span> Đang phân tích 3 nguồn...</span>
+    <div style="flex:1"></div>
+    <div style="width:28px;height:28px;border-radius:50%;background:#7F77DD;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:500">GV</div>
+    <button style="background:#7F77DD;border:none;border-radius:var(--border-radius-md);color:white;padding:6px 14px;font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="1" fill="white"/><rect x="7" y="1" width="4" height="4" rx="1" fill="white"/><rect x="1" y="7" width="4" height="4" rx="1" fill="white"/><rect x="7" y="7" width="4" height="4" rx="1" fill="white" opacity=".5"/></svg>
+      Mở Studio
+    </button>
+  </div>
+
+  <div class="main">
+    <div class="sidebar">
+      <div style="padding:8px 10px;border-bottom:0.5px solid var(--color-border-tertiary)">
+        <span style="font-weight:500;font-size:13px">Nguồn / Slides</span>
+      </div>
+      <div style="padding:8px 10px;border-bottom:0.5px solid var(--color-border-tertiary);display:flex;gap:6px">
+        <input type="text" placeholder="Filter" style="flex:1;font-size:12px;height:28px;border-radius:var(--border-radius-md)">
+        <button class="tb-btn">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3.5"/><line x1="8" y1="8" x2="11" y2="11"/></svg>
+        </button>
+      </div>
+      <div style="padding:8px 10px;border-bottom:0.5px solid var(--color-border-tertiary)">
+        <button class="rp-btn" style="margin:0;justify-content:center;font-weight:500">+ Thêm nguồn</button>
+      </div>
+      <div class="src-item">
+        <div class="src-icon" style="background:#FCEBEB;color:#A32D2D">PDF</div>
+        <div style="flex:1;min-width:0">
+          <p style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sách Giáo Khoa Lịch Sử 12.pdf</p>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+            <span class="badge" style="background:#EAF3DE;color:#27500A">98%</span>
+            <span style="font-size:11px;color:var(--color-text-secondary)">Đã phân tích</span>
+          </div>
+        </div>
+      </div>
+      <div class="src-item">
+        <div class="src-icon" style="background:#E6F1FB;color:#0C447C">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="10" rx="1.5" stroke="#0C447C" stroke-width="1.2"/><line x1="3" y1="5" x2="11" y2="5" stroke="#0C447C" stroke-width="1"/><line x1="3" y1="7" x2="8" y2="7" stroke="#0C447C" stroke-width="1"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <p style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Bài viết Cách mạng tháng Tám.docx</p>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:2px">
+            <span class="badge" style="background:#FAEEDA;color:#633806">60%</span>
+            <span style="font-size:11px;color:var(--color-text-secondary)">Đang OCR...</span>
+          </div>
+        </div>
+      </div>
+      <div class="src-item">
+        <div class="src-icon" style="background:#FCEBEB;color:#A32D2D">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect width="14" height="14" rx="3" fill="#E24B4A"/><polygon points="5.5,4 10,7 5.5,10" fill="white"/></svg>
+        </div>
+        <div style="flex:1">
+          <p style="font-size:12px;font-weight:500">Link Video YouTube Điện Biên Phủ</p>
+          <div style="margin-top:2px"><span class="badge" style="background:#EAF3DE;color:#27500A">Sẵn sàng</span></div>
+        </div>
+      </div>
+      <div style="padding:8px 10px;border-top:0.5px solid var(--color-border-tertiary)">
+        <p style="font-weight:500;font-size:11px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">[Cấu trúc Slide]</p>
+      </div>
+      <div id="s1" class="slide-thumb" onclick="selectSlide(1)">
+        <div class="slide-thumb-img"><div class="thumb-line" style="width:80%"></div><div class="thumb-line" style="width:60%"></div><div class="thumb-line" style="width:40%"></div></div>
+        <div><p style="font-size:11px;font-weight:500">Slide 1: Giới thiệu</p><p style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">Giáo Án: Lịch sử Việt Nam đầu TK XX</p></div>
+      </div>
+      <div id="s2" class="slide-thumb active" onclick="selectSlide(2)">
+        <div class="slide-thumb-img" style="background:#EEEDFE"><div class="thumb-line" style="width:80%;background:#AFA9EC"></div><div class="thumb-line" style="width:60%;background:#AFA9EC"></div><div class="thumb-line" style="width:40%;background:#AFA9EC"></div></div>
+        <div><p style="font-size:11px;font-weight:500;color:#3C3489">Slide 2: Bối cảnh</p><p style="font-size:10px;color:#534AB7;margin-top:2px">Sự cai trị, Phong trào yêu nước...</p></div>
+      </div>
+      <div id="s3" class="slide-thumb" onclick="selectSlide(3)">
+        <div class="slide-thumb-img"><div class="thumb-line" style="width:80%"></div><div class="thumb-line" style="width:60%"></div><div class="thumb-line" style="width:40%"></div></div>
+        <div><p style="font-size:11px;font-weight:500">Slide 3: Nổi cảnh</p><p style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">Sự cai trị, Phong trào yêu nước...</p></div>
+      </div>
+      <div id="s4" class="slide-thumb" onclick="selectSlide(4)">
+        <div class="slide-thumb-img"><div class="thumb-line" style="width:70%"></div><div class="thumb-line" style="width:50%"></div><div class="thumb-line" style="width:35%"></div></div>
+        <div><p style="font-size:11px;font-weight:500">Slide 4: Tứ hội</p><p style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">Sự cai trị, Phong trào yêu nước...</p></div>
+      </div>
+      <div id="s5" class="slide-thumb" onclick="selectSlide(5)">
+        <div class="slide-thumb-img"><div class="thumb-line" style="width:75%"></div><div class="thumb-line" style="width:55%"></div><div class="thumb-line" style="width:30%"></div></div>
+        <div><p style="font-size:11px;font-weight:500">Slide 5: Bối hiện</p><p style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">Sự cai trị, Phong trào yêu nước...</p></div>
+      </div>
+      <div id="s6" class="slide-thumb" onclick="selectSlide(6)">
+        <div class="slide-thumb-img"><div class="thumb-line" style="width:80%"></div><div class="thumb-line" style="width:60%"></div></div>
+        <div><p style="font-size:11px;font-weight:500">Slide 6: Giới thiệu</p><p style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">...</p></div>
+      </div>
+    </div>
+
+    <div class="center">
+      <div class="toolbar">
+        <select style="font-size:12px;height:26px;border-radius:4px;padding:0 4px"><option>Font</option><option>Times New Roman</option><option>Arial</option></select>
+        <select style="font-size:12px;height:26px;border-radius:4px;width:44px;padding:0 2px"><option>12</option><option>14</option><option>16</option><option>18</option><option>24</option></select>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" style="font-weight:700">B</button>
+        <button class="tb-btn" style="font-style:italic">I</button>
+        <button class="tb-btn" style="text-decoration:underline">U</button>
+        <button class="tb-btn">A</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn">&#8676;</button>
+        <button class="tb-btn">&#8614;</button>
+        <button class="tb-btn">&#8596;</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn">&#9776;</button>
+        <button class="tb-btn">&#8801;</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="11" height="9" rx="1.5"/><path d="M1 7l3-3 3 3 2-2 3 2"/></svg>
+        </button>
+        <button class="tb-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 5l4 4 5-6"/></svg>
+        </button>
+        <button class="tb-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="5" height="5" rx=".5"/><rect x="7" y="1" width="5" height="5" rx=".5"/><rect x="1" y="7" width="5" height="5" rx=".5"/><rect x="7" y="7" width="5" height="5" rx=".5"/></svg>
+        </button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn">&#9654;</button>
+        <button class="tb-btn">&#8943;</button>
+        <button class="tb-btn">&#9633;</button>
+      </div>
+
+      <div class="canvas">
+        <div class="slide-card">
+          <div style="display:flex;gap:20px;align-items:flex-start">
+            <div style="flex:1">
+              <h2 style="font-size:22px;font-weight:500;line-height:1.3;margin-bottom:20px;color:var(--color-text-primary)">Slide 2: Bối cảnh Lịch sử Việt Nam đầu TK XX</h2>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <p style="font-size:15px">1. Sự cai trị của thực dân Pháp</p>
+                <div class="selected-box">
+                  <p style="font-size:15px;color:#3C3489">2. Các phong trào yêu nước</p>
+                </div>
+                <p style="font-size:15px">3. Chuyển biến kinh tế - xã hội</p>
+              </div>
+            </div>
+            <div style="width:100px;height:80px;border-radius:var(--border-radius-md);background:#EAF3DE;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;border:0.5px solid var(--color-border-tertiary)">
+              <div style="font-size:10px;font-weight:500;color:#3B6D11;text-align:center;padding:4px">HÀ NỘI</div>
+              <div style="width:40px;height:40px;background:#C0DD97;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px">&#127981;</div>
+            </div>
+          </div>
+          <div class="ai-hint">
+            <span style="font-size:14px">&#128161;</span>
+            <span>AI Gợi ý: Làm nổi bật tác động xã hội của chính sách cai trị.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rpanel">
+      <div style="padding:10px 10px 6px;border-bottom:0.5px solid var(--color-border-tertiary)">
+        <span style="font-weight:500;font-size:13px">Studio / Hành động</span>
+      </div>
+      <div style="padding:8px 10px">
+        <div class="section-label">Tạo mới</div>
+        <button class="rp-btn rp-primary">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="white"/><rect x="7" y="1" width="5" height="5" rx="1" fill="white"/><rect x="1" y="7" width="5" height="5" rx="1" fill="white"/></svg>
+          Tạo slide mới từ nội dung
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6.5" cy="6.5" r="5.5"/><line x1="6.5" y1="4" x2="6.5" y2="9"/><line x1="4" y1="6.5" x2="9" y2="6.5"/></svg>
+          Tạo câu hỏi ôn tập
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="11" height="11" rx="1.5"/><line x1="4" y1="5" x2="9" y2="5"/><line x1="4" y1="8" x2="7" y2="8"/></svg>
+          Tạo Quiz tương tác
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="1" width="9" height="11" rx="1.5"/><line x1="4" y1="4" x2="9" y2="4"/><line x1="4" y1="6.5" x2="9" y2="6.5"/><line x1="4" y1="9" x2="7" y2="9"/></svg>
+          Tạo Flashcards tự động
+        </button>
+
+        <div class="section-label" style="margin-top:8px">Phân tích &amp; Tóm tắt</div>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><line x1="1" y1="10" x2="4" y2="6"/><line x1="4" y1="6" x2="7" y2="8"/><line x1="7" y1="8" x2="12" y2="3"/></svg>
+          Tóm tắt nội dung
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M6.5 2C4 2 2 4 2 6.5S4 11 6.5 11 11 9 11 6.5"/><path d="M9 2l2 2-2 2"/></svg>
+          Phân tích ý chính
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6.5" cy="6.5" r="2"/><line x1="6.5" y1="1" x2="6.5" y2="3.5"/><line x1="6.5" y1="9.5" x2="6.5" y2="12"/><line x1="1" y1="6.5" x2="3.5" y2="6.5"/><line x1="9.5" y1="6.5" x2="12" y2="6.5"/></svg>
+          Xây dựng sơ đồ tư duy
+        </button>
+
+        <div class="section-label" style="margin-top:8px">Xuất bản &amp; Chia sẻ</div>
+        <button class="rp-btn" style="justify-content:space-between">
+          <span style="display:flex;align-items:center;gap:8px">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M6.5 8V1M3.5 5l3-4 3 4"/><rect x="1" y="9" width="11" height="3" rx="1"/></svg>
+            Tải xuống PDF
+          </span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3 5h4M5 3l2 2-2 2"/></svg>
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="11" height="11" rx="1.5"/><path d="M4 5l2 2 4-4"/></svg>
+          Xuất PowerPoint
+        </button>
+        <button class="rp-btn">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5 6.5a2.5 2.5 0 005 0 2.5 2.5 0 00-5 0"/><path d="M1 6.5S3.5 2 6.5 2s5.5 4.5 5.5 4.5S9.5 11 6.5 11 1 6.5 1 6.5z"/></svg>
+          Chia sẻ liên kết
+        </button>
+
+        <div class="section-label" style="margin-top:8px">Quản trị</div>
+        <button class="rp-btn rp-danger">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.2"><polyline points="1,3 12,3"/><path d="M5 3V2h3v1"/><rect x="2" y="3" width="9" height="8" rx="1"/><line x1="5" y1="6" x2="5" y2="9"/><line x1="8" y1="6" x2="8" y2="9"/></svg>
+          Xóa tài liệu
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function selectSlide(n){
+  for(let i=1;i<=6;i++){
+    const el=document.getElementById('s'+i);
+    el.classList.remove('active');
+    el.querySelector('p').style.color='';
+  }
+  const active=document.getElementById('s'+n);
+  active.classList.add('active');
+}
+</script>

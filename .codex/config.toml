@@ -1,0 +1,12 @@
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+personality = "friendly"
+
+[windows]
+sandbox = "unelevated"
+
+[features]
+multi_agent = true
+
+[plugins."github@openai-curated"]
+enabled = true

@@ -89,11 +89,13 @@ src/
   ELearnGamePlatform.Infrastructure/  EF Core, repositories, external integrations
   ELearnGamePlatform.Services/        OCR, document processing, AI services
 client/                               React frontend
+docs/
+  guides/                            Tai lieu huong dan va tham chieu chinh
+  working-notes/                     Note thiet ke, checklist, research tam thoi
 poppler-25.12.0/                      Poppler bundled cho OCR PDF scan
 README.md
-ARCHITECTURE.md
-RUN_GUIDE.md
-ROADMAP.md
+AGENTS.md
+PLANS.md
 ```
 
 ## 6. Yeu cau moi truong
@@ -302,11 +304,12 @@ Nen xem repo hien tai nhu:
 
 Thu tu uu tien gan nhat da duoc cap nhat trong:
 
-- [ROADMAP.md](./ROADMAP.md)
+- [ROADMAP.md](./docs/guides/ROADMAP.md)
 
 ## 14. Tai lieu lien quan
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md)
-- [RUN_GUIDE.md](./RUN_GUIDE.md)
-- [FRONTEND_HANDOFF.md](./FRONTEND_HANDOFF.md)
-- [ROADMAP.md](./ROADMAP.md)
+- [Docs Index](./docs/README.md)
+- [ARCHITECTURE.md](./docs/guides/ARCHITECTURE.md)
+- [RUN_GUIDE.md](./docs/guides/RUN_GUIDE.md)
+- [FRONTEND_HANDOFF.md](./docs/guides/FRONTEND_HANDOFF.md)
+- [ROADMAP.md](./docs/guides/ROADMAP.md)
