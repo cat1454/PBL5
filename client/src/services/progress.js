@@ -16,6 +16,7 @@ export const normalizeProgressState = (raw, fallback = {}) => {
   const progress = {
     jobId: normalizeString(source.jobId || source.JobId, normalizeString(base.jobId)),
     documentId: normalizeOptionalNumber(source.documentId ?? source.DocumentId ?? base.documentId),
+    folderProjectId: normalizeOptionalNumber(source.folderProjectId ?? source.FolderProjectId ?? base.folderProjectId),
     slideDeckId: normalizeOptionalNumber(source.slideDeckId ?? source.SlideDeckId ?? base.slideDeckId),
     status: normalizeString(source.status, normalizeString(base.status, 'queued')).toLowerCase() || 'queued',
     stage: normalizeString(source.stage, normalizeString(base.stage, 'queued')),

@@ -24,6 +24,7 @@ public class DocumentRepository : IDocumentRepository
     public async Task<Document?> GetByIdAsync(int id)
     {
         return await _context.Documents
+            .Include(d => d.FolderProject)
             .Include(d => d.Questions)
             .Include(d => d.GameSessions)
             .FirstOrDefaultAsync(d => d.Id == id);
@@ -40,9 +41,29 @@ public class DocumentRepository : IDocumentRepository
     {
         return await _context.Documents
             .Include(d => d.Questions)
-            .Where(d => d.UploadedBy == userId)
+            .Where(d => d.UploadedBy == userId && d.FolderProjectId == null)
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Document>> GetByFolderProjectIdAsync(int folderProjectId)
+    {
+        return await _context.Documents
+            .Include(d => d.Questions)
+            .Where(d => d.FolderProjectId == folderProjectId)
+            .OrderBy(d => d.FolderSourceOrder)
+            .ThenBy(d => d.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<int> GetNextFolderSourceOrderAsync(int folderProjectId)
+    {
+        var maxOrder = await _context.Documents
+            .Where(d => d.FolderProjectId == folderProjectId)
+            .Select(d => (int?)d.FolderSourceOrder)
+            .MaxAsync();
+
+        return (maxOrder ?? 0) + 1;
     }
 
     public async Task<bool> UpdateAsync(int id, Document document)

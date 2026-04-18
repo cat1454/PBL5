@@ -12,9 +12,18 @@ using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
 using ELearnGamePlatform.Services.OCR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = ResolveContentRoot()
+});
 builder.WebHost.UseUrls("http://localhost:5001");
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 
 // Add services to the container
 builder.Services.AddControllers()
@@ -36,12 +45,15 @@ builder.Services.Configure<OllamaSettings>(
     builder.Configuration.GetSection("OllamaSettings"));
 builder.Services.Configure<FileUploadSettings>(
     builder.Configuration.GetSection(FileUploadSettings.SectionName));
+builder.Services.Configure<ImagePipelineSettings>(
+    builder.Configuration.GetSection(ImagePipelineSettings.SectionName));
 
 // Register HttpClient for Ollama
 builder.Services.AddHttpClient<IOllamaService, OllamaService>();
 
 // Register Repositories
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
+builder.Services.AddScoped<IFolderProjectRepository, FolderProjectRepository>();
 builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
 builder.Services.AddScoped<IGameSessionRepository, GameSessionRepository>();
 builder.Services.AddScoped<ISlideDeckRepository, SlideDeckRepository>();
@@ -54,6 +66,12 @@ builder.Services.AddScoped<IDocumentProcessor, ImageProcessor>();
 builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
+builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
+builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
+{
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");
+    client.Timeout = TimeSpan.FromSeconds(45);
+});
 builder.Services.AddSingleton<IDocumentProcessingJobStore, DocumentProcessingJobStore>();
 builder.Services.AddSingleton<IQuestionGenerationJobStore, QuestionGenerationJobStore>();
 builder.Services.AddSingleton<ISlideGenerationJobStore, SlideGenerationJobStore>();
@@ -97,7 +115,7 @@ using (var scope = app.Services.CreateScope())
         }
 
         dbContext.Database.Migrate();
-        //ValidateCriticalSchema(dbContext);
+        ValidateCriticalSchema(dbContext);
     }
     catch (Exception ex)
     {
@@ -116,16 +134,20 @@ using (var scope = app.Services.CreateScope())
 //app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
 app.UseCors("AllowAll");
-app.UseAuthorization();
-app.UseCors("AllowAll");
-app.MapControllers();
-
-// Create uploads directory if it doesn't exist
-var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
 if (!Directory.Exists(uploadsPath))
 {
     Directory.CreateDirectory(uploadsPath);
 }
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsPath),
+    RequestPath = "/uploads"
+});
+app.UseAuthorization();
+app.UseCors("AllowAll");
+app.MapControllers();
 
 app.Run();
 
@@ -182,4 +204,32 @@ limit 1;";
         throw new InvalidOperationException(
             $"Database schema mismatch: missing column public.{tableName}.{columnName}. Run migrations before starting the API.");
     }
+}
+
+static string ResolveContentRoot()
+{
+    var currentDirectory = Directory.GetCurrentDirectory();
+    if (File.Exists(Path.Combine(currentDirectory, "appsettings.json")))
+    {
+        return currentDirectory;
+    }
+
+    var baseDirectory = AppContext.BaseDirectory;
+    if (File.Exists(Path.Combine(baseDirectory, "appsettings.json")))
+    {
+        return baseDirectory;
+    }
+
+    var directory = new DirectoryInfo(baseDirectory);
+    while (directory is not null)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "appsettings.json")))
+        {
+            return directory.FullName;
+        }
+
+        directory = directory.Parent;
+    }
+
+    return currentDirectory;
 }

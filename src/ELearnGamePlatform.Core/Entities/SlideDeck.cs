@@ -10,9 +10,11 @@ public class SlideDeck
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public int Id { get; set; }
 
-    [Required]
     [Column("document_id")]
-    public int DocumentId { get; set; }
+    public int? DocumentId { get; set; }
+
+    [Column("folder_project_id")]
+    public int? FolderProjectId { get; set; }
 
     [Column("status")]
     public SlideDeckStatus Status { get; set; } = SlideDeckStatus.Queued;
@@ -43,6 +45,9 @@ public class SlideDeck
 
     [ForeignKey("DocumentId")]
     public virtual Document? Document { get; set; }
+
+    [ForeignKey("FolderProjectId")]
+    public virtual FolderProject? FolderProject { get; set; }
 
     public virtual ICollection<SlideItem> Items { get; set; } = new List<SlideItem>();
 }
@@ -82,6 +87,9 @@ public class SlideItem
     [Column("body")]
     public string? BodyJson { get; set; }
 
+    [Column("editor_state")]
+    public string? EditorStateJson { get; set; }
+
     [Column("speaker_notes")]
     public string? SpeakerNotes { get; set; }
 
@@ -94,6 +102,16 @@ public class SlideItem
 
     [Column("verifier_issues")]
     public string? VerifierIssuesJson { get; set; }
+
+    [Column("image_plan")]
+    public string? ImagePlanJson { get; set; }
+
+    [Column("image_candidates")]
+    public string? ImageCandidatesJson { get; set; }
+
+    [MaxLength(160)]
+    [Column("selected_image_key")]
+    public string? SelectedImageKey { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

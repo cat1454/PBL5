@@ -51,10 +51,48 @@ public class SlideDeckRepository : ISlideDeckRepository
         return await GetByIdAsync(deck.Id) ?? deck;
     }
 
+    public async Task<SlideDeck> ReplaceForFolderAsync(SlideDeck deck, IEnumerable<SlideItem>? items = null)
+    {
+        var itemList = (items ?? Array.Empty<SlideItem>()).ToList();
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        var existingDecks = await _context.SlideDecks
+            .Include(existing => existing.Items)
+            .Where(existing => existing.FolderProjectId == deck.FolderProjectId)
+            .ToListAsync();
+
+        if (existingDecks.Any())
+        {
+            _context.SlideItems.RemoveRange(existingDecks.SelectMany(existing => existing.Items));
+            _context.SlideDecks.RemoveRange(existingDecks);
+            await _context.SaveChangesAsync();
+        }
+
+        _context.SlideDecks.Add(deck);
+        await _context.SaveChangesAsync();
+
+        if (itemList.Any())
+        {
+            foreach (var item in itemList)
+            {
+                item.SlideDeckId = deck.Id;
+            }
+
+            _context.SlideItems.AddRange(itemList);
+            await _context.SaveChangesAsync();
+        }
+
+        await transaction.CommitAsync();
+
+        return await GetByIdAsync(deck.Id) ?? deck;
+    }
+
     public async Task<SlideDeck?> GetByIdAsync(int id)
     {
         var deck = await _context.SlideDecks
             .Include(deck => deck.Document)
+            .Include(deck => deck.FolderProject)
             .Include(deck => deck.Items)
             .FirstOrDefaultAsync(deck => deck.Id == id);
 
@@ -70,8 +108,27 @@ public class SlideDeckRepository : ISlideDeckRepository
     {
         var deck = await _context.SlideDecks
             .Include(deck => deck.Document)
+            .Include(deck => deck.FolderProject)
             .Include(deck => deck.Items)
             .Where(deck => deck.DocumentId == documentId)
+            .OrderByDescending(deck => deck.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (deck?.Items != null)
+        {
+            deck.Items = deck.Items.OrderBy(item => item.SlideIndex).ToList();
+        }
+
+        return deck;
+    }
+
+    public async Task<SlideDeck?> GetLatestByFolderIdAsync(int folderProjectId)
+    {
+        var deck = await _context.SlideDecks
+            .Include(deck => deck.Document)
+            .Include(deck => deck.FolderProject)
+            .Include(deck => deck.Items)
+            .Where(deck => deck.FolderProjectId == folderProjectId)
             .OrderByDescending(deck => deck.CreatedAt)
             .FirstOrDefaultAsync();
 

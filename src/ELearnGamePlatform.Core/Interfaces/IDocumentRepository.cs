@@ -8,6 +8,8 @@ public interface IDocumentRepository
     Task<Document?> GetByIdAsync(int id);
     Task<IEnumerable<Document>> GetAllAsync();
     Task<IEnumerable<Document>> GetByUserAsync(string userId);
+    Task<IEnumerable<Document>> GetByFolderProjectIdAsync(int folderProjectId);
+    Task<int> GetNextFolderSourceOrderAsync(int folderProjectId);
     Task<bool> UpdateAsync(int id, Document document);
     Task<bool> DeleteAsync(int id);
 }

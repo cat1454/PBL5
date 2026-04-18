@@ -12,6 +12,7 @@ public class ApplicationDbContext : DbContext
     }
 
     public DbSet<Document> Documents { get; set; }
+    public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
     public DbSet<GameSession> GameSessions { get; set; }
     public DbSet<SlideDeck> SlideDecks { get; set; }
@@ -21,6 +22,24 @@ public class ApplicationDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.Entity<FolderProject>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UploadedBy);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.UpdatedAt);
+
+            entity.HasMany(folder => folder.Documents)
+                .WithOne(document => document.FolderProject)
+                .HasForeignKey(document => document.FolderProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(folder => folder.SlideDecks)
+                .WithOne(deck => deck.FolderProject)
+                .HasForeignKey(deck => deck.FolderProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         // Document configuration
         modelBuilder.Entity<Document>(entity =>
         {
@@ -28,6 +47,8 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.UploadedBy);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.FolderProjectId);
+            entity.HasIndex(e => new { e.FolderProjectId, e.FolderSourceOrder });
 
             entity.Property(e => e.ExtractedText)
                 .HasColumnType("text");
@@ -98,7 +119,9 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.FolderProjectId);
             entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
+            entity.HasIndex(e => new { e.FolderProjectId, e.CreatedAt });
             entity.HasIndex(e => e.Status);
 
             entity.Property(e => e.OutlineJson)
@@ -124,6 +147,15 @@ public class ApplicationDbContext : DbContext
                 .HasColumnType("text");
 
             entity.Property(e => e.VerifierIssuesJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.ImagePlanJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.ImageCandidatesJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.EditorStateJson)
                 .HasColumnType("jsonb");
         });
     }

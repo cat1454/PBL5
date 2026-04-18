@@ -1,8 +1,113 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService, questionService, slideService } from '../services/api';
-import AnalysisContent from './AnalysisContent';
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getDocumentKind(fileName = '') {
+  const lower = fileName.toLowerCase();
+
+  if (lower.endsWith('.pdf')) {
+    return { label: 'PDF', tone: 'pdf' };
+  }
+
+  if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
+    return { label: 'DOC', tone: 'doc' };
+  }
+
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp')) {
+    return { label: 'IMG', tone: 'image' };
+  }
+
+  return { label: 'FILE', tone: 'file' };
+}
+
+function ProgressPanel({ tone, kicker, title, summary, metaLines = [], percent = 0, subprogress = null }) {
+  return (
+    <section className={`documents-progress-card tone-${tone}`}>
+      <div className="documents-progress-head">
+        <div>
+          <span className="documents-progress-kicker">{kicker}</span>
+          <strong>{title}</strong>
+        </div>
+        <span className="documents-progress-percent">{Math.max(0, Math.min(100, percent))}%</span>
+      </div>
+
+      {summary && <p className="documents-progress-summary">{summary}</p>}
+
+      {metaLines.length > 0 && (
+        <div className="documents-progress-meta">
+          {metaLines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      )}
+
+      <div className="documents-progress-bar">
+        <div className="documents-progress-fill" style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}></div>
+      </div>
+
+      {subprogress !== null && (
+        <div className="documents-progress-subbar">
+          <div className="documents-progress-subfill" style={{ width: `${Math.max(0, Math.min(100, subprogress))}%` }}></div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SourceItem({ doc, active, statusMeta, onClick }) {
+  const kind = getDocumentKind(doc.fileName);
+
+  return (
+    <button type="button" className={`documents-source-item${active ? ' active' : ''}`} onClick={onClick}>
+      <div className={`documents-source-icon tone-${kind.tone}`}>{kind.label}</div>
+      <div className="documents-source-copy">
+        <p>{doc.fileName}</p>
+        <div className="documents-source-meta">
+          <span className={`documents-source-badge tone-${statusMeta.tone}`}>{statusMeta.label}</span>
+          <span>{statusMeta.detail}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function FlowItem({ title, detail, active, onClick, ready = false, working = false }) {
+  return (
+    <button type="button" className={`documents-flow-item${active ? ' active' : ''}`} onClick={onClick}>
+      <div className="documents-flow-thumb">
+        <div className="documents-flow-line w-80"></div>
+        <div className="documents-flow-line w-60"></div>
+        <div className="documents-flow-line w-42"></div>
+      </div>
+      <div className="documents-flow-copy">
+        <p>{title}</p>
+        <span>{detail}</span>
+      </div>
+      <span className={`documents-flow-state${ready ? ' ready' : ''}${working ? ' working' : ''}`}>
+        {working ? 'Live' : ready ? 'Ready' : 'Draft'}
+      </span>
+    </button>
+  );
+}
+
+function ActionButton({ label, detail, onClick, disabled = false, tone = 'default', badge = '' }) {
+  return (
+    <button
+      type="button"
+      className={`documents-action-button tone-${tone}${disabled ? ' is-disabled' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <div className="documents-action-copy">
+        <strong>{label}</strong>
+        {detail && <span>{detail}</span>}
+      </div>
+      {badge && <span className="documents-action-badge">{badge}</span>}
+    </button>
+  );
+}
 
 function DocumentList() {
   const [documents, setDocuments] = useState([]);
@@ -16,7 +121,9 @@ function DocumentList() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
+  const [studioView, setStudioView] = useState('overview');
+  const [filterValue, setFilterValue] = useState('');
   const navigate = useNavigate();
 
   const loadDocuments = useCallback(async (options = {}) => {
@@ -27,8 +134,7 @@ function DocumentList() {
     }
 
     try {
-      const userId = 'demo-user'; // In real app, get from auth context
-      const docs = await documentService.getUserDocuments(userId);
+      const docs = await documentService.getUserDocuments('demo-user');
       setDocuments(docs);
       setLastUpdated(new Date());
     } catch (err) {
@@ -45,14 +151,6 @@ function DocumentList() {
   }, [loadDocuments]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     const syncSlideDecks = async () => {
@@ -67,9 +165,7 @@ function DocumentList() {
         return;
       }
 
-      const results = await Promise.allSettled(
-        targetDocuments.map((doc) => slideService.getDeckByDocument(doc.id))
-      );
+      const results = await Promise.allSettled(targetDocuments.map((doc) => slideService.getDeckByDocument(doc.id)));
 
       if (cancelled) {
         return;
@@ -87,7 +183,6 @@ function DocumentList() {
             } else {
               delete next[documentId];
             }
-            return;
           }
         });
 
@@ -116,20 +211,21 @@ function DocumentList() {
     };
   }, [documents, slideDeckAvailability, slideDecks, slideGenerating]);
 
-  // Auto-refresh when documents are being processed
   useEffect(() => {
-    const hasProcessingDocs = documents.some(doc => doc.status >= 0 && doc.status <= 2);
+    const hasProcessingDocs = documents.some((doc) => doc.status >= 0 && doc.status <= 2);
     const hasGeneratingSlides = Object.values(slideGenerating).some((state) => state?.running)
       || Object.values(slideDecks).some((deck) =>
         ['queued', 'running'].includes(String(deck?.generationProgress?.status || '').toLowerCase()));
-    
+
     if (hasProcessingDocs || hasGeneratingSlides) {
       const interval = setInterval(() => {
-        loadDocuments();
-      }, 3000); // Refresh every 3 seconds
+        loadDocuments({ silent: true });
+      }, 3000);
 
       return () => clearInterval(interval);
     }
+
+    return undefined;
   }, [documents, loadDocuments, slideDecks, slideGenerating]);
 
   const handleGenerateQuestions = async (documentId) => {
@@ -148,7 +244,6 @@ function DocumentList() {
     try {
       const startResult = await questionService.startGenerateQuestions(documentId, 5);
       const jobId = startResult.jobId;
-
       const pollStartedAt = Date.now();
       const pollTimeoutMs = 5 * 60 * 1000;
       let completed = false;
@@ -184,7 +279,7 @@ function DocumentList() {
           completed = true;
           setFeedback({
             type: 'success',
-            text: `Da tao xong bo cau hoi moi (${progressState.questionsGenerated || 0} cau). Ban co the vao Quiz hoac Flashcards ngay bay gio.`,
+            text: `Da tao xong bo cau hoi moi (${progressState.questionsGenerated || 0} cau).`,
           });
           await loadDocuments({ silent: true });
           break;
@@ -197,7 +292,7 @@ function DocumentList() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({ type: 'error', text: 'Khong tao duoc cau hoi. Vui long thu lai va kiem tra backend log/progress.' });
+      setFeedback({ type: 'error', text: 'Khong tao duoc cau hoi. Vui long thu lai.' });
       console.error(err);
     } finally {
       setGenerating((current) => {
@@ -223,12 +318,11 @@ function DocumentList() {
       ...current,
       [documentId]: true,
     }));
-    setFeedback({ type: 'info', text: 'Dang tao slide deck va se hien dan ngay trong danh sach tai lieu.' });
+    setFeedback({ type: 'info', text: 'Dang tao slide deck tu noi dung tai lieu.' });
 
     try {
       const startResult = await slideService.startGenerateSlides(documentId, 8);
       const jobId = startResult.jobId;
-
       const pollStartedAt = Date.now();
       const pollTimeoutMs = 8 * 60 * 1000;
       let completed = false;
@@ -281,10 +375,7 @@ function DocumentList() {
 
         if (progressState.status === 'completed') {
           completed = true;
-          setFeedback({
-            type: 'success',
-            text: `Da tao xong slide deck. Slide se tiep tuc hien trong card nay va co the mo Slide Studio de sua chi tiet.`,
-          });
+          setFeedback({ type: 'success', text: 'Da tao xong slide deck va san sang mo Studio.' });
           await loadDocuments({ silent: true });
           break;
         }
@@ -296,7 +387,7 @@ function DocumentList() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({ type: 'error', text: 'Khong tao duoc slide deck. Vui long kiem tra progress va backend log.' });
+      setFeedback({ type: 'error', text: 'Khong tao duoc slide deck. Vui long kiem tra log backend.' });
       console.error(err);
     } finally {
       setSlideGenerating((current) => {
@@ -319,31 +410,106 @@ function DocumentList() {
     }
   };
 
-  const handleViewAnalysis = (doc) => {
-    setShowAnalysis(doc);
-  };
-
   const closeAnalysisModal = () => {
     setShowAnalysis(null);
   };
 
-  const processingCount = documents.filter((doc) => doc.status >= 0 && doc.status <= 2).length;
-  const readyCount = documents.filter((doc) => doc.status === 3).length;
-  const totalQuestions = documents.reduce((sum, doc) => sum + (doc.questionsCount || 0), 0);
+  const notifyFutureFlow = (label) => {
+    setFeedback({
+      type: 'info',
+      text: `Button "${label}" da duoc dat san de noi luong sau nay.`,
+    });
+  };
 
-  const formatDateTime = (value) => new Date(value).toLocaleString();
+  const normalizedFilter = filterValue.trim().toLowerCase();
 
-  const getStageDurationMs = (status) => {
-    switch (status) {
-      case 0:
-        return 10000;
-      case 1:
-        return 25000;
-      case 2:
-        return 35000;
-      default:
-        return 0;
+  const filteredDocuments = useMemo(() => {
+    if (!normalizedFilter) {
+      return documents;
     }
+
+    return documents.filter((doc) => {
+      const topics = Array.isArray(doc.mainTopics) ? doc.mainTopics.join(' ').toLowerCase() : '';
+      return doc.fileName.toLowerCase().includes(normalizedFilter) || topics.includes(normalizedFilter);
+    });
+  }, [documents, normalizedFilter]);
+
+  useEffect(() => {
+    if (documents.length === 0) {
+      setSelectedDocumentId(null);
+      return;
+    }
+
+    setSelectedDocumentId((current) => (documents.some((doc) => doc.id === current) ? current : documents[0].id));
+  }, [documents]);
+
+  useEffect(() => {
+    if (filteredDocuments.length === 0) {
+      return;
+    }
+
+    if (!filteredDocuments.some((doc) => doc.id === selectedDocumentId)) {
+      setSelectedDocumentId(filteredDocuments[0].id);
+    }
+  }, [filteredDocuments, selectedDocumentId]);
+
+  const selectedDocument = normalizedFilter && filteredDocuments.length === 0
+    ? null
+    : filteredDocuments.find((doc) => doc.id === selectedDocumentId)
+      || documents.find((doc) => doc.id === selectedDocumentId)
+      || filteredDocuments[0]
+      || documents[0]
+      || null;
+
+  const selectedGenerationState = selectedDocument ? generating[selectedDocument.id] : null;
+  const selectedQuestionRunning = !!selectedGenerationState?.running;
+  const selectedSlideState = selectedDocument ? slideGenerating[selectedDocument.id] : null;
+  const selectedSlideDeck = selectedDocument ? slideDecks[selectedDocument.id] : null;
+  const selectedActiveSlideProgress = selectedSlideState || selectedSlideDeck?.generationProgress;
+  const selectedSlidesRunning = ['queued', 'running'].includes(String(selectedActiveSlideProgress?.status || '').toLowerCase());
+  const selectedProcessingState = selectedDocument?.processingProgress;
+  const selectedProcessingRunning = !!selectedProcessingState && (selectedProcessingState.status === 'queued' || selectedProcessingState.status === 'running');
+  const selectedQuestionsReady = Boolean(selectedDocument?.questionsCount && selectedDocument.questionsCount > 0);
+  const selectedSlideCount = selectedSlideDeck?.items?.length || selectedSlideDeck?.outline?.slides?.length || 0;
+
+  const formatDateTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    return new Date(value).toLocaleString();
+  };
+
+  const formatRelativeTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const diffMs = Date.now() - new Date(value).getTime();
+    if (diffMs < 60_000) {
+      return 'vua cap nhat';
+    }
+    if (diffMs < 3_600_000) {
+      return `${Math.max(1, Math.floor(diffMs / 60_000))} phut truoc`;
+    }
+    if (diffMs < 86_400_000) {
+      return `${Math.max(1, Math.floor(diffMs / 3_600_000))} gio truoc`;
+    }
+
+    return formatDateTime(value);
+  };
+
+  const formatFileSize = (bytes) => {
+    if (typeof bytes !== 'number' || Number.isNaN(bytes)) {
+      return '-';
+    }
+
+    const kilobytes = bytes / 1024;
+    if (kilobytes < 1024) {
+      return `${kilobytes >= 10 ? Math.round(kilobytes) : kilobytes.toFixed(1)} KB`;
+    }
+
+    return `${(kilobytes / 1024).toFixed(1)} MB`;
   };
 
   const formatDuration = (milliseconds) => {
@@ -355,6 +521,50 @@ function DocumentList() {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}p ${seconds}s`;
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 0:
+        return 'Uploaded';
+      case 1:
+        return 'Extracting';
+      case 2:
+        return 'Analyzing';
+      case 3:
+        return 'Completed';
+      case 4:
+        return 'Failed';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  const getStatusHint = (doc) => {
+    if (generating[doc.id]?.running) {
+      return 'AI dang doc toan bo noi dung va tao bo cau hoi moi.';
+    }
+
+    if (doc.processingProgress?.status === 'running' && doc.processingProgress?.message) {
+      return doc.processingProgress.message;
+    }
+
+    switch (doc.status) {
+      case 0:
+        return 'Tai lieu da upload xong va dang cho trich xuat noi dung.';
+      case 1:
+        return 'He thong dang trich xuat text va OCR neu file la anh hoac PDF scan.';
+      case 2:
+        return 'AI dang phan tich noi dung, chia topic va tom tat tai lieu.';
+      case 3:
+        return doc.questionsCount > 0
+          ? 'Da san sang hoc bang quiz hoac flashcards.'
+          : 'Tai lieu da xu ly xong va san sang tao output moi.';
+      case 4:
+        return 'Xu ly that bai. Thu upload lai hoac kiem tra file dau vao.';
+      default:
+        return 'Dang cap nhat trang thai tai lieu.';
+    }
   };
 
   const getGenerationEta = (generationState) => {
@@ -373,63 +583,7 @@ function DocumentList() {
     return `Uoc tinh con ${formatDuration(generationState.estimatedRemainingSeconds * 1000)}`;
   };
 
-  const getGenerationSubProgress = (generationState) => {
-    if (
-      typeof generationState?.current !== 'number'
-      || typeof generationState?.total !== 'number'
-      || generationState.total <= 0
-    ) {
-      return null;
-    }
-
-    return Math.max(0, Math.min(100, Math.round((generationState.current / generationState.total) * 100)));
-  };
-
-  const getSlideEta = (slideState) => {
-    if (!slideState?.running) {
-      return null;
-    }
-
-    if (typeof slideState.estimatedRemainingSeconds !== 'number') {
-      return 'Dang tinh thoi gian con lai...';
-    }
-
-    if (slideState.estimatedRemainingSeconds <= 0) {
-      return 'Sap xong...';
-    }
-
-    return `Uoc tinh con ${formatDuration(slideState.estimatedRemainingSeconds * 1000)}`;
-  };
-
-  const getSlideSubProgress = (slideState) => {
-    if (
-      typeof slideState?.current !== 'number'
-      || typeof slideState?.total !== 'number'
-      || slideState.total <= 0
-    ) {
-      return null;
-    }
-
-    return Math.max(0, Math.min(100, Math.round((slideState.current / slideState.total) * 100)));
-  };
-
-  const getRealtimeEta = (state) => {
-    if (!state || (state.status !== 'queued' && state.status !== 'running')) {
-      return null;
-    }
-
-    if (typeof state.estimatedRemainingSeconds !== 'number') {
-      return 'Dang tinh thoi gian con lai...';
-    }
-
-    if (state.estimatedRemainingSeconds <= 0) {
-      return 'Sap xong...';
-    }
-
-    return `Uoc tinh con ${formatDuration(state.estimatedRemainingSeconds * 1000)}`;
-  };
-
-  const getRealtimeSubProgress = (state) => {
+  const getSubProgress = (state) => {
     if (
       typeof state?.current !== 'number'
       || typeof state?.total !== 'number'
@@ -460,75 +614,247 @@ function DocumentList() {
     return `${prefix} ${unit}: ${state.current}/${state.total}`;
   };
 
-  const getEstimatedTimeRemaining = (doc) => {
-    const processingState = doc.processingProgress;
-    const realtimeEta = getRealtimeEta(processingState);
-    if (realtimeEta) {
-      return realtimeEta;
+  const getSourceStatusMeta = (doc) => {
+    const activeQuestionState = generating[doc.id];
+    const activeSlideState = slideGenerating[doc.id] || slideDecks[doc.id]?.generationProgress;
+
+    if (doc.processingProgress?.status === 'running') {
+      return {
+        tone: 'active',
+        label: `${doc.processingProgress.percent || 0}%`,
+        detail: doc.processingProgress.stageLabel || 'Dang phan tich',
+      };
     }
 
-    if (doc.status < 0 || doc.status > 2) {
-      return null;
+    if (activeSlideState?.running || ['queued', 'running'].includes(String(activeSlideState?.status || '').toLowerCase())) {
+      return {
+        tone: 'active',
+        label: `${activeSlideState.percent || 0}%`,
+        detail: 'Dang tao slides',
+      };
     }
 
-    const stageStartedAt = new Date(doc.updatedAt || doc.createdAt).getTime();
-    const stageDurationMs = getStageDurationMs(doc.status);
-    const remainingMs = stageDurationMs - (currentTime - stageStartedAt);
-
-    if (remainingMs <= 0) {
-      return 'Sap xong...';
+    if (activeQuestionState?.running) {
+      return {
+        tone: 'active',
+        label: `${activeQuestionState.percent || 0}%`,
+        detail: 'Dang tao cau hoi',
+      };
     }
 
-    return `Uoc tinh con ${formatDuration(remainingMs)}`;
+    if (doc.status === 3) {
+      return { tone: 'completed', label: 'Ready', detail: `${doc.questionsCount || 0} cau hoi` };
+    }
+
+    if (doc.status === 4) {
+      return { tone: 'failed', label: 'Fail', detail: 'Can xem lai du lieu' };
+    }
+
+    return { tone: 'uploaded', label: getStatusText(doc.status), detail: getStatusHint(doc) };
   };
 
-  const getStatusHint = (doc) => {
-    if (generating[doc.id]?.running) {
-      return 'AI dang doc toan bo noi dung va tao bo cau hoi moi. Ban co the cho 2-3 phut de lay ket qua tot hon.';
+  const selectedFlowItems = [
+    {
+      key: 'overview',
+      title: 'Tong quan',
+      detail: selectedDocument ? formatFileSize(selectedDocument.fileSize) : 'Chon mot tai lieu',
+      ready: !!selectedDocument,
+      working: false,
+    },
+    {
+      key: 'analysis',
+      title: 'Phan tich',
+      detail: selectedDocument?.summary || selectedDocument?.mainTopics?.length ? 'Da co tom tat AI' : 'Cho AI xu ly',
+      ready: Boolean(selectedDocument?.summary || selectedDocument?.mainTopics?.length),
+      working: selectedProcessingRunning,
+    },
+    {
+      key: 'slides',
+      title: 'Slides',
+      detail: selectedSlideDeck ? `${selectedSlideCount} slide` : selectedSlidesRunning ? 'Dang tao deck' : 'Chua co deck',
+      ready: Boolean(selectedSlideDeck),
+      working: selectedSlidesRunning,
+    },
+    {
+      key: 'study',
+      title: 'Hoc tap',
+      detail: selectedQuestionsReady ? `${selectedDocument?.questionsCount || 0} cau hoi` : selectedQuestionRunning ? 'Dang tao bo cau hoi' : 'Chua co study kit',
+      ready: selectedQuestionsReady,
+      working: selectedQuestionRunning,
+    },
+  ];
+
+  const selectedTopbarState = (() => {
+    if (!selectedDocument) {
+      return 'Chua chon tai lieu';
     }
 
-    if (doc.processingProgress?.status === 'running' && doc.processingProgress?.message) {
-      return doc.processingProgress.message;
+    if (selectedProcessingRunning) {
+      return `Dang phan tich ${selectedProcessingState.percent || 0}%`;
     }
 
-    switch (doc.status) {
-      case 0:
-        return 'Tai lieu da upload xong va dang cho trich xuat noi dung.';
-      case 1:
-        return 'He thong dang trich xuat text va OCR neu file la anh hoac PDF scan.';
-      case 2:
-        return 'AI dang phan tich noi dung, chia topic va tom tat tai lieu.';
-      case 3:
-        return doc.questionsCount > 0
-          ? 'Da san sang hoc bang quiz hoac flashcards.'
-          : 'Tai lieu da xu ly xong. Ban co the tao bo cau hoi moi ngay bay gio.';
-      case 4:
-        return 'Xu ly that bai. Thu upload lai hoac kiem tra file dau vao.';
-      default:
-        return 'Dang cap nhat trang thai tai lieu.';
+    if (selectedSlidesRunning) {
+      return `Dang tao slide ${selectedActiveSlideProgress?.percent || 0}%`;
     }
-  };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 0: return '#ffc107'; // Uploaded
-      case 1: return '#17a2b8'; // Extracting
-      case 2: return '#007bff'; // Analyzing
-      case 3: return '#28a745'; // Completed
-      case 4: return '#dc3545'; // Failed
-      default: return '#6c757d';
+    if (selectedQuestionRunning) {
+      return `Dang tao cau hoi ${selectedGenerationState?.percent || 0}%`;
     }
-  };
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case 0: return 'Uploaded';
-      case 1: return 'Extracting...';
-      case 2: return 'Analyzing...';
-      case 3: return 'Completed';
-      case 4: return 'Failed';
-      default: return 'Unknown';
+    return 'San sang cho workflow tiep theo';
+  })();
+
+  const analysisTopics = selectedDocument?.mainTopics?.slice(0, 4) || [];
+  const analysisPoints = selectedDocument?.keyPoints?.slice(0, 3) || [];
+  const slideOutline = selectedSlideDeck?.outline?.slides?.slice(0, 3) || [];
+  const selectedHint = selectedProcessingRunning
+    ? 'AI dang doc va tong hop noi dung tu tai lieu. Ban co the theo doi tien trinh ngay trong workspace nay.'
+    : selectedSlidesRunning
+      ? 'Deck slide dang duoc tao. Ngay khi co slide dau tien, ban co the mo Studio de tinh chinh.'
+      : selectedQuestionRunning
+        ? 'Question bank dang duoc tao. Quiz va Flashcards se san sang ngay sau khi pipeline hoan tat.'
+        : selectedSlideDeck
+          ? 'Deck slide da san sang. Ban co the tiep tuc mo Studio, export HTML/PDF hoac noi cac luong xuat ban sau nay.'
+          : selectedQuestionsReady
+            ? 'Question bank da san sang. Day la luc thuan loi de noi tiep luong quiz, flashcards va danh gia nhanh.'
+            : 'Co the bat dau bang cach tao slide deck, tao bo cau hoi hoac mo bang phan tich chi tiet.';
+
+  const renderCanvasBody = () => {
+    if (!selectedDocument) {
+      return (
+        <div className="documents-canvas-empty">
+          <h3>Chua co tai lieu nao</h3>
+          <p>Them tai lieu moi de khoi tao workspace, phan tich noi dung va noi tiep cac workflow hoc tap.</p>
+          <button type="button" className="documents-mini-primary" onClick={() => navigate('/')}>
+            Them nguon
+          </button>
+        </div>
+      );
     }
+
+    const kind = getDocumentKind(selectedDocument.fileName);
+
+    const previewTitle = studioView === 'analysis'
+      ? `Bang phan tich: ${selectedDocument.fileName}`
+      : studioView === 'slides'
+        ? `Slide deck: ${selectedSlideDeck?.title || selectedDocument.fileName}`
+        : studioView === 'study'
+          ? `Hoc tap tu tai lieu: ${selectedDocument.fileName}`
+          : `Tong quan tai lieu: ${selectedDocument.fileName}`;
+
+    const previewRows = studioView === 'analysis'
+      ? (analysisPoints.length > 0
+        ? analysisPoints
+        : analysisTopics.length > 0
+          ? analysisTopics
+          : ['Dang cho AI tong hop y chinh tu tai lieu.'])
+      : studioView === 'slides'
+        ? (slideOutline.length > 0
+          ? slideOutline.map((slide) => slide.heading || `Slide ${slide.slideIndex}`)
+          : [selectedSlideDeck ? 'Deck da san sang nhung chua co outline chi tiet.' : 'Chua co slide deck cho tai lieu nay.'])
+        : studioView === 'study'
+          ? [
+              selectedQuestionsReady ? `${selectedDocument.questionsCount || 0} cau hoi da duoc tao.` : 'Chua co question bank.',
+              selectedQuestionsReady ? 'Quiz tuong tac da co the mo.' : 'Quiz se san sang sau khi tao bo cau hoi.',
+              selectedQuestionsReady ? 'Flashcards da co the mo.' : 'Flashcards se noi tiep tu question bank.',
+            ]
+          : [
+              `Trang thai hien tai: ${getStatusText(selectedDocument.status)}`,
+              selectedSlideDeck ? `Slide deck: ${selectedSlideCount} slide san sang.` : 'Slide deck: chua tao.',
+              selectedQuestionsReady ? `Study kit: ${selectedDocument.questionsCount || 0} cau hoi san sang.` : 'Study kit: chua tao.',
+            ];
+
+    return (
+      <>
+        <div className="documents-preview-card">
+          <div className="documents-preview-layout">
+            <div className="documents-preview-copy">
+              <h2>{previewTitle}</h2>
+
+              {studioView === 'analysis' && selectedDocument.summary && (
+                <p className="documents-preview-summary">{selectedDocument.summary}</p>
+              )}
+
+              <div className="documents-preview-list">
+                {previewRows.map((row, index) => (
+                  <div key={`${row}-${index}`} className={`documents-preview-row${index === 1 ? ' active' : ''}`}>
+                    <p>{row}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="documents-preview-sidecard">
+              <span>{kind.label}</span>
+              <strong>{getStatusText(selectedDocument.status)}</strong>
+              <small>{selectedSlideDeck ? `${selectedSlideCount} slide` : formatFileSize(selectedDocument.fileSize)}</small>
+            </div>
+          </div>
+
+          <div className="documents-preview-hint">
+            <span>AI hint</span>
+            <p>{selectedHint}</p>
+          </div>
+        </div>
+
+        {(selectedProcessingRunning || selectedQuestionRunning || selectedSlidesRunning) && (
+          <div className="documents-preview-panels">
+            {selectedProcessingRunning && (
+              <ProgressPanel
+                tone="processing"
+                kicker="Pipeline"
+                title="Dang phan tich tai lieu"
+                summary={selectedProcessingState?.message || 'He thong dang OCR va trich xuat noi dung.'}
+                metaLines={[
+                  selectedProcessingState?.stageLabel || null,
+                  getGenerationEta(selectedProcessingState),
+                  getRealtimeProgressLabel(selectedProcessingState),
+                  selectedProcessingState?.detail || null,
+                ].filter(Boolean)}
+                percent={selectedProcessingState?.percent || 0}
+                subprogress={getSubProgress(selectedProcessingState)}
+              />
+            )}
+
+            {selectedQuestionRunning && (
+              <ProgressPanel
+                tone="questions"
+                kicker="Question bank"
+                title="Dang tao bo cau hoi"
+                summary={selectedGenerationState?.message || 'AI dang tong hop bo cau hoi moi.'}
+                metaLines={[
+                  selectedGenerationState?.stageLabel || null,
+                  getGenerationEta(selectedGenerationState),
+                  typeof selectedGenerationState?.current === 'number' && typeof selectedGenerationState?.total === 'number'
+                    ? `${selectedGenerationState.current}/${selectedGenerationState.total} ${selectedGenerationState.unitLabel || 'muc'}`
+                    : null,
+                ].filter(Boolean)}
+                percent={selectedGenerationState?.percent || 0}
+                subprogress={getSubProgress(selectedGenerationState)}
+              />
+            )}
+
+            {selectedSlidesRunning && (
+              <ProgressPanel
+                tone="slides"
+                kicker="Slide deck"
+                title="Dang tao slides"
+                summary={selectedActiveSlideProgress?.message || 'Dang tao deck tu tai lieu duoc chon.'}
+                metaLines={[
+                  selectedActiveSlideProgress?.stageLabel || null,
+                  getGenerationEta(selectedActiveSlideProgress),
+                  typeof selectedActiveSlideProgress?.current === 'number' && typeof selectedActiveSlideProgress?.total === 'number'
+                    ? `${selectedActiveSlideProgress.current}/${selectedActiveSlideProgress.total} ${selectedActiveSlideProgress.unitLabel || 'slide'}`
+                    : null,
+                ].filter(Boolean)}
+                percent={selectedActiveSlideProgress?.percent || 0}
+                subprogress={getSubProgress(selectedActiveSlideProgress)}
+              />
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   if (loading) {
@@ -545,52 +871,36 @@ function DocumentList() {
   }
 
   return (
-    <div>
-      <div className="card">
-        <div className="section-header">
-          <div>
-            <h2>📚 My Documents</h2>
-            <p className="section-subtitle">Theo doi tai lieu, qua trinh AI phan tich va tao cau hoi o mot cho duy nhat.</p>
+    <div className="documents-studio-page">
+      <section className="documents-studio-shell">
+        <div className="documents-studio-topbar">
+          <button type="button" className="documents-mini-btn" onClick={() => navigate('/')}>
+            &larr;
+          </button>
+
+          <div className="documents-topbar-copy">
+            <strong>{selectedDocument ? selectedDocument.fileName : 'My Documents'}</strong>
+            <div className="documents-topbar-meta">
+              <span>{documents.length} tai lieu</span>
+              <span>{selectedDocument?.questionsCount || 0} cau hoi</span>
+              <span>{selectedSlideCount} slide</span>
+              <span>Cap nhat: {formatRelativeTime(lastUpdated)}</span>
+              <span className="documents-live-inline">{selectedTopbarState}</span>
+            </div>
           </div>
-          <div className="header-actions">
+
+          <div className="documents-topbar-actions">
+            <div className="documents-topbar-avatar">GV</div>
             <button
-              className="button button-secondary"
-              onClick={() => loadDocuments()}
-              disabled={refreshing}
+              type="button"
+              className="documents-mini-primary"
+              onClick={() => selectedDocument && navigate(`/slides/${selectedDocument.id}`)}
+              disabled={!selectedDocument || selectedDocument.status !== 3}
             >
-              {refreshing ? 'Dang lam moi...' : '↻ Lam moi'}
+              Mo Studio
             </button>
-            {documents.some(doc => doc.status >= 0 && doc.status <= 2) && (
-              <div className="live-indicator">
-                <div className="spinner-small"></div>
-                Tu dong cap nhat
-              </div>
-            )}
           </div>
         </div>
-
-        <div className="stats-grid">
-          <div className="stat-card">
-            <span className="stat-value">{documents.length}</span>
-            <span className="stat-label">Tong tai lieu</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value">{processingCount}</span>
-            <span className="stat-label">Dang xu ly</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value">{readyCount}</span>
-            <span className="stat-label">San sang hoc</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-value">{totalQuestions}</span>
-            <span className="stat-label">Tong cau hoi</span>
-          </div>
-        </div>
-
-        {lastUpdated && (
-          <p className="timestamp-note">Cap nhat lan cuoi: {formatDateTime(lastUpdated)}</p>
-        )}
 
         {feedback && (
           <div className={`alert ${feedback.type === 'success' ? 'alert-success' : feedback.type === 'error' ? 'alert-error' : 'alert-info'}`}>
@@ -598,373 +908,193 @@ function DocumentList() {
           </div>
         )}
 
-        {documents.length === 0 ? (
-          <div className="empty-state">
-            <h3>Chua co tai lieu nao</h3>
-            <p>Upload PDF, DOCX hoac anh de AI phan tich noi dung va tao bo cau hoi tu dong.</p>
+        <div className="documents-studio-main">
+          <aside className="documents-studio-sidebar">
+            <div className="documents-panel-title">Nguon / Documents</div>
+
+            <div className="documents-filter-row">
+              <input
+                type="text"
+                value={filterValue}
+                onChange={(event) => setFilterValue(event.target.value)}
+                placeholder="Filter documents"
+              />
+              <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')}>
+                x
+              </button>
+            </div>
+
+            <div className="documents-sidebar-cta">
+              <button type="button" className="documents-side-button" onClick={() => navigate('/')}>
+                + Them nguon
+              </button>
+            </div>
+
+            <div className="documents-source-list">
+              {filteredDocuments.length > 0 ? filteredDocuments.map((doc) => (
+                <SourceItem
+                  key={doc.id}
+                  doc={doc}
+                  active={doc.id === selectedDocument?.id}
+                  statusMeta={getSourceStatusMeta(doc)}
+                  onClick={() => setSelectedDocumentId(doc.id)}
+                />
+              )) : (
+                <div className="documents-sidebar-empty">Khong tim thay tai lieu phu hop bo loc.</div>
+              )}
+            </div>
+
+            <div className="documents-panel-section">[Output Flow]</div>
+            <div className="documents-flow-list">
+              {selectedFlowItems.map((item) => (
+                <FlowItem
+                  key={item.key}
+                  title={item.title}
+                  detail={item.detail}
+                  ready={item.ready}
+                  working={item.working}
+                  active={studioView === item.key}
+                  onClick={() => setStudioView(item.key)}
+                />
+              ))}
+            </div>
+          </aside>
+
+          <div className="documents-studio-center">
+            <div className="documents-studio-toolbar">
+              <button type="button" className={`documents-toolbar-btn${studioView === 'overview' ? ' active' : ''}`} onClick={() => setStudioView('overview')}>
+                Tong quan
+              </button>
+              <button type="button" className={`documents-toolbar-btn${studioView === 'analysis' ? ' active' : ''}`} onClick={() => setStudioView('analysis')}>
+                Phan tich
+              </button>
+              <button type="button" className={`documents-toolbar-btn${studioView === 'slides' ? ' active' : ''}`} onClick={() => setStudioView('slides')}>
+                Slides
+              </button>
+              <button type="button" className={`documents-toolbar-btn${studioView === 'study' ? ' active' : ''}`} onClick={() => setStudioView('study')}>
+                Hoc tap
+              </button>
+              <div className="documents-toolbar-sep"></div>
+              <button type="button" className="documents-toolbar-btn" onClick={() => loadDocuments()} disabled={refreshing}>
+                {refreshing ? 'Dang dong bo' : 'Dong bo'}
+              </button>
+            </div>
+
+            <div className="documents-studio-canvas">
+              {renderCanvasBody()}
+            </div>
           </div>
-        ) : (
-          <div className="document-list">
-            {documents.map((doc) => (
-              (() => {
-                const generationState = generating[doc.id];
-                const isGenerating = !!generationState?.running;
-                const slideState = slideGenerating[doc.id];
-                const slideDeck = slideDecks[doc.id];
-                const activeSlideProgress = slideState || slideDeck?.generationProgress;
-                const isGeneratingSlides = ['queued', 'running'].includes(String(activeSlideProgress?.status || '').toLowerCase());
-                const inlineSlideItems = slideDeck?.items?.slice(0, 3) || [];
-                const inlineOutlineItems = slideDeck?.outline?.slides?.slice(0, 4) || [];
-                const placeholderSlides = inlineOutlineItems.length > 0
-                  ? inlineOutlineItems.slice(0, Math.min(3, inlineOutlineItems.length))
-                  : Array.from({ length: 3 }, (_, index) => ({ slideIndex: index + 1 }));
-                const processingState = doc.processingProgress;
-                const isProcessingRealtime = !!processingState && (processingState.status === 'queued' || processingState.status === 'running');
 
-                return (
-              <div key={doc.id} className="document-item">
-                <div className="document-info">
-                  <div className="document-title-row">
-                    <h3>{doc.fileName}</h3>
-                    <span className="status-badge" style={{ backgroundColor: getStatusColor(doc.status) }}>
-                      {getStatusText(doc.status)}
-                    </span>
-                  </div>
+          <aside className="documents-studio-rpanel">
+            <div className="documents-panel-title">Studio / Hanh dong</div>
 
-                  <p className="document-meta">
-                    <span>{formatDateTime(doc.createdAt)}</span>
-                    <span>{(doc.fileSize / 1024).toFixed(0)} KB</span>
-                    <span>{doc.questionsCount || 0} cau hoi</span>
-                  </p>
+            <div className="documents-action-section">
+              <div className="documents-section-label">Tao moi</div>
+              <ActionButton
+                label="Tao slide moi tu noi dung"
+                detail="Khoi dong slide deck tu tai lieu dang chon"
+                tone="primary"
+                disabled={!selectedDocument || selectedDocument.status !== 3 || selectedSlidesRunning}
+                onClick={() => selectedDocument && handleGenerateSlides(selectedDocument.id)}
+              />
+              <ActionButton
+                label="Tao cau hoi on tap"
+                detail="Sinh question bank de mo quiz va flashcards"
+                disabled={!selectedDocument || selectedDocument.status !== 3 || selectedQuestionRunning}
+                onClick={() => selectedDocument && handleGenerateQuestions(selectedDocument.id)}
+              />
+              <ActionButton
+                label="Mo Quiz tuong tac"
+                detail="Di den route quiz hien tai"
+                disabled={!selectedDocument || !selectedQuestionsReady}
+                onClick={() => selectedDocument && navigate(`/quiz/${selectedDocument.id}`)}
+              />
+              <ActionButton
+                label="Mo Flashcards tu dong"
+                detail="Di den route flashcards hien tai"
+                disabled={!selectedDocument || !selectedQuestionsReady}
+                onClick={() => selectedDocument && navigate(`/flashcards/${selectedDocument.id}`)}
+              />
+            </div>
 
-                  <p className="status-hint">{getStatusHint(doc)}</p>
+            <div className="documents-action-section">
+              <div className="documents-section-label">Phan tich & Tom tat</div>
+              <ActionButton
+                label="Tom tat noi dung"
+                detail="Mo bang preview / modal phan tich"
+                onClick={() => selectedDocument && setShowAnalysis(selectedDocument)}
+                disabled={!selectedDocument}
+              />
+              <ActionButton
+                label="Phan tich y chinh"
+                detail="Chuyen nhanh sang canvas phan tich"
+                onClick={() => setStudioView('analysis')}
+                disabled={!selectedDocument}
+              />
+              <ActionButton
+                label="Xay dung so do tu duy"
+                detail="De san cho luong future workflow"
+                badge="soon"
+                onClick={() => notifyFutureFlow('Xay dung so do tu duy')}
+                disabled={!selectedDocument}
+              />
+            </div>
 
-                  {getEstimatedTimeRemaining(doc) && (
-                    <p className="status-eta">⏱️ {getEstimatedTimeRemaining(doc)}</p>
-                  )}
+            <div className="documents-action-section">
+              <div className="documents-section-label">Xuat ban & Chia se</div>
+              <ActionButton
+                label="Tai xuong HTML / PDF"
+                detail="Mo output export hien co"
+                onClick={() => selectedDocument && window.open(slideService.getDeckHtmlUrl(selectedDocument.id), '_blank', 'noopener,noreferrer')}
+                disabled={!selectedDocument || !selectedSlideDeck}
+              />
+              <ActionButton
+                label="Xuat PowerPoint"
+                detail="Cho phep noi exporter sau nay"
+                badge="soon"
+                onClick={() => notifyFutureFlow('Xuat PowerPoint')}
+                disabled={!selectedDocument}
+              />
+              <ActionButton
+                label="Chia se lien ket"
+                detail="Dat san button cho flow sharing"
+                badge="soon"
+                onClick={() => notifyFutureFlow('Chia se lien ket')}
+                disabled={!selectedDocument}
+              />
+            </div>
 
-                  {isProcessingRealtime && (
-                    <div className="generation-panel processing-panel">
-                      <div className="spinner-small"></div>
-                      <div>
-                        <strong>Dang xu ly tai lieu ({processingState.percent || 0}%)</strong>
-                        <p>{processingState.message || 'He thong dang OCR va phan tich tai lieu.'}</p>
-                        {processingState.stageLabel && (
-                          <p className="generation-progress-meta">
-                            Buoc hien tai: {processingState.stageLabel}
-                            {typeof processingState.stageIndex === 'number' && typeof processingState.stageCount === 'number'
-                              ? ` (${processingState.stageIndex}/${processingState.stageCount})`
-                              : ''}
-                          </p>
-                        )}
-                        {processingState.detail && (
-                          <p className="generation-progress-detail">{processingState.detail}</p>
-                        )}
-                        {getRealtimeEta(processingState) && (
-                          <p className="generation-progress-meta">{getRealtimeEta(processingState)}</p>
-                        )}
-                        {getRealtimeProgressLabel(processingState) && (
-                          <p className="generation-progress-meta">
-                            {getRealtimeProgressLabel(processingState)}
-                          </p>
-                        )}
-                        <div className="generation-progress-bar">
-                          <div
-                            className="generation-progress-fill"
-                            style={{ width: `${Math.max(0, Math.min(100, processingState.percent || 0))}%` }}
-                          ></div>
-                        </div>
-                        {getRealtimeSubProgress(processingState) !== null && (
-                          <div className="generation-subprogress">
-                            <div
-                              className="generation-subprogress-fill"
-                              style={{ width: `${getRealtimeSubProgress(processingState)}%` }}
-                            ></div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+            <div className="documents-action-section">
+              <div className="documents-section-label">Quan tri</div>
+              <ActionButton
+                label="Lam moi du lieu"
+                detail="Dong bo lai document list va progress"
+                onClick={() => loadDocuments()}
+                disabled={refreshing}
+              />
+              <ActionButton
+                label="Xoa tai lieu"
+                detail="Xoa tai lieu dang chon khoi he thong"
+                tone="danger"
+                onClick={() => selectedDocument && handleDelete(selectedDocument.id)}
+                disabled={!selectedDocument}
+              />
+            </div>
+          </aside>
+        </div>
+      </section>
 
-                  {doc.mainTopics && doc.mainTopics.length > 0 && (
-                    <div className="inline-topics">
-                      {doc.mainTopics.slice(0, 5).map((topic, index) => (
-                        <span key={index} className="mini-topic-tag">{topic}</span>
-                      ))}
-                    </div>
-                  )}
-
-                  {isGenerating && (
-                    <div className="generation-panel">
-                      <div className="spinner-small"></div>
-                      <div>
-                        <strong>Dang tao bo cau hoi moi ({generationState.percent || 0}%)</strong>
-                        <p>{generationState.message || 'He thong dang xu ly va sinh cau hoi.'}</p>
-                        {generationState.stageLabel && (
-                          <p className="generation-progress-meta">
-                            Buoc hien tai: {generationState.stageLabel}
-                            {typeof generationState.stageIndex === 'number' && typeof generationState.stageCount === 'number'
-                              ? ` (${generationState.stageIndex}/${generationState.stageCount})`
-                              : ''}
-                          </p>
-                        )}
-                        {generationState.detail && (
-                          <p className="generation-progress-detail">{generationState.detail}</p>
-                        )}
-                        {getGenerationEta(generationState) && (
-                          <p className="generation-progress-meta">{getGenerationEta(generationState)}</p>
-                        )}
-                        {typeof generationState.current === 'number' && typeof generationState.total === 'number' && (
-                          <p className="generation-progress-meta">
-                            Tien trinh {generationState.unitLabel || 'muc'}: {generationState.current}/{generationState.total}
-                          </p>
-                        )}
-                        {generationState.topicTag && <p>Topic-tag hien tai: {generationState.topicTag}</p>}
-                        <div className="generation-progress-bar">
-                          <div
-                            className="generation-progress-fill"
-                            style={{ width: `${Math.max(0, Math.min(100, generationState.percent || 0))}%` }}
-                          ></div>
-                        </div>
-                        {getGenerationSubProgress(generationState) !== null && (
-                          <div className="generation-subprogress">
-                            <div
-                              className="generation-subprogress-fill"
-                              style={{ width: `${getGenerationSubProgress(generationState)}%` }}
-                            ></div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {(slideDeck || isGeneratingSlides) && (
-                    <div className="slide-inline-panel">
-                      <div className="slide-inline-header">
-                        <div>
-                          <strong>
-                            {isGeneratingSlides
-                              ? `Dang tao slide deck (${activeSlideProgress?.percent || 0}%)`
-                              : `Slide deck: ${slideDeck?.title || 'Da tao xong'}`}
-                          </strong>
-                          <p>
-                            {activeSlideProgress?.message
-                              || slideDeck?.subtitle
-                              || 'Outline va cac slide se hien dan ngay tai day.'}
-                          </p>
-                          {activeSlideProgress?.stageLabel && (
-                            <p className="generation-progress-meta">
-                              Buoc hien tai: {activeSlideProgress.stageLabel}
-                              {typeof activeSlideProgress.stageIndex === 'number' && typeof activeSlideProgress.stageCount === 'number'
-                                ? ` (${activeSlideProgress.stageIndex}/${activeSlideProgress.stageCount})`
-                                : ''}
-                            </p>
-                          )}
-                          {activeSlideProgress?.detail && (
-                            <p className="generation-progress-detail">{activeSlideProgress.detail}</p>
-                          )}
-                          {getSlideEta(activeSlideProgress) && (
-                            <p className="generation-progress-meta">{getSlideEta(activeSlideProgress)}</p>
-                          )}
-                          {typeof activeSlideProgress?.current === 'number' && typeof activeSlideProgress?.total === 'number' && (
-                            <p className="generation-progress-meta">
-                              Tien trinh {activeSlideProgress.unitLabel || 'slide'}: {activeSlideProgress.current}/{activeSlideProgress.total}
-                            </p>
-                          )}
-                        </div>
-                        <div className="slide-inline-actions">
-                          <button
-                            className="button button-secondary"
-                            onClick={() => navigate(`/slides/${doc.id}`)}
-                          >
-                            Mo Studio
-                          </button>
-                          {slideDeck && (
-                            <button
-                              className="button button-secondary"
-                              onClick={() => window.open(slideService.getDeckHtmlUrl(doc.id), '_blank', 'noopener,noreferrer')}
-                            >
-                              HTML/PDF
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {isGeneratingSlides && (
-                        <>
-                          <div className="generation-progress-bar">
-                            <div
-                              className="generation-progress-fill"
-                              style={{ width: `${Math.max(0, Math.min(100, activeSlideProgress?.percent || 0))}%` }}
-                            ></div>
-                          </div>
-                          {getSlideSubProgress(activeSlideProgress) !== null && (
-                            <div className="generation-subprogress">
-                              <div
-                                className="generation-subprogress-fill"
-                                style={{ width: `${getSlideSubProgress(activeSlideProgress)}%` }}
-                              ></div>
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {inlineOutlineItems.length > 0 && (
-                        <div className="slide-inline-outline">
-                          {inlineOutlineItems.map((slide) => (
-                            <div key={`${doc.id}-${slide.slideIndex}-${slide.heading}`} className="slide-inline-outline-item">
-                              <span>{slide.slideIndex}</span>
-                              <div>
-                                <strong>{slide.heading}</strong>
-                                <p>{slide.goal}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {inlineSlideItems.length > 0 ? (
-                        <div className="slide-inline-preview-grid">
-                          {inlineSlideItems.map((item) => (
-                            <article key={item.id} className={`slide-inline-card slide-inline-${String(item.slideType || '').toLowerCase()}`}>
-                              <div className="slide-inline-card-meta">
-                                <span>Slide {item.slideIndex}</span>
-                                <span>{item.slideType}</span>
-                              </div>
-                              <h4>{item.heading || `Slide ${item.slideIndex}`}</h4>
-                              {item.subheading && <p className="slide-inline-subheading">{item.subheading}</p>}
-                              {(item.bodyBlocks || []).length > 0 ? (
-                                <div className="slide-inline-body">
-                                  {(item.bodyBlocks || []).slice(0, 2).map((block, index) => (
-                                    <div key={index} className="slide-inline-bullet">{block}</div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="slide-inline-skeleton">
-                                  <span></span>
-                                  <span></span>
-                                </div>
-                              )}
-                            </article>
-                          ))}
-                        </div>
-                      ) : isGeneratingSlides ? (
-                        <div className="slide-inline-preview-grid">
-                          {placeholderSlides.map((slide) => (
-                            <article key={`${doc.id}-placeholder-${slide.slideIndex}`} className="slide-inline-card slide-inline-pending">
-                              <div className="slide-inline-card-meta">
-                                <span>Slide {slide.slideIndex}</span>
-                                <span>{slide.heading ? 'Outline' : 'Pending'}</span>
-                              </div>
-                              <h4>{slide.heading || 'Dang cho slide dau tien...'}</h4>
-                              {slide.goal && <p className="slide-inline-subheading">{slide.goal}</p>}
-                              <div className="slide-skeleton slide-inline-skeleton">
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {!slideDeck && isGeneratingSlides && (
-                        <p className="slide-inline-footnote">
-                          Outline se xuat hien truoc. Ngay khi backend luu slide 1, card nay se render de ban doc truoc.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="document-actions">
-                  {doc.status === 3 && (
-                    <>
-                      <button
-                        className="button"
-                        style={{ backgroundColor: '#6366f1' }}
-                        onClick={() => handleViewAnalysis(doc)}
-                      >
-                        📊 View Analysis
-                      </button>
-                      <button
-                        className="button"
-                        style={{ backgroundColor: '#b45309' }}
-                        onClick={() => navigate(`/slides/${doc.id}`)}
-                      >
-                        Slide Studio
-                      </button>
-                      <button
-                        className="button"
-                        style={{ backgroundColor: '#0f766e' }}
-                        onClick={() => handleGenerateSlides(doc.id)}
-                        disabled={isGeneratingSlides}
-                      >
-                        {isGeneratingSlides
-                          ? `Dang tao slide... ${activeSlideProgress?.percent || 0}%`
-                          : slideDeck
-                            ? 'Tao lai slide'
-                            : 'Tao slide dan dan'}
-                      </button>
-                      <button
-                        className="button"
-                        onClick={() => handleGenerateQuestions(doc.id)}
-                        disabled={isGenerating}
-                      >
-                        {isGenerating ? `Dang tao... ${generationState.percent || 0}%` : '🎯 Tao bo cau hoi'}
-                      </button>
-                      <button
-                        className="button"
-                        onClick={() => navigate(`/quiz/${doc.id}`)}
-                        disabled={!doc.questionsCount || doc.questionsCount === 0}
-                        style={{ 
-                          opacity: (!doc.questionsCount || doc.questionsCount === 0) ? 0.5 : 1,
-                          cursor: (!doc.questionsCount || doc.questionsCount === 0) ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        🎮 Quiz
-                      </button>
-                      <button
-                        className="button"
-                        onClick={() => navigate(`/flashcards/${doc.id}`)}
-                        disabled={!doc.questionsCount || doc.questionsCount === 0}
-                        style={{ 
-                          opacity: (!doc.questionsCount || doc.questionsCount === 0) ? 0.5 : 1,
-                          cursor: (!doc.questionsCount || doc.questionsCount === 0) ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        🃏 Flashcards
-                      </button>
-                    </>
-                  )}
-                  <button
-                    className="button"
-                    style={{ backgroundColor: '#dc3545' }}
-                    onClick={() => handleDelete(doc.id)}
-                  >
-                    🗑️ Delete
-                  </button>
-                </div>
-              </div>
-                );
-              })()
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Analysis Modal */}
       {showAnalysis && (
         <div className="modal-overlay" onClick={closeAnalysisModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>📊 Phan tich noi dung: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={closeAnalysisModal}>✕</button>
+              <h2>Phan tich noi dung: {showAnalysis.fileName}</h2>
+              <button className="close-btn" onClick={closeAnalysisModal}>x</button>
             </div>
             <div className="modal-body">
-              {/* Main Topics */}
               {showAnalysis.mainTopics && showAnalysis.mainTopics.length > 0 && (
                 <div className="analysis-section">
-                  <h3>🎯 Chu de chinh</h3>
+                  <h3>Chu de chinh</h3>
                   <div className="topics-list">
                     {showAnalysis.mainTopics.map((topic, index) => (
                       <span key={index} className="topic-tag">{topic}</span>
@@ -973,10 +1103,9 @@ function DocumentList() {
                 </div>
               )}
 
-              {/* Key Points */}
               {showAnalysis.keyPoints && showAnalysis.keyPoints.length > 0 && (
                 <div className="analysis-section">
-                  <h3>💡 Y chinh</h3>
+                  <h3>Y chinh</h3>
                   <ul className="key-points-list">
                     {showAnalysis.keyPoints.map((point, index) => (
                       <li key={index}>{point}</li>
@@ -985,26 +1114,23 @@ function DocumentList() {
                 </div>
               )}
 
-              {/* Summary */}
               {showAnalysis.summary && (
                 <div className="analysis-section">
-                  <h3>📝 Tom tat</h3>
+                  <h3>Tom tat</h3>
                   <p className="summary-text">{showAnalysis.summary}</p>
                 </div>
               )}
 
-              {/* Language */}
               {showAnalysis.language && (
                 <div className="analysis-section">
-                  <h3>🌐 Ngon ngu</h3>
+                  <h3>Ngon ngu</h3>
                   <p><strong>{showAnalysis.language}</strong></p>
                 </div>
               )}
 
-              {/* Extracted Text Preview */}
               {showAnalysis.extractedText && (
                 <div className="analysis-section">
-                  <h3>📄 Van ban da trich xuat</h3>
+                  <h3>Van ban da trich xuat</h3>
                   <div className="extracted-text-preview">
                     {showAnalysis.extractedText.substring(0, 1000)}
                     {showAnalysis.extractedText.length > 1000 && '...'}

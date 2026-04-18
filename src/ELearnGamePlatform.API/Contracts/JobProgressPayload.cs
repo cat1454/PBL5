@@ -11,6 +11,9 @@ public sealed class JobProgressPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public int? DocumentId { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? FolderProjectId { get; init; }
+
     public string FileName { get; init; } = string.Empty;
     public string Status { get; init; } = "queued";
     public int Percent { get; init; }
@@ -114,6 +117,7 @@ public static class JobProgressPayloadFactory
             {
                 JobId = Clean(state.JobId),
                 DocumentId = state.DocumentId,
+                FolderProjectId = state.FolderProjectId,
                 Status = ResolveStatus(state.Status, deck?.Status),
                 Percent = ResolvePercent(state.Percent, deck?.Status),
                 Stage = ResolveStage(state.Stage, deck?.Status),
@@ -213,6 +217,7 @@ public static class JobProgressPayloadFactory
         return new JobProgressPayload
         {
             DocumentId = deck.DocumentId,
+            FolderProjectId = deck.FolderProjectId,
             Status = status,
             Percent = percent,
             Stage = stage,
