@@ -45,6 +45,33 @@ public static class EntityExtensions
         document.CoverageMapJson = JsonSerializer.Serialize(coverageMap);
     }
 
+    public static DocumentProcessingMetadata GetProcessingMetadata(this Document document)
+    {
+        if (string.IsNullOrEmpty(document.ProcessedMetadataJson))
+        {
+            return new DocumentProcessingMetadata
+            {
+                Language = document.Language
+            };
+        }
+
+        return JsonSerializer.Deserialize<DocumentProcessingMetadata>(document.ProcessedMetadataJson) ?? new DocumentProcessingMetadata
+        {
+            Language = document.Language
+        };
+    }
+
+    public static void SetProcessingMetadata(this Document document, DocumentProcessingMetadata metadata)
+    {
+        if (metadata == null)
+        {
+            document.ProcessedMetadataJson = null;
+            return;
+        }
+
+        document.ProcessedMetadataJson = JsonSerializer.Serialize(metadata);
+    }
+
     // Question extensions
     public static List<QuestionOption> GetOptions(this Question question)
     {
@@ -71,6 +98,19 @@ public static class EntityExtensions
     public static void SetBodyBlocks(this SlideItem item, List<string> bodyBlocks)
     {
         item.BodyJson = JsonSerializer.Serialize(bodyBlocks);
+    }
+
+    public static SlideEvidenceDebugMetadata? GetEvidenceDebug(this SlideItem item)
+    {
+        if (string.IsNullOrEmpty(item.EvidenceDebugJson))
+            return null;
+
+        return JsonSerializer.Deserialize<SlideEvidenceDebugMetadata>(item.EvidenceDebugJson);
+    }
+
+    public static void SetEvidenceDebug(this SlideItem item, SlideEvidenceDebugMetadata? metadata)
+    {
+        item.EvidenceDebugJson = metadata == null ? null : JsonSerializer.Serialize(metadata);
     }
 
     // GameSession extensions

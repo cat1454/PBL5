@@ -2,6 +2,7 @@ using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.Services.AI;
 
@@ -14,6 +15,7 @@ public class ContentAnalyzerService : IContentAnalyzer
     private const int MaxParallelChunkAnalyses = 3;
     private const int ChunkCompactionBatchSize = 4;
     private const int MaxChunkAnalysesBeforeCompaction = 6;
+    private static readonly Regex PageRegex = new(@"\[Page\s+(\d+)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public ContentAnalyzerService(IOllamaService ollamaService, ILogger<ContentAnalyzerService> logger)
     {
@@ -26,8 +28,15 @@ public class ContentAnalyzerService : IContentAnalyzer
         try
         {
             var normalizedText = NormalizeText(text);
-            var coverageMap = DocumentCoverageMapBuilder.Build(normalizedText);
-            var chunks = SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap);
+            var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText);
+            var enrichedCoverageMap = EnrichCoverageMap(rawCoverageMap, normalizedText);
+            var cleanCoverageMap = BuildCleanCoverageMap(enrichedCoverageMap);
+            var chunks = BuildAnalysisChunks(cleanCoverageMap);
+
+            if (chunks.Count == 0)
+            {
+                chunks = SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap);
+            }
 
             _logger.LogInformation(
                 "Analyzing document content using {ChunkCount} chunks with max parallelism {MaxParallelChunkAnalyses}",
@@ -39,7 +48,7 @@ public class ContentAnalyzerService : IContentAnalyzer
             if (!chunkAnalyses.Any())
             {
                 _logger.LogWarning("No chunk analyses were produced, using fallback");
-                return CreateFallbackProcessedContent(text, coverageMap);
+                return CreateFallbackProcessedContent(text, enrichedCoverageMap);
             }
 
             var preparedAnalyses = CompactChunkAnalysesLocally(chunkAnalyses, progress);
@@ -50,16 +59,16 @@ public class ContentAnalyzerService : IContentAnalyzer
             if (result == null)
             {
                 _logger.LogWarning("Failed to consolidate chunk analyses with AI, using local merge fallback");
-                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, coverageMap);
+                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, enrichedCoverageMap);
             }
 
             ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hoan thien tom tat, topics va key points", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 97);
-            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, coverageMap);
+            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, enrichedCoverageMap);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error analyzing content");
-            return CreateFallbackProcessedContent(text, DocumentCoverageMapBuilder.Build(NormalizeText(text)));
+            return CreateFallbackProcessedContent(text, EnrichCoverageMap(DocumentCoverageMapBuilder.Build(NormalizeText(text)), NormalizeText(text)));
         }
     }
 
@@ -295,7 +304,14 @@ Respond in JSON format:
             processed.Language = localMerged.Language;
         }
 
-        processed.CoverageMap = coverageMap;
+        var metadata = BuildProcessingMetadata(normalizedText, coverageMap, processed.Language);
+        processed.Language = metadata.Language ?? processed.Language;
+        processed.DocumentType = metadata.DocumentType;
+        processed.Title = metadata.Title;
+        processed.MainContentStartPage = metadata.MainContentStartPage;
+        processed.Structure = metadata.Structure;
+        processed.ExcludedContent = metadata.ExcludedContent;
+        processed.CoverageMap = BuildCleanCoverageMap(coverageMap);
 
         return processed;
     }
@@ -331,13 +347,20 @@ Respond in JSON format:
             .Select(group => group.Key)
             .FirstOrDefault() ?? "Unknown";
 
+        var metadata = BuildProcessingMetadata(normalizedText, coverageMap, language);
+
         return new ProcessedContent
         {
             MainTopics = topics.Any() ? topics : new List<string> { "Tong quan noi dung" },
             KeyPoints = keyPoints.Any() ? keyPoints : normalizedText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(8).ToList(),
             Summary = !string.IsNullOrWhiteSpace(summary) ? summary : string.Join(" ", normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(120)) + "...",
-            Language = language,
-            CoverageMap = coverageMap
+            Language = metadata.Language ?? language,
+            DocumentType = metadata.DocumentType,
+            Title = metadata.Title,
+            MainContentStartPage = metadata.MainContentStartPage,
+            Structure = metadata.Structure,
+            ExcludedContent = metadata.ExcludedContent,
+            CoverageMap = BuildCleanCoverageMap(coverageMap)
         };
     }
 
@@ -373,15 +396,468 @@ Respond in JSON format:
     {
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var metadata = BuildProcessingMetadata(text, coverageMap, null);
 
         return new ProcessedContent
         {
-            MainTopics = new List<string> { "General Content" },
+            MainTopics = new List<string> { "Noi dung tai lieu" },
             KeyPoints = lines.Take(5).ToList(),
             Summary = string.Join(" ", words.Take(50)) + "...",
-            Language = "Unknown",
-            CoverageMap = coverageMap
+            Language = metadata.Language ?? "Unknown",
+            DocumentType = metadata.DocumentType,
+            Title = metadata.Title,
+            MainContentStartPage = metadata.MainContentStartPage,
+            Structure = metadata.Structure,
+            ExcludedContent = metadata.ExcludedContent,
+            CoverageMap = BuildCleanCoverageMap(coverageMap)
         };
+    }
+
+    private static List<string> BuildAnalysisChunks(List<DocumentCoverageChunk> cleanCoverageMap)
+        => cleanCoverageMap
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .Select(chunk => string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    $"[{chunk.ChunkId}] {chunk.Label}",
+                    chunk.Summary,
+                    chunk.EvidenceExcerpt,
+                    string.Join(" ", chunk.KeyFacts)
+                }.Where(value => !string.IsNullOrWhiteSpace(value))))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
+
+    private static List<DocumentCoverageChunk> BuildCleanCoverageMap(List<DocumentCoverageChunk> coverageMap)
+    {
+        var clean = coverageMap
+            .Where(chunk => ShouldIncludeChunkInCoverage(chunk))
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+        if (clean.Count > 0)
+        {
+            return clean;
+        }
+
+        return coverageMap
+            .OrderByDescending(chunk => chunk.TeachabilityScore)
+            .ThenBy(chunk => chunk.ChunkNumber)
+            .Take(3)
+            .ToList();
+    }
+
+    private static bool ShouldIncludeChunkInCoverage(DocumentCoverageChunk chunk)
+    {
+        if (chunk.TeachabilityScore < 34)
+        {
+            return false;
+        }
+
+        return chunk.Classification is ChunkClassifications.LessonContent
+            or ChunkClassifications.Example
+            or ChunkClassifications.Exercise;
+    }
+
+    private static List<DocumentCoverageChunk> EnrichCoverageMap(List<DocumentCoverageChunk> coverageMap, string normalizedText)
+    {
+        var documentType = DetectDocumentType(normalizedText, coverageMap);
+        var headingBySection = coverageMap
+            .Where(chunk => !string.IsNullOrWhiteSpace(chunk.SectionKey))
+            .GroupBy(chunk => chunk.SectionKey!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(chunk => chunk.ChunkNumber).First().HeadingText ?? group.OrderBy(chunk => chunk.ChunkNumber).First().NormalizedHeading ?? group.Key,
+                StringComparer.OrdinalIgnoreCase);
+
+        var result = new List<DocumentCoverageChunk>(coverageMap.Count);
+        foreach (var chunk in coverageMap)
+        {
+            var classification = ClassifyChunk(chunk, documentType);
+            var (score, positives, negatives) = ScoreTeachability(chunk, classification, documentType);
+            var cloned = CloneChunk(chunk);
+            cloned.Classification = classification;
+            cloned.TeachabilityScore = Math.Clamp(score, 0, 100);
+            cloned.PositiveSignals = positives;
+            cloned.NegativeSignals = negatives;
+            cloned.SelectionReason = BuildSelectionReason(cloned, headingBySection.TryGetValue(chunk.SectionKey ?? string.Empty, out var heading) ? heading : null);
+            cloned.StartPage = TryGetChunkStartPage(chunk);
+            cloned.EndPage = TryGetChunkEndPage(chunk);
+            result.Add(cloned);
+        }
+
+        return result;
+    }
+
+    private static DocumentCoverageChunk CloneChunk(DocumentCoverageChunk chunk)
+    {
+        return new DocumentCoverageChunk
+        {
+            ChunkNumber = chunk.ChunkNumber,
+            ChunkId = chunk.ChunkId,
+            Zone = chunk.Zone,
+            Label = chunk.Label,
+            HeadingKind = chunk.HeadingKind,
+            HeadingLevel = chunk.HeadingLevel,
+            HeadingMarker = chunk.HeadingMarker,
+            HeadingText = chunk.HeadingText,
+            NormalizedHeading = chunk.NormalizedHeading,
+            HeadingPath = chunk.HeadingPath,
+            ParentHeadingPath = chunk.ParentHeadingPath,
+            SectionKey = chunk.SectionKey,
+            IsPrimarySection = chunk.IsPrimarySection,
+            Summary = chunk.Summary,
+            EvidenceExcerpt = chunk.EvidenceExcerpt,
+            KeyFacts = chunk.KeyFacts.ToList()
+        };
+    }
+
+    private static string DetectDocumentType(string text, IReadOnlyCollection<DocumentCoverageChunk> chunks)
+    {
+        var lowered = text.ToLowerInvariant();
+        if (Regex.IsMatch(lowered, @"\b(doi moi|quan diem|nguyen ly|chuong|chương|bai|bài|unit|lesson|exercise|ví dụ|vi du)\b", RegexOptions.IgnoreCase))
+        {
+            return DocumentTypes.Textbook;
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(abstract|introduction|methodology|results|discussion|references|doi|et al\.)\b", RegexOptions.IgnoreCase))
+        {
+            return DocumentTypes.ResearchPaper;
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(report|bao cao|executive summary|findings|recommendation)\b", RegexOptions.IgnoreCase))
+        {
+            return DocumentTypes.Report;
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(user guide|manual|huong dan|hướng dẫn|installation|troubleshooting)\b", RegexOptions.IgnoreCase))
+        {
+            return DocumentTypes.Manual;
+        }
+
+        if (chunks.Any(chunk => chunk.HeadingKind is "chapter" or "chuong" or "unit" or "phan" or "bai"))
+        {
+            return DocumentTypes.Textbook;
+        }
+
+        return DocumentTypes.LectureNote;
+    }
+
+    private static string DetectLanguage(string text)
+    {
+        if (Regex.IsMatch(text, @"\b(và|của|những|được|trong|không|bài|chương|phần|ví dụ)\b", RegexOptions.IgnoreCase))
+        {
+            return "Vietnamese";
+        }
+
+        if (Regex.IsMatch(text, @"\b(the|and|with|chapter|section|example|definition|therefore)\b", RegexOptions.IgnoreCase))
+        {
+            return "English";
+        }
+
+        return "Unknown";
+    }
+
+    private static string? DetectTitle(string text)
+    {
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var normalized = line.Trim();
+            if (normalized.Length < 12 || normalized.Length > 180)
+            {
+                continue;
+            }
+
+            if (normalized.StartsWith("[Page", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (Regex.IsMatch(normalized, @"^(?:muc luc|table of contents|noi dung|nha xuat ban|publisher)", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            return normalized;
+        }
+
+        return null;
+    }
+
+    private static string ClassifyChunk(DocumentCoverageChunk chunk, string documentType)
+    {
+        var heading = $"{chunk.HeadingText} {chunk.NormalizedHeading} {chunk.Label}".ToLowerInvariant();
+        var text = $"{chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}".ToLowerInvariant();
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(muc luc|table of contents|contents)\b"))
+        {
+            return ChunkClassifications.TableOfContents;
+        }
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(loi noi dau|preface|foreword|introduction)\b") && chunk.ChunkNumber <= 4)
+        {
+            return ChunkClassifications.Preface;
+        }
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(tai lieu tham khao|tham khao|references|bibliography)\b"))
+        {
+            return ChunkClassifications.Reference;
+        }
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(phu luc|appendix)\b"))
+        {
+            return ChunkClassifications.Appendix;
+        }
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(vi du|ví dụ|example|case study|ung dung|ứng dụng)\b"))
+        {
+            return ChunkClassifications.Example;
+        }
+
+        if (Regex.IsMatch(heading + " " + text, @"\b(bai tap|bài tập|cau hoi|câu hỏi|exercise|review question|quiz)\b"))
+        {
+            return ChunkClassifications.Exercise;
+        }
+
+        if (LooksLikeFrontMatter(chunk, text, documentType))
+        {
+            return ChunkClassifications.FrontMatter;
+        }
+
+        if (TextCleanupUtility.HasNoisyArtifacts(text) || Regex.IsMatch(text, @"\b(ocr|garbled|lorem ipsum)\b", RegexOptions.IgnoreCase))
+        {
+            return ChunkClassifications.Noise;
+        }
+
+        return ChunkClassifications.LessonContent;
+    }
+
+    private static bool LooksLikeFrontMatter(DocumentCoverageChunk chunk, string loweredText, string documentType)
+    {
+        if (chunk.ChunkNumber <= 2)
+        {
+            return true;
+        }
+
+        if (Regex.IsMatch(loweredText, @"\b(tac gia|tác giả|nha xuat ban|nhà xuất bản|publisher|copyright|isbn|all rights reserved)\b"))
+        {
+            return true;
+        }
+
+        if (documentType == DocumentTypes.Textbook && chunk.Zone == "dau" && !chunk.IsPrimarySection && (chunk.HeadingLevel ?? 10) > 2)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static (int Score, List<string> Positives, List<string> Negatives) ScoreTeachability(DocumentCoverageChunk chunk, string classification, string documentType)
+    {
+        var score = 50;
+        var positives = new List<string>();
+        var negatives = new List<string>();
+        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}";
+        var lowered = text.ToLowerInvariant();
+
+        void AddPositive(string signal, int points)
+        {
+            positives.Add(signal);
+            score += points;
+        }
+
+        void AddNegative(string signal, int points)
+        {
+            negatives.Add(signal);
+            score -= points;
+        }
+
+        if (classification is ChunkClassifications.LessonContent or ChunkClassifications.Example)
+        {
+            AddPositive("classified as teachable content", 12);
+        }
+
+        if (chunk.IsPrimarySection || (chunk.HeadingLevel ?? 10) <= 2)
+        {
+            AddPositive("section heading", 10);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(la\s+|dinh nghia|định nghĩa|concept|khai niem|khái niệm)\b", RegexOptions.IgnoreCase))
+        {
+            AddPositive("definition or concept wording", 12);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(nguyen nhan|ket qua|vi vay|do do|because|therefore|cause|effect)\b", RegexOptions.IgnoreCase))
+        {
+            AddPositive("cause effect explanation", 8);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(so sanh|phan loai|classification|compared|khac nhau|giong nhau)\b", RegexOptions.IgnoreCase))
+        {
+            AddPositive("comparison or classification", 8);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(cong thuc|công thức|formula|principle|nguyen ly|định luật|law)\b", RegexOptions.IgnoreCase) || text.Any(char.IsDigit))
+        {
+            AddPositive("formula or principle", 8);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(vi du|ví dụ|ung dung|ứng dụng|example|application)\b", RegexOptions.IgnoreCase))
+        {
+            AddPositive("example or application", 8);
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(tac gia|tác giả|publisher|nha xuat ban|nhà xuất bản|isbn|copyright)\b", RegexOptions.IgnoreCase))
+        {
+            AddNegative("author or publisher information", 28);
+        }
+
+        if (classification == ChunkClassifications.TableOfContents)
+        {
+            AddNegative("table of contents", 26);
+        }
+
+        if (classification == ChunkClassifications.Reference)
+        {
+            AddNegative("reference list", 24);
+        }
+
+        if (classification is ChunkClassifications.FrontMatter or ChunkClassifications.Noise)
+        {
+            AddNegative("front matter or noise", 24);
+        }
+
+        if (text.Length < 120)
+        {
+            AddNegative("too short", 14);
+        }
+
+        if (TextCleanupUtility.HasNoisyArtifacts(text))
+        {
+            AddNegative("ocr artifacts", 18);
+        }
+
+        if (LooksMostlyNames(text))
+        {
+            AddNegative("mostly names", 14);
+        }
+
+        if (documentType == DocumentTypes.Textbook && classification == ChunkClassifications.LessonContent)
+        {
+            AddPositive("textbook learning section", 6);
+        }
+
+        return (Math.Clamp(score, 0, 100), positives.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), negatives.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private static bool LooksMostlyNames(string text)
+    {
+        var words = Regex.Matches(text, @"\b\p{L}{2,}\b")
+            .Select(match => match.Value)
+            .ToList();
+
+        if (words.Count < 8)
+        {
+            return false;
+        }
+
+        var titleCaseWords = words.Count(word => char.IsUpper(word[0]));
+        return titleCaseWords >= words.Count * 0.65;
+    }
+
+    private static int? TryGetChunkStartPage(DocumentCoverageChunk chunk)
+    {
+        var candidate = $"{chunk.Label}\n{chunk.Summary}\n{chunk.EvidenceExcerpt}";
+        var match = PageRegex.Match(candidate);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var page) ? page : null;
+    }
+
+    private static int? TryGetChunkEndPage(DocumentCoverageChunk chunk)
+    {
+        var candidate = $"{chunk.EvidenceExcerpt}\n{chunk.Summary}\n{chunk.Label}";
+        var matches = PageRegex.Matches(candidate);
+        if (matches.Count == 0)
+        {
+            return null;
+        }
+
+        var last = matches[^1];
+        return int.TryParse(last.Groups[1].Value, out var page) ? page : null;
+    }
+
+    private static string BuildSelectionReason(DocumentCoverageChunk chunk, string? sectionHeading)
+    {
+        if (chunk.TeachabilityScore < 35)
+        {
+            return $"Excluded as {chunk.Classification} due to low teachability score {chunk.TeachabilityScore}.";
+        }
+
+        var heading = !string.IsNullOrWhiteSpace(sectionHeading)
+            ? sectionHeading
+            : chunk.HeadingText ?? chunk.NormalizedHeading ?? chunk.Label;
+        return $"Selected from {chunk.Classification} under '{heading}' with teachability score {chunk.TeachabilityScore}.";
+    }
+
+    private static DocumentProcessingMetadata BuildProcessingMetadata(string normalizedText, IReadOnlyCollection<DocumentCoverageChunk> coverageMap, string? detectedLanguage)
+    {
+        var language = !string.IsNullOrWhiteSpace(detectedLanguage) ? detectedLanguage : DetectLanguage(normalizedText);
+        var documentType = DetectDocumentType(normalizedText, coverageMap.ToList());
+        var title = DetectTitle(normalizedText);
+        var mainContentStartPage = coverageMap
+            .Where(chunk => chunk.Classification is ChunkClassifications.LessonContent or ChunkClassifications.Example)
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .Select(chunk => chunk.StartPage)
+            .FirstOrDefault(page => page.HasValue);
+
+        return new DocumentProcessingMetadata
+        {
+            DocumentType = documentType,
+            Language = language,
+            Title = title,
+            MainContentStartPage = mainContentStartPage,
+            Structure = BuildStructureDescriptors(coverageMap),
+            ExcludedContent = BuildExcludedDescriptors(coverageMap)
+        };
+    }
+
+    private static List<DocumentSectionDescriptor> BuildStructureDescriptors(IReadOnlyCollection<DocumentCoverageChunk> coverageMap)
+    {
+        return coverageMap
+            .Where(chunk => ShouldIncludeChunkInCoverage(chunk))
+            .GroupBy(chunk => !string.IsNullOrWhiteSpace(chunk.SectionKey) ? chunk.SectionKey : chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var ordered = group.OrderBy(chunk => chunk.ChunkNumber).ToList();
+                var first = ordered[0];
+                return new DocumentSectionDescriptor
+                {
+                    SectionKey = first.SectionKey ?? first.ChunkId,
+                    Heading = first.HeadingText ?? first.NormalizedHeading ?? first.Label,
+                    Classification = first.Classification,
+                    StartPage = ordered.Select(chunk => chunk.StartPage).FirstOrDefault(page => page.HasValue),
+                    EndPage = ordered.Select(chunk => chunk.EndPage).LastOrDefault(page => page.HasValue),
+                    ChunkIds = ordered.Select(chunk => chunk.ChunkId).ToList()
+                };
+            })
+            .OrderBy(section => section.ChunkIds.FirstOrDefault())
+            .ToList();
+    }
+
+    private static List<ExcludedContentDescriptor> BuildExcludedDescriptors(IReadOnlyCollection<DocumentCoverageChunk> coverageMap)
+    {
+        return coverageMap
+            .Where(chunk => !ShouldIncludeChunkInCoverage(chunk))
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .Select(chunk => new ExcludedContentDescriptor
+            {
+                ChunkId = chunk.ChunkId,
+                Page = chunk.StartPage,
+                Classification = chunk.Classification,
+                Reason = !string.IsNullOrWhiteSpace(chunk.SelectionReason)
+                    ? chunk.SelectionReason
+                    : string.Join("; ", chunk.NegativeSignals)
+            })
+            .ToList();
     }
 
     private sealed class ChunkAnalysis

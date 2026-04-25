@@ -40,6 +40,9 @@ public class Document
     [Column("coverage_map")]
     public string? CoverageMapJson { get; set; } // JSON serialized
 
+    [Column("processed_metadata")]
+    public string? ProcessedMetadataJson { get; set; } // JSON serialized
+
     [Column("summary")]
     public string? Summary { get; set; }
 

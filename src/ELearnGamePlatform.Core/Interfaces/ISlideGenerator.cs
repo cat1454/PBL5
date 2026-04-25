@@ -69,4 +69,5 @@ public class SlideContentResult
     public string? AccentTone { get; set; }
     public int? VerifierScore { get; set; }
     public List<string> VerifierIssues { get; set; } = new();
+    public SlideEvidenceDebugMetadata? EvidenceDebug { get; set; }
 }

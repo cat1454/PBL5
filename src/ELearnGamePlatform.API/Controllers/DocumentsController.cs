@@ -146,6 +146,7 @@ public class DocumentsController : ControllerBase
     private object BuildDocumentPayload(Document doc, int questionsCount)
     {
         _documentJobStore.TryGetJob(doc.Id, out var progressState);
+        var processingMetadata = doc.GetProcessingMetadata();
 
         return new
         {
@@ -160,6 +161,11 @@ public class DocumentsController : ControllerBase
             coverageChunkCount = doc.GetCoverageMap().Count,
             summary = doc.Summary,
             language = doc.Language,
+            documentType = processingMetadata.DocumentType,
+            title = processingMetadata.Title,
+            mainContentStartPage = processingMetadata.MainContentStartPage,
+            structure = processingMetadata.Structure,
+            excludedContent = processingMetadata.ExcludedContent,
             status = doc.Status,
             uploadedBy = doc.UploadedBy,
             createdAt = doc.CreatedAt,

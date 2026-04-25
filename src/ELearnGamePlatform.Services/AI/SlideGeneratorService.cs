@@ -31,6 +31,8 @@ public class SlideGeneratorService : ISlideGenerator
     };
     private static readonly string[] GenericSlidePhrases =
     {
+        "general content",
+        "tong hop cac y chinh",
         "tom tat noi dung chinh",
         "tom tat noi dung",
         "noi dung chinh cua tai lieu",
@@ -968,6 +970,16 @@ Return JSON only:
             issues.Add("Heading slide còn chung chung/template.");
         }
 
+        if (LooksLikeFileName(content.Heading) || LooksLikeFileName(content.Subheading) || LooksLikeFileName(content.Goal))
+        {
+            issues.Add("Nội dung slide đang dùng tên file làm nội dung chính.");
+        }
+
+        if (LooksLikeAuthorListOnly(content.Heading, content.Subheading, content.BodyBlocks))
+        {
+            issues.Add("Nội dung slide nghiêng về danh sách tác giả thay vì kiến thức học.");
+        }
+
         if (!string.IsNullOrWhiteSpace(content.Subheading) && TextCleanupUtility.HasNoisyArtifacts(content.Subheading))
         {
             issues.Add("Subheading con artifact.");
@@ -1019,6 +1031,16 @@ Return JSON only:
         if (!HasEvidenceSpecificity(content, evidence))
         {
             issues.Add("Slide chưa có chi tiết cụ thể được neo vào evidence.");
+        }
+
+        if (evidence.Any() && evidence.Average(chunk => chunk.TeachabilityScore) < 45)
+        {
+            issues.Add("Evidence đang có teachability thấp, cần chọn lại chunk dạy học rõ hơn.");
+        }
+
+        if (evidence.Any(chunk => chunk.Classification is ChunkClassifications.FrontMatter or ChunkClassifications.TableOfContents or ChunkClassifications.Reference or ChunkClassifications.Appendix or ChunkClassifications.Noise))
+        {
+            issues.Add("Evidence đang chứa phần không phù hợp cho slide bài học.");
         }
 
         if (!string.IsNullOrWhiteSpace(content.SpeakerNotes) && TextCleanupUtility.HasNoisyArtifacts(content.SpeakerNotes))
@@ -1361,6 +1383,16 @@ Return JSON only:
             AddWarning("Slide chưa có chi tiết cụ thể được neo vào evidence.", 16);
         }
 
+        if (evidence.Any() && evidence.Average(chunk => chunk.TeachabilityScore) < 45)
+        {
+            AddWarning("Evidence có teachability thấp, cần ưu tiên chunk có chất lượng dạy học cao hơn.", 14);
+        }
+
+        if (evidence.Any(chunk => chunk.Classification is ChunkClassifications.FrontMatter or ChunkClassifications.TableOfContents or ChunkClassifications.Reference or ChunkClassifications.Appendix or ChunkClassifications.Noise))
+        {
+            AddWarning("Evidence đang chứa front matter/reference/noise, không phù hợp làm nội dung dạy học.", 24);
+        }
+
         if (evidence.Count < 2)
         {
             AddWarning("Slide đang dựa trên ít evidence chunk.", 5);
@@ -1408,6 +1440,47 @@ Return JSON only:
 
         content.VerifierScore = Math.Clamp(score, 0, 100);
         content.VerifierIssues = warnings;
+        content.EvidenceDebug = BuildEvidenceDebugMetadata(evidence);
+    }
+
+    private static SlideEvidenceDebugMetadata BuildEvidenceDebugMetadata(IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        return new SlideEvidenceDebugMetadata
+        {
+            SelectedChunks = evidence
+                .Select(chunk => new SlideEvidenceDebugChunk
+                {
+                    ChunkId = chunk.ChunkId,
+                    Classification = chunk.Classification,
+                    TeachabilityScore = chunk.TeachabilityScore,
+                    ReasonSelected = !string.IsNullOrWhiteSpace(chunk.SelectionReason)
+                        ? chunk.SelectionReason
+                        : $"Selected as {chunk.Classification} with teachability score {chunk.TeachabilityScore}."
+                })
+                .ToList()
+        };
+    }
+
+    private static bool LooksLikeFileName(string? value)
+        => !string.IsNullOrWhiteSpace(value)
+            && Regex.IsMatch(value, @"\.(pdf|docx|pptx|ppt|txt|xlsx?)\b", RegexOptions.IgnoreCase);
+
+    private static bool LooksLikeAuthorListOnly(string? heading, string? subheading, IReadOnlyCollection<string> bodyBlocks)
+    {
+        var text = string.Join(" ", new[] { heading, subheading }.Where(value => !string.IsNullOrWhiteSpace(value)).Concat(bodyBlocks));
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (!Regex.IsMatch(text, @"\b(tac gia|tác giả|author|biên soạn|chủ biên)\b", RegexOptions.IgnoreCase))
+        {
+            return false;
+        }
+
+        var wordCount = Regex.Matches(text, @"\b\p{L}{2,}\b").Count;
+        var commaCount = text.Count(ch => ch == ',');
+        return wordCount <= 45 && commaCount >= 3;
     }
 
     private async Task<SlideAiVerificationResult?> VerifySlideWithAiAsync(
@@ -1472,7 +1545,7 @@ Return JSON only:
         }
 
         return string.Join(Environment.NewLine, evidence.Select(chunk =>
-            $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}"));
+            $"- {chunk.ChunkId} | zone={chunk.Zone} | class={chunk.Classification} | teachability={chunk.TeachabilityScore} | reason={chunk.SelectionReason} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}"));
     }
 
     private static string BuildSlideVerifierBodyBlock(IReadOnlyCollection<string> bodyBlocks)
@@ -1794,15 +1867,85 @@ Return JSON only:
                     ParentHeadingPath = chunk.ParentHeadingPath,
                     SectionKey = chunk.SectionKey,
                     IsPrimarySection = chunk.IsPrimarySection,
+                    Classification = chunk.Classification,
+                    TeachabilityScore = chunk.TeachabilityScore,
+                    SelectionReason = chunk.SelectionReason,
                     Summary = chunk.Summary,
                     KeyFacts = chunk.KeyFacts,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
                     SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(chunk)
                 })
+                .Where(chunk => IsAllowedSlideEvidenceClassification(chunk.Classification) && chunk.TeachabilityScore >= 34)
                 .ToList();
         }
 
+        if (processedContent != null)
+        {
+            return BuildCoverageChunksFromProcessedContent(processedContent);
+        }
+
         return BuildCoverageChunks(content);
+    }
+
+    private static List<DocumentChunk> BuildCoverageChunksFromProcessedContent(ProcessedContent processedContent)
+    {
+        var chunks = new List<DocumentChunk>();
+        var index = 1;
+
+        foreach (var point in processedContent.KeyPoints.Where(value => !string.IsNullOrWhiteSpace(value)).Take(8))
+        {
+            var normalizedPoint = NormalizeLine(point, 220);
+            if (string.IsNullOrWhiteSpace(normalizedPoint))
+            {
+                continue;
+            }
+
+            chunks.Add(new DocumentChunk
+            {
+                ChunkNumber = index,
+                ChunkId = $"K{index:00}",
+                Zone = "giua",
+                Label = normalizedPoint,
+                HeadingText = processedContent.Title,
+                NormalizedHeading = processedContent.DocumentType,
+                SectionKey = $"processed-{index:00}",
+                IsPrimarySection = index <= 3,
+                Classification = ChunkClassifications.LessonContent,
+                TeachabilityScore = 60,
+                SelectionReason = "Selected from processed key points because stored coverage map was unavailable.",
+                Summary = normalizedPoint,
+                KeyFacts = new List<string> { normalizedPoint },
+                EvidenceExcerpt = normalizedPoint,
+                SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(normalizedPoint)
+            });
+
+            index++;
+        }
+
+        if (!chunks.Any() && !string.IsNullOrWhiteSpace(processedContent.Summary))
+        {
+            var summary = NormalizeLine(processedContent.Summary, 220) ?? string.Empty;
+            chunks.Add(new DocumentChunk
+            {
+                ChunkNumber = 1,
+                ChunkId = "K01",
+                Zone = "giua",
+                Label = summary,
+                HeadingText = processedContent.Title,
+                NormalizedHeading = processedContent.DocumentType,
+                SectionKey = "processed-summary",
+                IsPrimarySection = true,
+                Classification = ChunkClassifications.LessonContent,
+                TeachabilityScore = 55,
+                SelectionReason = "Selected from processed summary because key points were unavailable.",
+                Summary = summary,
+                KeyFacts = new List<string> { summary },
+                EvidenceExcerpt = summary,
+                SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(summary)
+            });
+        }
+
+        return chunks;
     }
 
     private static List<DocumentChunk> BuildCoverageChunks(string content)
@@ -1828,6 +1971,9 @@ Return JSON only:
                 ParentHeadingPath = coverageChunk.ParentHeadingPath,
                 SectionKey = coverageChunk.SectionKey,
                 IsPrimarySection = coverageChunk.IsPrimarySection,
+                Classification = coverageChunk.Classification,
+                TeachabilityScore = coverageChunk.TeachabilityScore,
+                SelectionReason = coverageChunk.SelectionReason,
                 Summary = coverageChunk.Summary,
                 KeyFacts = coverageChunk.KeyFacts,
                 EvidenceExcerpt = coverageChunk.EvidenceExcerpt,
@@ -1855,7 +2001,7 @@ Return JSON only:
             .Where(point => !string.IsNullOrWhiteSpace(point))
             .Take(6);
 
-        return $"- Language: {processedContent.Language}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
+        return $"- Language: {processedContent.Language}\n- Document type: {processedContent.DocumentType}\n- Title: {processedContent.Title}\n- Main content start page: {processedContent.MainContentStartPage}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
     }
 
     private static string BuildBriefBlock(SlideDeckBrief? brief)
@@ -1915,11 +2061,21 @@ Return JSON:
             }
 
             Report(progress, MapProgress(12, 22, index + 1, plans.Count), "section-summaries", $"Dang tom tat section {index + 1}/{plans.Count}", "Section summaries");
+            
         }
 
         return plans;
     }
+private static int MapProgress(int startPercent, int endPercent, int currentStep, int totalSteps)
+{
+    var safeStart = Math.Clamp(startPercent, 0, 100);
+    var safeEnd = Math.Clamp(endPercent, safeStart, 100);
+    var safeTotal = Math.Max(1, totalSteps);
+    var safeStep = Math.Clamp(currentStep, 0, safeTotal);
 
+    var range = safeEnd - safeStart;
+    return safeStart + (range * safeStep / safeTotal);
+}
     private static List<SlideSectionPlan> BuildSectionPlans(List<DocumentChunk> chunks)
         => chunks
             .GroupBy(chunk => !string.IsNullOrWhiteSpace(chunk.SectionKey) ? chunk.SectionKey : chunk.HeadingPath ?? chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
@@ -1989,7 +2145,7 @@ Return JSON:
         => string.Join(
             Environment.NewLine,
             CompactPromptChunks(chunks, PromptCoverageChunkLimit)
-                .Select(chunk => $"- {chunk.ChunkId} | zone={chunk.Zone} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | summary={NormalizeLine(chunk.Summary, 140) ?? "Khong co summary"}"));
+                .Select(chunk => $"- {chunk.ChunkId} | zone={chunk.Zone} | class={chunk.Classification} | teachability={chunk.TeachabilityScore} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | summary={NormalizeLine(chunk.Summary, 140) ?? "Khong co summary"}"));
 
     private static string BuildEvidenceBlock(IEnumerable<DocumentChunk> chunks)
         => string.Join(
@@ -2007,7 +2163,7 @@ Return JSON:
                     ? string.Join(" | ", facts)
                     : NormalizeLine(chunk.EvidenceExcerpt, 220) ?? NormalizeLine(chunk.Summary, 160) ?? "Khong co evidence.";
 
-                return $"- {chunk.ChunkId} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | {evidence}";
+                return $"- {chunk.ChunkId} | class={chunk.Classification} | teachability={chunk.TeachabilityScore} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | {evidence}";
             }));
 
     private static string BuildHeadingMeta(DocumentChunk chunk)
@@ -2071,21 +2227,37 @@ Return JSON:
             return new List<DocumentChunk>();
         }
 
+        var includeExercise = ShouldUseExerciseEvidence(outlineSlide);
+        var allowedChunks = chunks
+            .Where(chunk => IsAllowedSlideEvidenceClassification(chunk.Classification, includeExercise))
+            .Where(chunk => chunk.TeachabilityScore >= 34)
+            .ToList();
+
+        if (!allowedChunks.Any())
+        {
+            allowedChunks = chunks
+                .Where(chunk => chunk.TeachabilityScore >= 40)
+                .OrderByDescending(chunk => chunk.TeachabilityScore)
+                .Take(EvidenceChunkLimit)
+                .ToList();
+        }
+
         var preferred = new HashSet<string>(outlineSlide.PreferredChunkIds, StringComparer.OrdinalIgnoreCase);
         var queryTokens = TokenizeForSearch($"{outlineSlide.Heading} {outlineSlide.Subheading} {outlineSlide.Goal} {outlineSlide.KeyMessage}");
-        var preferredSections = chunks
+        var preferredSections = allowedChunks
             .Where(chunk => preferred.Contains(chunk.ChunkId))
             .Select(chunk => chunk.SectionKey ?? chunk.HeadingPath)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return chunks
+        return allowedChunks
             .Select(chunk => new
             {
                 Chunk = chunk,
                 Score = (preferred.Contains(chunk.ChunkId) ? 50 : 0)
                     + (!string.IsNullOrWhiteSpace(chunk.SectionKey) && preferredSections.Contains(chunk.SectionKey) ? 24 : 0)
                     + (!string.IsNullOrWhiteSpace(chunk.HeadingPath) && preferredSections.Contains(chunk.HeadingPath) ? 18 : 0)
+                    + chunk.TeachabilityScore
                     + queryTokens.Intersect(chunk.SearchTokens, StringComparer.OrdinalIgnoreCase).Count() * 4
             })
             .OrderByDescending(item => item.Score)
@@ -2093,6 +2265,27 @@ Return JSON:
             .Select(item => item.Chunk)
             .Take(EvidenceChunkLimit)
             .ToList();
+    }
+
+    private static bool ShouldUseExerciseEvidence(SlideOutlineSlide outlineSlide)
+    {
+        var cue = $"{outlineSlide.Heading} {outlineSlide.Subheading} {outlineSlide.Goal} {outlineSlide.KeyMessage}";
+        return Regex.IsMatch(cue, @"\b(review|quiz|on tap|ôn tập|cau hoi|câu hỏi|kiem tra|kiểm tra|luyen tap|luyện tập|exercise)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsAllowedSlideEvidenceClassification(string? classification, bool includeExercise = false)
+    {
+        if (string.IsNullOrWhiteSpace(classification))
+        {
+            return true;
+        }
+
+        if (classification == ChunkClassifications.LessonContent || classification == ChunkClassifications.Example)
+        {
+            return true;
+        }
+
+        return includeExercise && classification == ChunkClassifications.Exercise;
     }
 
     private static List<DocumentChunk> SelectOutlineChunks(List<DocumentChunk> chunks, int targetCount)
@@ -2609,6 +2802,9 @@ Return JSON:
         public string? ParentHeadingPath { get; init; }
         public string? SectionKey { get; init; }
         public bool IsPrimarySection { get; init; }
+        public string Classification { get; init; } = ChunkClassifications.LessonContent;
+        public int TeachabilityScore { get; init; } = 50;
+        public string SelectionReason { get; init; } = string.Empty;
         public string Summary { get; init; } = string.Empty;
         public List<string> KeyFacts { get; init; } = new();
         public string EvidenceExcerpt { get; init; } = string.Empty;

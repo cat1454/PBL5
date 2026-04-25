@@ -166,6 +166,7 @@ public class SlidesController : ControllerBase
                 "Slide da duoc chinh sua thu cong sau khi verifier chay.",
                 "Can sinh lai hoac verifier lai neu muon diem tin cay moi."
             });
+            item.SetEvidenceDebug(null);
             RefreshImageScaffold(item);
 
             await _slideDeckRepository.UpdateItemAsync(item);
@@ -396,6 +397,7 @@ public class SlidesController : ControllerBase
                 item.AccentTone = content.AccentTone;
                 item.VerifierScore = content.VerifierScore;
                 item.SetVerifierIssues(content.VerifierIssues);
+                item.SetEvidenceDebug(content.EvidenceDebug);
                 item.SetBodyBlocks(content.BodyBlocks);
                 item.SetEditorState(item.BuildDefaultEditorState());
                 RefreshImageScaffold(item);
@@ -495,7 +497,132 @@ public class SlidesController : ControllerBase
                 lowConfidenceCount = deck.Items.Count(item => (item.VerifierScore ?? 100) < 70),
                 unknownCount = deck.Items.Count(item => !item.VerifierScore.HasValue)
             },
-            generationProgress = JobProgressPayloadFactory.BuildSlide(jobState, deck)
+            generationProgress = JobProgressPayloadFactory.BuildSlide(jobState, deck),
+            imageSourcingProgress = BuildImageSourcingProgress(deck)
+        };
+    }
+
+    private static object BuildImageSourcingProgress(SlideDeck deck)
+    {
+        var totalSlides = deck.Items.Count;
+        var totalNeedsImage = 0;
+        var readyCount = 0;
+        var queuedCount = 0;
+        var candidateOnlyCount = 0;
+        var noLicenseSafeCount = 0;
+        var failedCount = 0;
+        var noImageNeededCount = 0;
+        var generatedOnlyCount = 0;
+
+        foreach (var item in deck.Items)
+        {
+            var imagePlan = item.GetImagePlan() ?? BuildDefaultImagePlan(item);
+            var imageCandidates = NormalizeImageCandidates(item.GetImageCandidates(), item.SelectedImageKey);
+            var selectedImage = ResolveSelectedImage(imageCandidates, item.SelectedImageKey);
+            var imageState = BuildImageState(item, imagePlan, imageCandidates, selectedImage);
+
+            if (!imageState.NeedsImage)
+            {
+                noImageNeededCount += 1;
+                continue;
+            }
+
+            totalNeedsImage += 1;
+
+            if (string.Equals(imageState.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                if (selectedImage != null)
+                {
+                    readyCount += 1;
+
+                    var selectedIsGenerated = string.Equals(selectedImage.SourceType, "generated", StringComparison.OrdinalIgnoreCase);
+                    var hasWebCandidate = imageCandidates.Any(candidate =>
+                        string.Equals(candidate.SourceType, "web", StringComparison.OrdinalIgnoreCase));
+                    if (selectedIsGenerated && !hasWebCandidate)
+                    {
+                        generatedOnlyCount += 1;
+                    }
+                }
+                else
+                {
+                    candidateOnlyCount += 1;
+                }
+
+                continue;
+            }
+
+            if (string.Equals(imageState.Status, "no-license-safe-image", StringComparison.OrdinalIgnoreCase))
+            {
+                noLicenseSafeCount += 1;
+                continue;
+            }
+
+            if (string.Equals(imageState.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                failedCount += 1;
+                continue;
+            }
+
+            queuedCount += 1;
+        }
+
+        var hasWork = totalNeedsImage > 0;
+        var percent = hasWork
+            ? (int)Math.Round((double)readyCount * 100 / totalNeedsImage)
+            : 100;
+
+        var status = "running";
+        var stage = "image-sourcing";
+        var stageLabel = "Dang xu ly media";
+        var message = "Dang tim va chon media cho cac slide can hinh.";
+
+        if (!hasWork)
+        {
+            status = "completed";
+            stage = "no-image-needed";
+            stageLabel = "Text-only";
+            message = "Khong co slide nao can media trong deck nay.";
+        }
+        else if (readyCount == totalNeedsImage)
+        {
+            status = "completed";
+            stage = "completed";
+            stageLabel = "Media san sang";
+            message = "Tat ca slide can hinh da co selected media.";
+        }
+        else if (failedCount + noLicenseSafeCount == totalNeedsImage)
+        {
+            status = "failed";
+            stage = "failed";
+            stageLabel = "Media gap loi";
+            message = "Image workflow that bai hoac chua tim thay nguon an toan cho tat ca slide can hinh.";
+        }
+        else if (candidateOnlyCount > 0)
+        {
+            stage = "awaiting-selection";
+            stageLabel = "Can chon candidate";
+            message = "Da co candidate, can chon selected media cho mot so slide.";
+        }
+
+        return new
+        {
+            status,
+            percent,
+            stage,
+            stageLabel,
+            message,
+            detail = $"ready={readyCount}, candidateOnly={candidateOnlyCount}, queued={queuedCount}, noLicense={noLicenseSafeCount}, failed={failedCount}",
+            current = readyCount,
+            total = totalNeedsImage,
+            unitLabel = "slide",
+            totalSlides,
+            noImageNeededCount,
+            readyCount,
+            candidateOnlyCount,
+            queuedCount,
+            noLicenseSafeCount,
+            failedCount,
+            generatedOnlyCount
         };
     }
 
@@ -526,6 +653,7 @@ public class SlidesController : ControllerBase
             selectedImage,
             imageCandidates,
             quality = BuildQualityPayload(item.VerifierScore, item.GetVerifierIssues()),
+            evidenceDebug = item.GetEvidenceDebug(),
             item.CreatedAt,
             item.UpdatedAt
         };
@@ -579,12 +707,18 @@ public class SlidesController : ControllerBase
 
     private static ProcessedContent BuildProcessedContentFromDocument(Document document)
     {
+        var metadata = document.GetProcessingMetadata();
         return new ProcessedContent
         {
             MainTopics = document.GetMainTopics(),
             KeyPoints = document.GetKeyPoints(),
             Summary = document.Summary,
             Language = document.Language,
+            DocumentType = metadata.DocumentType,
+            Title = metadata.Title,
+            MainContentStartPage = metadata.MainContentStartPage,
+            Structure = metadata.Structure,
+            ExcludedContent = metadata.ExcludedContent,
             CoverageMap = document.GetCoverageMap()
         };
     }
@@ -612,6 +746,8 @@ public class SlidesController : ControllerBase
             .OrderBy(source => source.FolderSourceOrder)
             .ThenBy(source => source.CreatedAt)
             .ToList();
+        var metadataBySource = orderedSources
+            .ToDictionary(source => source.Id, source => source.GetProcessingMetadata());
 
         return new ProcessedContent
         {
@@ -633,8 +769,23 @@ public class SlidesController : ControllerBase
                     : $"{source.FileName}: {source.Summary.Trim()}")
                 .Where(value => !string.IsNullOrWhiteSpace(value))),
             Language = orderedSources
-                .Select(source => source.Language)
+                .Select(source => metadataBySource[source.Id].Language ?? source.Language)
                 .FirstOrDefault(language => !string.IsNullOrWhiteSpace(language)),
+            DocumentType = orderedSources
+                .Select(source => metadataBySource[source.Id].DocumentType)
+                .FirstOrDefault(type => !string.IsNullOrWhiteSpace(type)) ?? DocumentTypes.Unknown,
+            Title = orderedSources
+                .Select(source => metadataBySource[source.Id].Title)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)),
+            MainContentStartPage = orderedSources
+                .Select(source => metadataBySource[source.Id].MainContentStartPage)
+                .FirstOrDefault(page => page.HasValue),
+            Structure = orderedSources
+                .SelectMany(source => metadataBySource[source.Id].Structure)
+                .ToList(),
+            ExcludedContent = orderedSources
+                .SelectMany(source => metadataBySource[source.Id].ExcludedContent)
+                .ToList(),
             CoverageMap = orderedSources
                 .SelectMany((source, sourceIndex) => source.GetCoverageMap().Select((chunk, chunkIndex) => new DocumentCoverageChunk
                 {
@@ -651,6 +802,13 @@ public class SlidesController : ControllerBase
                     ParentHeadingPath = chunk.ParentHeadingPath,
                     SectionKey = string.IsNullOrWhiteSpace(chunk.SectionKey) ? $"{source.Id}-{chunk.ChunkId}" : $"{source.Id}-{chunk.SectionKey}",
                     IsPrimarySection = chunk.IsPrimarySection,
+                    Classification = chunk.Classification,
+                    TeachabilityScore = chunk.TeachabilityScore,
+                    PositiveSignals = chunk.PositiveSignals,
+                    NegativeSignals = chunk.NegativeSignals,
+                    SelectionReason = chunk.SelectionReason,
+                    StartPage = chunk.StartPage,
+                    EndPage = chunk.EndPage,
                     Summary = chunk.Summary,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
                     KeyFacts = chunk.KeyFacts

@@ -116,6 +116,9 @@ public class SlideItem
     [Column("image_candidates")]
     public string? ImageCandidatesJson { get; set; }
 
+    [Column("evidence_debug")]
+    public string? EvidenceDebugJson { get; set; }
+
     [MaxLength(160)]
     [Column("selected_image_key")]
     public string? SelectedImageKey { get; set; }

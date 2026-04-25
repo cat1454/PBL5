@@ -15,6 +15,13 @@ public class DocumentCoverageChunk
     public string? ParentHeadingPath { get; set; }
     public string? SectionKey { get; set; }
     public bool IsPrimarySection { get; set; }
+    public string Classification { get; set; } = ChunkClassifications.LessonContent;
+    public int TeachabilityScore { get; set; } = 50;
+    public List<string> PositiveSignals { get; set; } = new();
+    public List<string> NegativeSignals { get; set; } = new();
+    public string SelectionReason { get; set; } = string.Empty;
+    public int? StartPage { get; set; }
+    public int? EndPage { get; set; }
     public string Summary { get; set; } = string.Empty;
     public string EvidenceExcerpt { get; set; } = string.Empty;
     public List<string> KeyFacts { get; set; } = new();
