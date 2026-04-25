@@ -143,6 +143,9 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.BodyJson)
                 .HasColumnType("jsonb");
 
+            entity.Property(e => e.EvidenceFromText)
+                .HasColumnType("text");
+
             entity.Property(e => e.SpeakerNotes)
                 .HasColumnType("text");
 

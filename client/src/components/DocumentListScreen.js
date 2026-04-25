@@ -7,7 +7,9 @@ import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeDocumentProgressMap = (documents) => documents.reduce((accumulator, doc) => {
-  accumulator[doc.id] = normalizeProgressState(doc.processingProgress, { documentId: doc.id });
+  accumulator[doc.id] = doc.processingProgress
+    ? normalizeProgressState(doc.processingProgress, { documentId: doc.id })
+    : null;
   return accumulator;
 }, {});
 
@@ -428,16 +430,17 @@ function DocumentListScreen() {
         ) : (
           <div className="document-list">
             {documents.map((doc) => {
-              const docProgress = normalizeProgressState(documentProgress[doc.id] || doc.processingProgress, { documentId: doc.id });
+              const docProgress = documentProgress[doc.id] || (doc.processingProgress
+                ? normalizeProgressState(doc.processingProgress, { documentId: doc.id })
+                : null);
               const activeQuestionProgress = questionProgress[doc.id];
               const slideDeck = slideDecks[doc.id];
-              const activeSlideProgress = normalizeProgressState(
-                slideProgress[doc.id] || slideDeck?.generationProgress,
-                { documentId: doc.id }
-              );
-              const showDocumentProgress = isActiveProgress(docProgress) || docProgress.status === 'failed';
+              const activeSlideProgress = slideProgress[doc.id] || (slideDeck?.generationProgress
+                ? normalizeProgressState(slideDeck.generationProgress, { documentId: doc.id })
+                : null);
+              const showDocumentProgress = isActiveProgress(docProgress) || docProgress?.status === 'failed';
               const showQuestionProgress = !!activeQuestionProgress;
-              const showSlideProgress = !!slideDeck || isActiveProgress(activeSlideProgress) || activeSlideProgress.status === 'failed';
+              const showSlideProgress = !!slideDeck || isActiveProgress(activeSlideProgress) || activeSlideProgress?.status === 'failed';
               const inlineSlideItems = slideDeck?.items?.slice(0, 3) || [];
               const inlineOutlineItems = slideDeck?.outline?.slides?.slice(0, 4) || [];
               const placeholderSlides = inlineOutlineItems.length > 0

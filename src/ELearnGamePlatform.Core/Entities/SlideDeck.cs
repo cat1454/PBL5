@@ -84,8 +84,15 @@ public class SlideItem
     [Column("goal")]
     public string? Goal { get; set; }
 
+    [MaxLength(400)]
+    [Column("key_message")]
+    public string? KeyMessage { get; set; }
+
     [Column("body")]
     public string? BodyJson { get; set; }
+
+    [Column("evidence_from_text")]
+    public string? EvidenceFromText { get; set; }
 
     [Column("editor_state")]
     public string? EditorStateJson { get; set; }

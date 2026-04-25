@@ -119,7 +119,7 @@ public static class EntityExtensions
             },
             Goal = new SlideTextBlockState
             {
-                Text = item.Goal ?? string.Empty,
+                Text = item.KeyMessage ?? item.Goal ?? string.Empty,
                 FontFamily = "Segoe UI",
                 FontSize = 14,
                 Bold = true,
@@ -169,6 +169,7 @@ public static class EntityExtensions
         item.Heading = normalized.Title.Text;
         item.Subheading = normalized.Subtitle.Text;
         item.Goal = normalized.Goal.Text;
+        item.KeyMessage = normalized.Goal.Text;
         item.SpeakerNotes = normalized.Notes.Text;
         item.SetBodyBlocks(normalized.Body.Text
             .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)

@@ -68,7 +68,7 @@ function ProgressCard({
           <span>Buoc {progress.stageIndex}/{progress.stageCount}</span>
         )}
         {counterLabel && <span>{counterLabel}</span>}
-        {progress.topicTag && <span>Topic: {progress.topicTag}</span>}
+        {progress.topicTag && <span>Chủ đề: {progress.topicTag}</span>}
         {showEta && etaLabel && isActiveProgress(progress) && <span>ETA {etaLabel}</span>}
       </div>
     </section>

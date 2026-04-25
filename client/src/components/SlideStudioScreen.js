@@ -67,7 +67,11 @@ function SlideStudioScreen() {
       ]);
 
       setDocumentMeta(meta);
-      setDocumentProgress(normalizeProgressState(liveProgress || meta?.processingProgress, { documentId: Number(documentId) }));
+      setDocumentProgress(
+        liveProgress || meta?.processingProgress
+          ? normalizeProgressState(liveProgress || meta?.processingProgress, { documentId: Number(documentId) })
+          : null
+      );
       setDeckBrief((current) => ({
         ...current,
         narrativeGoal: briefDirty ? current.narrativeGoal : meta?.summary || current.narrativeGoal,
@@ -155,10 +159,12 @@ function SlideStudioScreen() {
     return () => clearInterval(interval);
   }, [documentId, documentProgress]);
 
-  const activeProgress = useMemo(
-    () => normalizeProgressState(progress || deck?.generationProgress, { documentId: Number(documentId) }),
-    [deck?.generationProgress, documentId, progress]
-  );
+  const activeProgress = useMemo(() => {
+    const rawProgress = progress || deck?.generationProgress;
+    return rawProgress
+      ? normalizeProgressState(rawProgress, { documentId: Number(documentId) })
+      : null;
+  }, [deck?.generationProgress, documentId, progress]);
 
   useEffect(() => {
     if (!jobId && !isActiveProgress(activeProgress) && !(deck && (deck.status === 'GeneratingSlides' || deck.status === 'GeneratingOutline'))) {
@@ -478,7 +484,7 @@ function SlideStudioScreen() {
             </div>
           </section>
 
-          {(activeProgress.status !== 'queued' || activeProgress.message || activeProgress.detail) && (
+          {activeProgress && (activeProgress.status !== 'queued' || activeProgress.message || activeProgress.detail) && (
             <ProgressCard
               title="Slide generation"
               progress={activeProgress}

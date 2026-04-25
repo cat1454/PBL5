@@ -248,7 +248,7 @@ function FolderStudio() {
   const selectedSlide = deck?.items?.find((item) => item.id === selectedSlideId) || deck?.items?.[0] || null;
   const selectedDraft = selectedSlide ? (drafts[selectedSlide.id] || createFallbackEditorState(selectedSlide)) : null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide) : null;
-  const activeProgress = progress || normalizeProgressState(deck?.generationProgress || null);
+  const activeProgress = progress || (deck?.generationProgress ? normalizeProgressState(deck.generationProgress) : null);
 
   const pushHistory = (slideId, previousDraft) => {
     setHistory((current) => {
@@ -679,7 +679,9 @@ function FolderStudio() {
                     : String(source.fileType || '').includes('image')
                       ? 'image'
                       : 'file';
-                const progressState = normalizeProgressState(source.processingProgress || null);
+                const progressState = source.processingProgress
+                  ? normalizeProgressState(source.processingProgress)
+                  : null;
                 const showLive = isActiveProgress(progressState);
 
                 return (

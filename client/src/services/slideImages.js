@@ -127,7 +127,7 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
         candidate?.Provider,
         candidate?.domain,
         candidate?.Domain,
-        sourceType === 'generated' ? 'AI Generated' : 'Web'
+        sourceType === 'generated' ? 'Ảnh AI tạo' : 'Web'
       ),
       originUrl: pickFirstString(candidate?.originUrl, candidate?.OriginUrl, candidate?.sourceUrl, candidate?.SourceUrl),
       localAssetUrl: pickFirstString(
@@ -152,7 +152,7 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
         candidate?.url,
         candidate?.Url
       ),
-      altText: pickFirstString(candidate?.altText, candidate?.AltText, 'Slide image candidate'),
+      altText: pickFirstString(candidate?.altText, candidate?.AltText, 'Ảnh minh họa cho slide'),
       licenseLabel: pickFirstString(candidate?.licenseLabel, candidate?.LicenseLabel),
       attributionText: pickFirstString(candidate?.attributionText, candidate?.AttributionText),
       width: Number.isFinite(candidate?.width) ? candidate.width : (Number.isFinite(candidate?.Width) ? candidate.Width : null),
@@ -212,26 +212,26 @@ const getImageStatusLabel = (status) => {
 
 const getImageBadgeLabel = (status, selectedImage, needsImage) => {
   if (!needsImage) {
-    return 'Text-only';
+    return 'Chỉ văn bản';
   }
 
   if (selectedImage?.sourceType === 'generated') {
-    return 'AI Generated';
+    return 'Ảnh AI tạo';
   }
 
   if (selectedImage?.sourceType === 'web') {
-    return 'Web';
+    return 'Ảnh web';
   }
 
   if (status === 'no-license-safe-image') {
-    return 'No license-safe image';
+    return 'Chưa có ảnh an toàn bản quyền';
   }
 
   if (status === 'ready') {
-    return 'Media ready';
+    return 'Đã có media';
   }
 
-  return 'Image pending';
+  return 'Đang chờ ảnh';
 };
 
 const getBadgeTone = (status, selectedImage, needsImage) => {

@@ -15,23 +15,39 @@ internal static class DocumentCoverageMapBuilder
         "into", "about", "their", "there", "would", "should", "could", "while", "where", "which"
     };
 
-    public static List<DocumentCoverageChunk> Build(string content, int chunkSize = 6500, int overlap = 300)
+    public static List<DocumentCoverageChunk> Build(string content, int chunkSize = 2200, int overlap = 320)
     {
         var normalized = NormalizeContent(content);
         var rawChunks = SplitIntoChunks(normalized, chunkSize, overlap);
         var chunks = new List<DocumentCoverageChunk>(rawChunks.Count);
+        var headingStack = new List<DocumentHeadingMetadata>();
 
         for (var index = 0; index < rawChunks.Count; index++)
         {
             var chunkNumber = index + 1;
             var chunkText = rawChunks[index];
             var keyFacts = ExtractHighSignalSentences(chunkText, 4);
+            var heading = DocumentStructureChunker.AnalyzeHeading(chunkText);
+            UpdateHeadingStack(headingStack, heading);
+            var headingPath = BuildHeadingPath(headingStack, heading);
+            var parentHeadingPath = BuildParentHeadingPath(headingStack, heading);
+            var headingText = heading?.HeadingText ?? heading?.Title;
+            var sectionKey = BuildSectionKey(headingPath, heading, chunkNumber);
             chunks.Add(new DocumentCoverageChunk
             {
                 ChunkNumber = chunkNumber,
                 ChunkId = $"C{chunkNumber:00}",
                 Zone = ResolveCoverageZone(chunkNumber, rawChunks.Count),
                 Label = BuildChunkLabel(chunkText, chunkNumber, rawChunks.Count),
+                HeadingKind = heading?.Kind,
+                HeadingLevel = heading?.Level,
+                HeadingMarker = heading?.Marker,
+                HeadingText = headingText,
+                NormalizedHeading = heading?.NormalizedHeading,
+                HeadingPath = headingPath,
+                ParentHeadingPath = parentHeadingPath,
+                SectionKey = sectionKey,
+                IsPrimarySection = IsPrimarySection(heading),
                 Summary = BuildChunkSummary(chunkText, keyFacts),
                 EvidenceExcerpt = BuildEvidenceExcerpt(chunkText, keyFacts),
                 KeyFacts = keyFacts
@@ -44,6 +60,13 @@ internal static class DocumentCoverageMapBuilder
     public static HashSet<string> BuildSearchTokens(DocumentCoverageChunk chunk)
         => BuildSearchTokens(
             chunk.Label,
+            chunk.HeadingKind,
+            chunk.HeadingMarker,
+            chunk.HeadingText,
+            chunk.NormalizedHeading,
+            chunk.HeadingPath,
+            chunk.ParentHeadingPath,
+            chunk.SectionKey,
             chunk.Summary,
             chunk.EvidenceExcerpt,
             string.Join(" ", chunk.KeyFacts));
@@ -68,92 +91,71 @@ internal static class DocumentCoverageMapBuilder
             : content.Replace("\r\n", "\n", StringComparison.Ordinal).Trim();
 
     private static List<string> SplitIntoChunks(string content, int chunkSize, int overlap)
+        => DocumentStructureChunker.SplitIntoChunks(content, chunkSize, overlap);
+
+    private static void UpdateHeadingStack(List<DocumentHeadingMetadata> stack, DocumentHeadingMetadata? heading)
     {
-        if (string.IsNullOrWhiteSpace(content))
+        if (heading == null)
         {
-            return new List<string>();
+            return;
         }
 
-        var pageChunks = SplitIntoPageChunks(content, chunkSize);
-        if (pageChunks.Count > 1)
+        while (stack.Count >= heading.Level)
         {
-            return pageChunks;
+            stack.RemoveAt(stack.Count - 1);
         }
 
-        var chunks = new List<string>();
-        var start = 0;
-
-        while (start < content.Length)
-        {
-            var length = Math.Min(chunkSize, content.Length - start);
-            var end = start + length;
-
-            if (end < content.Length)
-            {
-                var searchWindow = Math.Min(length, 1000);
-                var paragraphBreak = content.LastIndexOf("\n\n", end, searchWindow);
-                if (paragraphBreak > start + (chunkSize / 2))
-                {
-                    end = paragraphBreak;
-                    length = end - start;
-                }
-            }
-
-            var chunk = content.Substring(start, length).Trim();
-            if (!string.IsNullOrWhiteSpace(chunk))
-            {
-                chunks.Add(chunk);
-            }
-
-            if (end >= content.Length)
-            {
-                break;
-            }
-
-            start = Math.Max(end - overlap, start + 1);
-        }
-
-        return chunks;
+        stack.Add(heading);
     }
 
-    private static List<string> SplitIntoPageChunks(string content, int chunkSize)
+    private static string? BuildHeadingPath(List<DocumentHeadingMetadata> stack, DocumentHeadingMetadata? heading)
     {
-        var pages = Regex.Split(content, @"(?=\[Page\s+\d+\])", RegexOptions.IgnoreCase)
-            .Select(page => page.Trim())
-            .Where(page => !string.IsNullOrWhiteSpace(page))
-            .ToList();
-
-        if (pages.Count <= 1)
+        if (heading == null)
         {
-            return new List<string>();
+            return stack.LastOrDefault()?.Path;
         }
 
-        var chunks = new List<string>();
-        var builder = new StringBuilder();
+        return string.Join(" > ", stack.Select(item => item.NormalizedHeading));
+    }
 
-        foreach (var page in pages)
+    private static string? BuildParentHeadingPath(List<DocumentHeadingMetadata> stack, DocumentHeadingMetadata? heading)
+    {
+        if (heading == null)
         {
-            if (builder.Length > 0 && builder.Length + page.Length > chunkSize)
-            {
-                chunks.Add(builder.ToString().Trim());
-                builder.Clear();
-            }
-
-            if (builder.Length > 0)
-            {
-                builder.AppendLine();
-                builder.AppendLine();
-            }
-
-            builder.Append(page);
+            return stack.Count > 1 ? string.Join(" > ", stack.Take(stack.Count - 1).Select(item => item.NormalizedHeading)) : null;
         }
 
-        if (builder.Length > 0)
+        return stack.Count > 1 ? string.Join(" > ", stack.Take(stack.Count - 1).Select(item => item.NormalizedHeading)) : null;
+    }
+
+    private static string BuildSectionKey(string? headingPath, DocumentHeadingMetadata? heading, int chunkNumber)
+    {
+        if (!string.IsNullOrWhiteSpace(headingPath))
         {
-            chunks.Add(builder.ToString().Trim());
+            return NormalizeToken(headingPath);
         }
 
-        return chunks;
+        if (!string.IsNullOrWhiteSpace(heading?.NormalizedHeading))
+        {
+            return NormalizeToken(heading.NormalizedHeading);
+        }
+
+        return $"section-{chunkNumber:00}";
+    }
+
+    private static bool IsPrimarySection(DocumentHeadingMetadata? heading)
+    {
+        if (heading == null)
+        {
+            return false;
+        }
+
+        if (heading.Kind is "chuong" or "chapter" or "unit" or "phan" or "section")
+        {
+            return true;
+        }
+
+        return heading.Level <= 2;
     }
 
     private static string ResolveCoverageZone(int chunkNumber, int totalChunks)
@@ -196,11 +198,11 @@ internal static class DocumentCoverageMapBuilder
     {
         if (keyFacts.Any())
         {
-            return Truncate(string.Join(" ", keyFacts.Take(3)), 750);
+            return Truncate(string.Join(" ", keyFacts.Take(2)), 420);
         }
 
         var cleaned = Regex.Replace(chunkText.Replace('\n', ' '), @"\s+", " ").Trim();
-        return Truncate(cleaned, 750);
+        return Truncate(cleaned, 420);
     }
 
     private static List<string> ExtractHighSignalSentences(string text, int maxCount)

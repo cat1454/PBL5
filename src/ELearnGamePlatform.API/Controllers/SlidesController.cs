@@ -151,6 +151,7 @@ public class SlidesController : ControllerBase
                 item.Heading = string.IsNullOrWhiteSpace(request.Heading) ? item.Heading : request.Heading.Trim();
                 item.Subheading = request.Subheading?.Trim();
                 item.Goal = request.Goal?.Trim();
+                item.KeyMessage = request.Goal?.Trim() ?? item.KeyMessage;
                 item.SpeakerNotes = request.SpeakerNotes?.Trim();
                 item.AccentTone = request.AccentTone?.Trim();
                 item.SetBodyBlocks(request.BodyBlocks?
@@ -389,6 +390,8 @@ public class SlidesController : ControllerBase
                 item.Heading = content.Heading ?? item.Heading;
                 item.Subheading = content.Subheading;
                 item.Goal = content.Goal;
+                item.KeyMessage = content.KeyMessage;
+                item.EvidenceFromText = content.EvidenceFromText;
                 item.SpeakerNotes = content.SpeakerNotes;
                 item.AccentTone = content.AccentTone;
                 item.VerifierScore = content.VerifierScore;
@@ -513,7 +516,9 @@ public class SlidesController : ControllerBase
             item.Heading,
             item.Subheading,
             item.Goal,
+            item.KeyMessage,
             bodyBlocks = item.GetBodyBlocks(),
+            item.EvidenceFromText,
             item.SpeakerNotes,
             item.AccentTone,
             editorState = item.GetEditorState(),
@@ -563,7 +568,8 @@ public class SlidesController : ControllerBase
             Status = SlideItemStatus.Pending,
             Heading = slide.Heading,
             Subheading = slide.Subheading,
-            Goal = slide.Goal
+            Goal = slide.Goal,
+            KeyMessage = slide.KeyMessage
         };
         item.SetBodyBlocks(new List<string>());
         item.SetEditorState(item.BuildDefaultEditorState());
@@ -636,6 +642,15 @@ public class SlidesController : ControllerBase
                     ChunkId = $"{source.Id}-{chunk.ChunkId}",
                     Zone = chunk.Zone,
                     Label = $"{source.FileName}: {chunk.Label}",
+                    HeadingKind = chunk.HeadingKind,
+                    HeadingLevel = chunk.HeadingLevel,
+                    HeadingMarker = chunk.HeadingMarker,
+                    HeadingText = chunk.HeadingText,
+                    NormalizedHeading = chunk.NormalizedHeading,
+                    HeadingPath = chunk.HeadingPath,
+                    ParentHeadingPath = chunk.ParentHeadingPath,
+                    SectionKey = string.IsNullOrWhiteSpace(chunk.SectionKey) ? $"{source.Id}-{chunk.ChunkId}" : $"{source.Id}-{chunk.SectionKey}",
+                    IsPrimarySection = chunk.IsPrimarySection,
                     Summary = chunk.Summary,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
                     KeyFacts = chunk.KeyFacts

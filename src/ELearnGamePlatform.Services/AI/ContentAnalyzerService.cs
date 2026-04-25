@@ -9,8 +9,8 @@ public class ContentAnalyzerService : IContentAnalyzer
 {
     private readonly IOllamaService _ollamaService;
     private readonly ILogger<ContentAnalyzerService> _logger;
-    private const int ChunkSize = 3500;
-    private const int ChunkOverlap = 250;
+    private const int ChunkSize = 1800;
+    private const int ChunkOverlap = 260;
     private const int MaxParallelChunkAnalyses = 3;
     private const int ChunkCompactionBatchSize = 4;
     private const int MaxChunkAnalysesBeforeCompaction = 6;
@@ -347,42 +347,7 @@ Respond in JSON format:
     }
 
     private static List<string> SplitIntoChunks(string content, int chunkSize, int overlap)
-    {
-        var chunks = new List<string>();
-        var start = 0;
-
-        while (start < content.Length)
-        {
-            var length = Math.Min(chunkSize, content.Length - start);
-            var end = start + length;
-
-            if (end < content.Length)
-            {
-                var searchWindow = Math.Min(length, 800);
-                var paragraphBreak = content.LastIndexOf("\n\n", end, searchWindow);
-                if (paragraphBreak > start + (chunkSize / 2))
-                {
-                    end = paragraphBreak;
-                    length = end - start;
-                }
-            }
-
-            var chunk = content.Substring(start, length).Trim();
-            if (!string.IsNullOrWhiteSpace(chunk))
-            {
-                chunks.Add(chunk);
-            }
-
-            if (end >= content.Length)
-            {
-                break;
-            }
-
-            start = Math.Max(end - overlap, start + 1);
-        }
-
-        return chunks;
-    }
+        => DocumentStructureChunker.SplitIntoChunks(content, chunkSize, overlap);
 
     private List<ChunkAnalysis> CompactChunkAnalysesLocally(List<ChunkAnalysis> chunkAnalyses, IProgress<DocumentProcessingProgressUpdate>? progress)
     {

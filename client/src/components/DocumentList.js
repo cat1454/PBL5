@@ -73,25 +73,6 @@ function SourceItem({ doc, active, statusMeta, onClick }) {
   );
 }
 
-function FlowItem({ title, detail, active, onClick, ready = false, working = false }) {
-  return (
-    <button type="button" className={`documents-flow-item${active ? ' active' : ''}`} onClick={onClick}>
-      <div className="documents-flow-thumb">
-        <div className="documents-flow-line w-80"></div>
-        <div className="documents-flow-line w-60"></div>
-        <div className="documents-flow-line w-42"></div>
-      </div>
-      <div className="documents-flow-copy">
-        <p>{title}</p>
-        <span>{detail}</span>
-      </div>
-      <span className={`documents-flow-state${ready ? ' ready' : ''}${working ? ' working' : ''}`}>
-        {working ? 'Live' : ready ? 'Ready' : 'Draft'}
-      </span>
-    </button>
-  );
-}
-
 function ActionButton({ label, detail, onClick, disabled = false, tone = 'default', badge = '' }) {
   return (
     <button
@@ -414,13 +395,6 @@ function DocumentList() {
     setShowAnalysis(null);
   };
 
-  const notifyFutureFlow = (label) => {
-    setFeedback({
-      type: 'info',
-      text: `Button "${label}" da duoc dat san de noi luong sau nay.`,
-    });
-  };
-
   const normalizedFilter = filterValue.trim().toLowerCase();
 
   const filteredDocuments = useMemo(() => {
@@ -653,37 +627,6 @@ function DocumentList() {
     return { tone: 'uploaded', label: getStatusText(doc.status), detail: getStatusHint(doc) };
   };
 
-  const selectedFlowItems = [
-    {
-      key: 'overview',
-      title: 'Tong quan',
-      detail: selectedDocument ? formatFileSize(selectedDocument.fileSize) : 'Chon mot tai lieu',
-      ready: !!selectedDocument,
-      working: false,
-    },
-    {
-      key: 'analysis',
-      title: 'Phan tich',
-      detail: selectedDocument?.summary || selectedDocument?.mainTopics?.length ? 'Da co tom tat AI' : 'Cho AI xu ly',
-      ready: Boolean(selectedDocument?.summary || selectedDocument?.mainTopics?.length),
-      working: selectedProcessingRunning,
-    },
-    {
-      key: 'slides',
-      title: 'Slides',
-      detail: selectedSlideDeck ? `${selectedSlideCount} slide` : selectedSlidesRunning ? 'Dang tao deck' : 'Chua co deck',
-      ready: Boolean(selectedSlideDeck),
-      working: selectedSlidesRunning,
-    },
-    {
-      key: 'study',
-      title: 'Hoc tap',
-      detail: selectedQuestionsReady ? `${selectedDocument?.questionsCount || 0} cau hoi` : selectedQuestionRunning ? 'Dang tao bo cau hoi' : 'Chua co study kit',
-      ready: selectedQuestionsReady,
-      working: selectedQuestionRunning,
-    },
-  ];
-
   const selectedTopbarState = (() => {
     if (!selectedDocument) {
       return 'Chua chon tai lieu';
@@ -857,6 +800,120 @@ function DocumentList() {
     );
   };
 
+  const renderContextActions = () => {
+    if (!selectedDocument) {
+      return null;
+    }
+
+    const sharedProps = {
+      documentReady: selectedDocument.status === 3,
+      hasDeck: Boolean(selectedSlideDeck),
+      hasQuestions: selectedQuestionsReady,
+    };
+
+    const actions = [];
+
+    if (studioView === 'overview') {
+      actions.push(
+        <ActionButton
+          key="overview-slides"
+          label={sharedProps.hasDeck ? 'Mo slide deck' : 'Tao slide deck'}
+          detail={sharedProps.hasDeck ? `${selectedSlideCount} slide da san sang.` : 'Khoi tao bo slide tu noi dung tai lieu.'}
+          tone="primary"
+          disabled={!sharedProps.documentReady || selectedSlidesRunning}
+          onClick={() => (sharedProps.hasDeck ? navigate(`/slides/${selectedDocument.id}`) : handleGenerateSlides(selectedDocument.id))}
+        />,
+        <ActionButton
+          key="overview-study"
+          label={sharedProps.hasQuestions ? 'Mo bo hoc tap' : 'Tao question bank'}
+          detail={sharedProps.hasQuestions ? `${selectedDocument.questionsCount || 0} cau hoi da san sang.` : 'Sinh quiz va flashcards tu tai lieu.'}
+          disabled={!sharedProps.documentReady || selectedQuestionRunning}
+          onClick={() => (sharedProps.hasQuestions ? setStudioView('study') : handleGenerateQuestions(selectedDocument.id))}
+        />,
+        <ActionButton
+          key="overview-analysis"
+          label="Xem phan tich"
+          detail="Mo tom tat, topic va y chinh trong modal."
+          onClick={() => setShowAnalysis(selectedDocument)}
+        />,
+      );
+    }
+
+    if (studioView === 'analysis') {
+      actions.push(
+        <ActionButton
+          key="analysis-modal"
+          label="Mo ban phan tich day du"
+          detail="Xem tom tat, topic, key points va van ban trich xuat."
+          onClick={() => setShowAnalysis(selectedDocument)}
+        />,
+        <ActionButton
+          key="analysis-study"
+          label={sharedProps.hasQuestions ? 'Chuyen sang hoc tap' : 'Tao question bank'}
+          detail={sharedProps.hasQuestions ? 'Mo nhanh quiz va flashcards tu tai lieu nay.' : 'Dung y chinh hien tai de tao bo cau hoi.'}
+          disabled={!sharedProps.documentReady || selectedQuestionRunning}
+          onClick={() => (sharedProps.hasQuestions ? setStudioView('study') : handleGenerateQuestions(selectedDocument.id))}
+        />,
+      );
+    }
+
+    if (studioView === 'slides') {
+      actions.push(
+        <ActionButton
+          key="slides-main"
+          label={sharedProps.hasDeck ? 'Mo Slide Studio' : 'Tao slide deck'}
+          detail={sharedProps.hasDeck ? 'Chinh sua va xem deck o route hien co.' : 'Khoi dong luong tao slide tu tai lieu.'}
+          tone="primary"
+          disabled={!sharedProps.documentReady || selectedSlidesRunning}
+          onClick={() => (sharedProps.hasDeck ? navigate(`/slides/${selectedDocument.id}`) : handleGenerateSlides(selectedDocument.id))}
+        />,
+        <ActionButton
+          key="slides-export"
+          label="Xuat HTML / PDF"
+          detail="Mo ban export dang co cua slide deck."
+          disabled={!sharedProps.hasDeck}
+          onClick={() => window.open(slideService.getDeckHtmlUrl(selectedDocument.id), '_blank', 'noopener,noreferrer')}
+        />,
+      );
+    }
+
+    if (studioView === 'study') {
+      actions.push(
+        <ActionButton
+          key="study-quiz"
+          label={sharedProps.hasQuestions ? 'Mo Quiz' : 'Tao question bank'}
+          detail={sharedProps.hasQuestions ? 'Bat dau quiz tuong tac voi tai lieu nay.' : 'Sinh bo cau hoi de kich hoat che do hoc tap.'}
+          tone={sharedProps.hasQuestions ? 'primary' : 'default'}
+          disabled={!sharedProps.documentReady || selectedQuestionRunning}
+          onClick={() => (sharedProps.hasQuestions ? navigate(`/quiz/${selectedDocument.id}`) : handleGenerateQuestions(selectedDocument.id))}
+        />,
+        <ActionButton
+          key="study-flashcards"
+          label="Mo Flashcards"
+          detail="On nhanh bang the ghi nho tu bo cau hoi hien co."
+          disabled={!sharedProps.hasQuestions}
+          onClick={() => navigate(`/flashcards/${selectedDocument.id}`)}
+        />,
+      );
+    }
+
+    actions.push(
+      <ActionButton
+        key="manage-delete"
+        label="Xoa tai lieu"
+        detail="Xoa tai lieu dang chon khoi he thong."
+        tone="danger"
+        onClick={() => handleDelete(selectedDocument.id)}
+      />,
+    );
+
+    return (
+      <div className="documents-action-section" style={{ width: '100%', maxWidth: 720, padding: 0 }}>
+        {actions}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -893,6 +950,14 @@ function DocumentList() {
             <div className="documents-topbar-avatar">GV</div>
             <button
               type="button"
+              className="documents-mini-btn"
+              onClick={() => loadDocuments()}
+              disabled={refreshing}
+            >
+              {refreshing ? 'Dang dong bo' : 'Dong bo'}
+            </button>
+            <button
+              type="button"
               className="documents-mini-primary"
               onClick={() => selectedDocument && navigate(`/slides/${selectedDocument.id}`)}
               disabled={!selectedDocument || selectedDocument.status !== 3}
@@ -908,7 +973,7 @@ function DocumentList() {
           </div>
         )}
 
-        <div className="documents-studio-main">
+        <div className="documents-studio-main documents-studio-main-compact">
           <aside className="documents-studio-sidebar">
             <div className="documents-panel-title">Nguon / Documents</div>
 
@@ -944,20 +1009,6 @@ function DocumentList() {
               )}
             </div>
 
-            <div className="documents-panel-section">[Output Flow]</div>
-            <div className="documents-flow-list">
-              {selectedFlowItems.map((item) => (
-                <FlowItem
-                  key={item.key}
-                  title={item.title}
-                  detail={item.detail}
-                  ready={item.ready}
-                  working={item.working}
-                  active={studioView === item.key}
-                  onClick={() => setStudioView(item.key)}
-                />
-              ))}
-            </div>
           </aside>
 
           <div className="documents-studio-center">
@@ -974,113 +1025,38 @@ function DocumentList() {
               <button type="button" className={`documents-toolbar-btn${studioView === 'study' ? ' active' : ''}`} onClick={() => setStudioView('study')}>
                 Hoc tap
               </button>
-              <div className="documents-toolbar-sep"></div>
-              <button type="button" className="documents-toolbar-btn" onClick={() => loadDocuments()} disabled={refreshing}>
-                {refreshing ? 'Dang dong bo' : 'Dong bo'}
-              </button>
             </div>
 
             <div className="documents-studio-canvas">
               {renderCanvasBody()}
+              {selectedDocument && (
+                <div className="documents-preview-card documents-quick-actions-card">
+                  <div className="documents-preview-layout documents-quick-actions-layout">
+                    <div className="documents-preview-copy">
+                      <h2 className="documents-quick-actions-title">Tac vu nhanh</h2>
+                      <p className="documents-preview-summary documents-quick-actions-summary">
+                        {studioView === 'overview'
+                          ? 'Chi hien cac thao tac can thiet nhat cho tai lieu dang chon.'
+                          : studioView === 'analysis'
+                            ? 'Tap trung vao xem nhanh insight va mo tiep bo hoc tap.'
+                            : studioView === 'slides'
+                              ? 'Deck slide va export duoc dat chung trong mot cum thao tac.'
+                              : 'Quiz va flashcards duoc gom vao cung mot khu hoc tap.'}
+                      </p>
+                    </div>
+                    <div className="documents-preview-sidecard">
+                      <span>Workspace</span>
+                      <strong>{selectedTopbarState}</strong>
+                      <small>Cap nhat {formatRelativeTime(lastUpdated)}</small>
+                    </div>
+                  </div>
+                  <div className="documents-quick-actions-body">
+                    {renderContextActions()}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          <aside className="documents-studio-rpanel">
-            <div className="documents-panel-title">Studio / Hanh dong</div>
-
-            <div className="documents-action-section">
-              <div className="documents-section-label">Tao moi</div>
-              <ActionButton
-                label="Tao slide moi tu noi dung"
-                detail="Khoi dong slide deck tu tai lieu dang chon"
-                tone="primary"
-                disabled={!selectedDocument || selectedDocument.status !== 3 || selectedSlidesRunning}
-                onClick={() => selectedDocument && handleGenerateSlides(selectedDocument.id)}
-              />
-              <ActionButton
-                label="Tao cau hoi on tap"
-                detail="Sinh question bank de mo quiz va flashcards"
-                disabled={!selectedDocument || selectedDocument.status !== 3 || selectedQuestionRunning}
-                onClick={() => selectedDocument && handleGenerateQuestions(selectedDocument.id)}
-              />
-              <ActionButton
-                label="Mo Quiz tuong tac"
-                detail="Di den route quiz hien tai"
-                disabled={!selectedDocument || !selectedQuestionsReady}
-                onClick={() => selectedDocument && navigate(`/quiz/${selectedDocument.id}`)}
-              />
-              <ActionButton
-                label="Mo Flashcards tu dong"
-                detail="Di den route flashcards hien tai"
-                disabled={!selectedDocument || !selectedQuestionsReady}
-                onClick={() => selectedDocument && navigate(`/flashcards/${selectedDocument.id}`)}
-              />
-            </div>
-
-            <div className="documents-action-section">
-              <div className="documents-section-label">Phan tich & Tom tat</div>
-              <ActionButton
-                label="Tom tat noi dung"
-                detail="Mo bang preview / modal phan tich"
-                onClick={() => selectedDocument && setShowAnalysis(selectedDocument)}
-                disabled={!selectedDocument}
-              />
-              <ActionButton
-                label="Phan tich y chinh"
-                detail="Chuyen nhanh sang canvas phan tich"
-                onClick={() => setStudioView('analysis')}
-                disabled={!selectedDocument}
-              />
-              <ActionButton
-                label="Xay dung so do tu duy"
-                detail="De san cho luong future workflow"
-                badge="soon"
-                onClick={() => notifyFutureFlow('Xay dung so do tu duy')}
-                disabled={!selectedDocument}
-              />
-            </div>
-
-            <div className="documents-action-section">
-              <div className="documents-section-label">Xuat ban & Chia se</div>
-              <ActionButton
-                label="Tai xuong HTML / PDF"
-                detail="Mo output export hien co"
-                onClick={() => selectedDocument && window.open(slideService.getDeckHtmlUrl(selectedDocument.id), '_blank', 'noopener,noreferrer')}
-                disabled={!selectedDocument || !selectedSlideDeck}
-              />
-              <ActionButton
-                label="Xuat PowerPoint"
-                detail="Cho phep noi exporter sau nay"
-                badge="soon"
-                onClick={() => notifyFutureFlow('Xuat PowerPoint')}
-                disabled={!selectedDocument}
-              />
-              <ActionButton
-                label="Chia se lien ket"
-                detail="Dat san button cho flow sharing"
-                badge="soon"
-                onClick={() => notifyFutureFlow('Chia se lien ket')}
-                disabled={!selectedDocument}
-              />
-            </div>
-
-            <div className="documents-action-section">
-              <div className="documents-section-label">Quan tri</div>
-              <ActionButton
-                label="Lam moi du lieu"
-                detail="Dong bo lai document list va progress"
-                onClick={() => loadDocuments()}
-                disabled={refreshing}
-              />
-              <ActionButton
-                label="Xoa tai lieu"
-                detail="Xoa tai lieu dang chon khoi he thong"
-                tone="danger"
-                onClick={() => selectedDocument && handleDelete(selectedDocument.id)}
-                disabled={!selectedDocument}
-              />
-            </div>
-          </aside>
         </div>
       </section>
 

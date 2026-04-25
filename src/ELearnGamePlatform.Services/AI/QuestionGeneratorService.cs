@@ -14,11 +14,13 @@ public class QuestionGeneratorService : IQuestionGenerator
     private readonly IOllamaService _ollamaService;
     private readonly ILogger<QuestionGeneratorService> _logger;
     private const string OutputLanguage = "Vietnamese";
-    private const int ChunkSize = 6500;
-    private const int ChunkOverlap = 300;
+    private const int ChunkSize = 2200;
+    private const int ChunkOverlap = 320;
     private const int GenerationBatchSize = 6;
     private const int EvidenceChunkLimit = 3;
-    private const int EvidenceExcerptLength = 750;
+    private const int EvidenceExcerptLength = 420;
+    private const int PlanningCoverageChunkLimit = 8;
+    private const int PromptKeyFactLimit = 2;
     private const int TotalStageCount = 7;
     private const int QuestionRetryLimit = 1;
     private const int QuestionAutoRepairLimit = 1;
@@ -27,9 +29,9 @@ public class QuestionGeneratorService : IQuestionGenerator
 
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "va", "la", "cua", "cho", "voi", "trong", "tren", "duoc", "mot", "nhung", "cac", "khi", "neu",
-        "thi", "tai", "theo", "ve", "den", "tu", "co", "khong", "nay", "do", "day", "sau", "truoc",
-        "hoac", "nhu", "da", "dang", "can", "phan", "page", "from", "with", "that", "this", "have",
+        "và", "là", "của", "cho", "với", "trong", "trên", "được", "một", "nhưng", "các", "khi", "nếu",
+        "thì", "tại", "theo", "về", "đến", "từ", "có", "không", "này", "đó", "đây", "sau", "trước",
+        "hoặc", "như", "đã", "đang", "cần", "phần", "trang", "từ", "với", "that", "this", "have",
         "into", "about", "their", "there", "would", "should", "could", "while", "where", "which"
     };
 
@@ -82,11 +84,11 @@ public class QuestionGeneratorService : IQuestionGenerator
                 progress,
                 5,
                 "building-coverage-map",
-                hasStoredCoverageMap ? "Dang tai su dung coverage map da luu" : "Dang lap coverage map cho toan tai lieu",
+                hasStoredCoverageMap ? "Đang tải sử dụng coverage map đã lưu" : "Đang lập coverage map cho toàn tài liệu",
                 stageLabel: "Coverage map",
                 detail: hasStoredCoverageMap
-                    ? $"Tai su dung {processedContent!.CoverageMap.Count} coverage chunk tu buoc upload"
-                    : "Tach tai lieu thanh cac phan noi dung theo thu tu",
+                    ? $"ải sử dụng {processedContent!.CoverageMap.Count} coverage chunk từ bước upload"
+                    : "Tách tài liệu thành các phần nội dung theo thứ tự",
                 stageIndex: 2,
                 stageCount: TotalStageCount);
             var chunks = GetCoverageChunks(normalizedContent, processedContent, progress);
@@ -97,44 +99,44 @@ public class QuestionGeneratorService : IQuestionGenerator
                 return CreateFallbackQuestions(documentId, count, type, plans: null, bundles: null);
             }
 
-            ReportProgress(progress, 34, "planning-questions", "Dang lap ke hoach phu tai lieu", stageLabel: "Lap ke hoach cau hoi", detail: "Dung coverage map de phan bo cau hoi theo dau, giua, cuoi tai lieu", stageIndex: 3, stageCount: TotalStageCount);
+            ReportProgress(progress, 34, "planning-questions", "Đang lập kế hoạch phủ tài liệu", stageLabel: "Lập kế hoạch câu hỏi", detail: "Dùng coverage map để phân bổ câu hỏi theo đầu, giữa, cuối tài liệu", stageIndex: 3, stageCount: TotalStageCount);
             var plans = await BuildQuestionPlansAsync(chunks, processedContent, type, count);
             if (!plans.Any())
             {
                 plans = BuildFallbackPlans(chunks, count, type);
             }
 
-            ReportProgress(progress, 52, "retrieving-evidence", "Dang lay evidence cho tung cau hoi", stageLabel: "Lay evidence", detail: "Chon cac chunk lien quan nhat cho moi ke hoach cau hoi", stageIndex: 4, stageCount: TotalStageCount);
+            ReportProgress(progress, 52, "retrieving-evidence", "Đang lấy evidence cho từng câu hỏi", stageLabel: "Lấy evidence", detail: "Chọn các chunk liên quan nhất cho mỗi kế hoạch câu hỏi", stageIndex: 4, stageCount: TotalStageCount);
             var bundles = BuildEvidenceBundles(chunks, plans, progress);
 
-            ReportProgress(progress, 68, "generating-grounded-questions", "Dang sinh grounded questions", stageLabel: "Sinh grounded questions", detail: "Moi batch chi duoc dung evidence da chon", stageIndex: 5, stageCount: TotalStageCount);
+            ReportProgress(progress, 68, "generating-grounded-questions", "Đang sinh grounded questions", stageLabel: "Sinh grounded questions", detail: "Mỗi batch chỉ được dùng evidence đã chọn", stageIndex: 5, stageCount: TotalStageCount);
             var questions = await GenerateGroundedQuestionsAsync(documentId, type, plans, bundles, progress);
 
             if (!questions.Any())
             {
                 _logger.LogWarning("Grounded generation returned no questions. Using fallback.");
-                ReportProgress(progress, 92, "fallback", "AI khong tra ve cau hoi hop le, chuyen sang fallback", stageLabel: "Fallback", detail: "Sinh bo cau hoi du phong dua tren evidence da thu thap", stageIndex: 6, stageCount: TotalStageCount);
+                ReportProgress(progress, 92, "fallback", "AI không trả về câu hỏi hợp lệ, chuyển sang fallback", stageLabel: "Fallback", detail: "Sinh bộ câu hỏi dự phòng dựa trên evidence đã thu thập", stageIndex: 6, stageCount: TotalStageCount);
                 completionReported = true;
                 return CreateFallbackQuestions(documentId, count, type, plans, bundles);
             }
 
-            ReportProgress(progress, 94, "normalizing-output", "Dang chuan hoa ket qua", stageLabel: "Chuan hoa ket qua", detail: $"Da tao {questions.Count} cau hoi, dang chuan hoa topic va explanation", current: questions.Count, total: questions.Count, unitLabel: "cau hoi", stageIndex: 6, stageCount: TotalStageCount);
+            ReportProgress(progress, 94, "normalizing-output", "Đang chuẩn hóa kết quả", stageLabel: "Chuẩn hóa kết quả", detail: $"Đã tạo {questions.Count} câu hỏi, đang chuẩn hóa chủ đề và giải thích", current: questions.Count, total: questions.Count, unitLabel: "câu hỏi", stageIndex: 6, stageCount: TotalStageCount);
             completionReported = true;
-            ReportProgress(progress, 95, "completed", "Hoan tat sinh cau hoi", stageLabel: "Hoan tat sinh cau hoi", detail: $"Da tao {questions.Count} cau hoi grounded tu evidence", current: questions.Count, total: questions.Count, unitLabel: "cau hoi", stageIndex: 6, stageCount: TotalStageCount);
+            ReportProgress(progress, 95, "completed", "Hoàn tất sinh câu hỏi", stageLabel: "Hoàn tất sinh câu hỏi", detail: $"Đã tạo {questions.Count} câu hỏi grounded từ evidence", current: questions.Count, total: questions.Count, unitLabel: "câu hỏi", stageIndex: 6, stageCount: TotalStageCount);
             return questions;
         }
         catch (Exception ex)
         {
             failed = true;
             _logger.LogError(ex, "Error generating grounded {Type} questions", type);
-            ReportProgress(progress, 100, "failed", $"Loi sinh cau hoi: {ex.Message}", stageLabel: "That bai", detail: ex.Message, stageIndex: TotalStageCount, stageCount: TotalStageCount);
+            ReportProgress(progress, 100, "failed", $"Lỗi sinh câu hỏi: {ex.Message}", stageLabel: "Thất bại", detail: ex.Message, stageIndex: TotalStageCount, stageCount: TotalStageCount);
             return CreateFallbackQuestions(documentId, count, type, plans: null, bundles: null);
         }
         finally
         {
             if (!failed && !completionReported)
             {
-                ReportProgress(progress, 95, "completed", "Hoan tat sinh cau hoi", stageLabel: "Hoan tat sinh cau hoi", detail: "Cho buoc luu ket qua vao he thong", stageIndex: 6, stageCount: TotalStageCount);
+                ReportProgress(progress, 95, "completed", "Hoàn tất sinh câu hỏi", stageLabel: "Hoàn tất sinh câu hỏi", detail: "Cho bước lưu kết quả vào hệ thống", stageIndex: 6, stageCount: TotalStageCount);
             }
         }
     }
@@ -154,6 +156,11 @@ public class QuestionGeneratorService : IQuestionGenerator
                     ChunkId = chunk.ChunkId,
                     Zone = chunk.Zone,
                     Label = chunk.Label,
+                    HeadingKind = chunk.HeadingKind,
+                    HeadingLevel = chunk.HeadingLevel,
+                    HeadingMarker = chunk.HeadingMarker,
+                    NormalizedHeading = chunk.NormalizedHeading,
+                    HeadingPath = chunk.HeadingPath,
                     Summary = chunk.Summary,
                     KeyFacts = chunk.KeyFacts,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
@@ -165,11 +172,11 @@ public class QuestionGeneratorService : IQuestionGenerator
                 progress,
                 28,
                 "building-coverage-map",
-                "Da nap xong coverage map da luu",
+                "Đã nạp xong coverage map đã lưu",
                 current: storedChunks.Count,
                 total: storedChunks.Count,
                 stageLabel: "Coverage map",
-                detail: $"Khong can tach chunk lai, dung {storedChunks.Count} coverage chunk co san",
+                detail: $"Không cần tách chunk lại, dùng {storedChunks.Count} coverage chunk có sẵn từ bước upload",
                 unitLabel: "chunk",
                 stageIndex: 2,
                 stageCount: TotalStageCount);
@@ -194,6 +201,11 @@ public class QuestionGeneratorService : IQuestionGenerator
                 ChunkId = coverageChunk.ChunkId,
                 Zone = coverageChunk.Zone,
                 Label = coverageChunk.Label,
+                HeadingKind = coverageChunk.HeadingKind,
+                HeadingLevel = coverageChunk.HeadingLevel,
+                HeadingMarker = coverageChunk.HeadingMarker,
+                NormalizedHeading = coverageChunk.NormalizedHeading,
+                HeadingPath = coverageChunk.HeadingPath,
                 Summary = coverageChunk.Summary,
                 KeyFacts = coverageChunk.KeyFacts,
                 EvidenceExcerpt = coverageChunk.EvidenceExcerpt,
@@ -205,12 +217,12 @@ public class QuestionGeneratorService : IQuestionGenerator
                 progress,
                 MapProgress(8, 28, index + 1, coverageMap.Count),
                 "building-coverage-map",
-                $"Dang lap coverage map phan {coverageChunk.ChunkNumber}/{coverageMap.Count}",
+                $"Đang lập coverage map phần {coverageChunk.ChunkNumber}/{coverageMap.Count}",
                 coverageChunk.ChunkNumber,
                 coverageMap.Count,
                 chunk.ChunkId,
                 "Coverage map",
-                $"Da doc {chunk.ChunkId} ({chunk.Zone}): {chunk.Label}",
+                $"Đã đọc {chunk.ChunkId} ({chunk.Zone}): {chunk.Label}",
                 "phan noi dung",
                 2,
                 TotalStageCount);
@@ -243,16 +255,17 @@ Requirements:
 7. Vary difficulty across Easy, Medium, Hard when the document supports it.
 8. Avoid duplicate focus, duplicate preferredChunkIds-only plans, and vague labels.
 9. answerStyle should describe what the learner must recall, compare, infer, or identify.
+10. When clear main sections exist, prefer covering each major section with at least one question plan through preferredChunkIds.
 
 Return JSON only:
 [
   {{
     ""planId"": ""P01"",
-    ""topicName"": ""ten chu de chinh"",
-    ""subtopic"": ""y nho cu the"",
-    ""focus"": ""noi dung kien thuc se hoi"",
+    ""topicName"": ""tên chủ đề chinh"",
+    ""subtopic"": ""ý nhớ cụ thể"",
+    ""focus"": ""nội dung kiến thức sẽ hỏi về, nên rõ ràng và cụ thể để dễ chọn evidence"",
     ""preferredChunkIds"": [""C01"", ""C02""],
-    ""answerStyle"": ""nho khai niem / suy luan / so sanh / quy trinh"",
+    ""answerStyle"": ""nhớ khái niệm / suy luận / so sánh / quy trình / tính toán / ..."",
     ""difficulty"": ""Medium""
   }}
 ]";
@@ -289,12 +302,12 @@ Return JSON only:
                 progress,
                 MapProgress(70, 90, batchIndex, batches.Count),
                 "generating-grounded-questions",
-                $"Dang sinh batch {batchIndex + 1}/{batches.Count}",
+                $"Đang sinh batch {batchIndex + 1}/{batches.Count}",
                 batchIndex + 1,
                 batches.Count,
                 batchPlans.First().TopicTag,
                 "Sinh grounded questions",
-                $"Batch {batchIndex + 1} gom {batchPlans.Count} cau hoi voi evidence rieng",
+                $"Batch {batchIndex + 1} gom {batchPlans.Count} câu hỏi với evidence riêng cho từng câu hỏi",
                 "batch",
                 5,
                 TotalStageCount);
@@ -334,7 +347,7 @@ Return JSON only:
                 batches.Count,
                 batchPlans.Last().TopicTag,
                 "Sinh grounded questions",
-                $"Da tao xong {questions.Count}/{plans.Count} cau hoi grounded",
+                $"Đã tạo xong {questions.Count}/{plans.Count} câu hỏi grounded",
                 "batch",
                 5,
                 TotalStageCount);
@@ -1327,7 +1340,7 @@ Return JSON only:
 
             if (!preferredChunkIds.Any())
             {
-                preferredChunkIds.Add(chunks[index % chunks.Count].ChunkId);
+                preferredChunkIds.Add(SelectPreferredChunkForIndex(chunks, index).ChunkId);
             }
 
             var firstChunk = chunks.First(chunk => string.Equals(chunk.ChunkId, preferredChunkIds[0], StringComparison.OrdinalIgnoreCase));
@@ -1351,6 +1364,8 @@ Return JSON only:
             plans.AddRange(BuildFallbackPlans(chunks, count - plans.Count, type, plans.Count));
         }
 
+        plans = RebalancePlansForPrimarySections(plans, chunks);
+
         return plans
             .Take(count)
             .Select((plan, index) => plan with
@@ -1367,7 +1382,7 @@ Return JSON only:
 
         for (var index = 0; index < count; index++)
         {
-            var chunk = chunks[(startOrder + index) % chunks.Count];
+            var chunk = SelectPreferredChunkForIndex(chunks, startOrder + index);
             var topicName = NormalizeLabel(chunk.Label) ?? "Noi dung trong tam";
             var subtopic = chunk.KeyFacts.FirstOrDefault(fact => !string.IsNullOrWhiteSpace(fact)) ?? "chi tiet quan trong";
             var focus = chunk.KeyFacts.FirstOrDefault(fact => !string.IsNullOrWhiteSpace(fact)) ?? $"Noi dung then chot cua {chunk.ChunkId}";
@@ -1395,6 +1410,91 @@ Return JSON only:
 
         return plans;
     }
+
+    private static List<QuestionPlan> RebalancePlansForPrimarySections(List<QuestionPlan> plans, List<DocumentChunk> chunks)
+    {
+        if (!plans.Any() || !chunks.Any())
+        {
+            return plans;
+        }
+
+        var primarySections = GetPrimarySectionChunks(chunks);
+        if (!primarySections.Any())
+        {
+            return plans;
+        }
+
+        var balanced = plans.ToList();
+        var coveredChunkIds = balanced
+            .SelectMany(plan => plan.PreferredChunkIds)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var replacementIndex = 0;
+        foreach (var section in primarySections)
+        {
+            if (coveredChunkIds.Contains(section.ChunkId))
+            {
+                continue;
+            }
+
+            var target = balanced[replacementIndex % balanced.Count];
+            balanced[replacementIndex % balanced.Count] = target with
+            {
+                PreferredChunkIds = NormalizePreferredChunkIds(
+                    new List<string> { section.ChunkId }.Concat(target.PreferredChunkIds).ToList()),
+                CoverageZone = section.Zone
+            };
+
+            coveredChunkIds.Add(section.ChunkId);
+            replacementIndex++;
+        }
+
+        return balanced;
+    }
+
+    private static List<string> NormalizePreferredChunkIds(List<string> chunkIds)
+        => chunkIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(EvidenceChunkLimit)
+            .ToList();
+
+    private static List<DocumentChunk> GetPrimarySectionChunks(List<DocumentChunk> chunks)
+        => chunks
+            .Where(IsPrimarySectionChunk)
+            .GroupBy(GetSectionCoverageKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderBy(chunk => chunk.ChunkNumber).First())
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+    private static DocumentChunk SelectPreferredChunkForIndex(List<DocumentChunk> chunks, int index)
+    {
+        var primarySections = GetPrimarySectionChunks(chunks);
+        if (primarySections.Any())
+        {
+            return primarySections[index % primarySections.Count];
+        }
+
+        return chunks[(index % chunks.Count + chunks.Count) % chunks.Count];
+    }
+
+    private static bool IsPrimarySectionChunk(DocumentChunk chunk)
+    {
+        if (chunk.HeadingLevel.HasValue && chunk.HeadingLevel.Value <= 2)
+        {
+            return true;
+        }
+
+        return chunk.HeadingKind is "chuong" or "chapter" or "unit" or "phan" or "section";
+    }
+
+    private static string GetSectionCoverageKey(DocumentChunk chunk)
+        => !string.IsNullOrWhiteSpace(chunk.HeadingPath)
+            ? chunk.HeadingPath!
+            : !string.IsNullOrWhiteSpace(chunk.NormalizedHeading)
+                ? chunk.NormalizedHeading!
+                : chunk.ChunkId;
 
     private static List<Question> CreateFallbackQuestions(
         int documentId,
@@ -1672,19 +1772,21 @@ Return JSON only:
 
     private static string RenderCoverageMapForPrompt(List<DocumentChunk> chunks)
     {
+        var promptChunks = CompactPromptChunks(chunks, PlanningCoverageChunkLimit);
         var builder = new StringBuilder();
-        builder.AppendLine($"Tong cong {chunks.Count} chunk, doc theo thu tu tu dau den cuoi tai lieu.");
+        builder.AppendLine($"Tong cong {chunks.Count} chunk, duoi day la mau dai dien {promptChunks.Count} chunk theo thu tu dau -> cuoi.");
         builder.AppendLine();
 
-        foreach (var chunk in chunks)
+        foreach (var chunk in promptChunks)
         {
             builder.AppendLine($"[{chunk.ChunkId}] Zone: {chunk.Zone}");
-            builder.AppendLine($"Label: {chunk.Label}");
-            builder.AppendLine($"Summary: {chunk.Summary}");
+            builder.AppendLine($"Heading: {BuildHeadingMeta(chunk)}");
+            builder.AppendLine($"Label: {Truncate(chunk.Label, 70)}");
+            builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
             builder.AppendLine("Study facts:");
-            foreach (var fact in chunk.KeyFacts)
+            foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
-                builder.AppendLine($"- {fact}");
+                builder.AppendLine($"- {Truncate(fact, 110)}");
             }
             builder.AppendLine();
         }
@@ -1704,14 +1806,14 @@ Return JSON only:
         var builder = new StringBuilder();
         foreach (var chunk in uniqueChunks)
         {
-            builder.AppendLine($"[{chunk.ChunkId}] {chunk.Label} | zone={chunk.Zone}");
-            builder.AppendLine($"Summary: {chunk.Summary}");
+            builder.AppendLine($"[{chunk.ChunkId}] {Truncate(chunk.Label, 70)} | zone={chunk.Zone} | heading={BuildHeadingMeta(chunk)}");
+            builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
             builder.AppendLine("Facts:");
-            foreach (var fact in chunk.KeyFacts.Take(3))
+            foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
-                builder.AppendLine($"- {fact}");
+                builder.AppendLine($"- {Truncate(fact, 110)}");
             }
-            builder.AppendLine($"Excerpt: {chunk.EvidenceExcerpt}");
+            builder.AppendLine($"Excerpt: {Truncate(chunk.EvidenceExcerpt, 220)}");
             builder.AppendLine();
         }
 
@@ -1743,6 +1845,60 @@ Return JSON only:
         return builder.ToString().Trim();
     }
 
+    private static string BuildHeadingMeta(DocumentChunk chunk)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(chunk.HeadingKind))
+        {
+            parts.Add(chunk.HeadingKind!);
+        }
+
+        if (chunk.HeadingLevel.HasValue)
+        {
+            parts.Add($"L{chunk.HeadingLevel.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.HeadingMarker))
+        {
+            parts.Add(chunk.HeadingMarker!);
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.NormalizedHeading))
+        {
+            parts.Add(Truncate(chunk.NormalizedHeading!, 80));
+        }
+
+        return parts.Any() ? string.Join(" / ", parts) : "none";
+    }
+
+    private static List<DocumentChunk> CompactPromptChunks(IEnumerable<DocumentChunk> chunks, int limit)
+    {
+        var ordered = chunks
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+        if (ordered.Count <= limit)
+        {
+            return ordered;
+        }
+
+        var result = new List<DocumentChunk>();
+        var step = Math.Max(1d, (ordered.Count - 1d) / Math.Max(1, limit - 1));
+
+        for (var index = 0; index < limit; index++)
+        {
+            var chunkIndex = Math.Min(ordered.Count - 1, (int)Math.Round(index * step));
+            var chunk = ordered[chunkIndex];
+            if (result.All(existing => !string.Equals(existing.ChunkId, chunk.ChunkId, StringComparison.OrdinalIgnoreCase)))
+            {
+                result.Add(chunk);
+            }
+        }
+
+        return result;
+    }
+
     private static string BuildAnalyzedContentBlock(ProcessedContent? processedContent)
     {
         if (processedContent == null)
@@ -1752,13 +1908,15 @@ Return JSON only:
 
         var topics = processedContent.MainTopics
             .Where(topic => !string.IsNullOrWhiteSpace(topic))
-            .Take(8)
+            .Take(5)
             .ToList();
         var keyPoints = processedContent.KeyPoints
             .Where(point => !string.IsNullOrWhiteSpace(point))
-            .Take(12)
+            .Select(point => NormalizeSentence(point))
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Take(6)
             .ToList();
-        var summary = NormalizeSentence(processedContent.Summary) ?? "Khong co tom tat san.";
+        var summary = Truncate(NormalizeSentence(processedContent.Summary) ?? "Khong co tom tat san.", 280);
 
         var builder = new StringBuilder();
         builder.AppendLine($"Summary: {summary}");
@@ -2340,6 +2498,11 @@ Return JSON only:
         public string ChunkId { get; init; } = string.Empty;
         public string Zone { get; init; } = "giua";
         public string Label { get; init; } = string.Empty;
+        public string? HeadingKind { get; init; }
+        public int? HeadingLevel { get; init; }
+        public string? HeadingMarker { get; init; }
+        public string? NormalizedHeading { get; init; }
+        public string? HeadingPath { get; init; }
         public string Summary { get; init; } = string.Empty;
         public List<string> KeyFacts { get; init; } = new();
         public string EvidenceExcerpt { get; init; } = string.Empty;

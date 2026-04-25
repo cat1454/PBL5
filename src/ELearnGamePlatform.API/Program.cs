@@ -166,8 +166,10 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
     {
         EnsureColumnExists(connection, "questions", "verifier_score");
         EnsureColumnExists(connection, "questions", "verifier_issues");
-      //  EnsureColumnExists(connection, "slide_items", "verifier_score");
-       // EnsureColumnExists(connection, "slide_items", "verifier_issues");
+        EnsureColumnExists(connection, "slide_items", "verifier_score");
+        EnsureColumnExists(connection, "slide_items", "verifier_issues");
+        EnsureColumnExists(connection, "slide_items", "key_message");
+        EnsureColumnExists(connection, "slide_items", "evidence_from_text");
     }
     finally
     {

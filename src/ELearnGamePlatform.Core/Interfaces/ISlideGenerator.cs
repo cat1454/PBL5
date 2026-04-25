@@ -53,6 +53,7 @@ public class SlideOutlineSlide
     public string Heading { get; set; } = string.Empty;
     public string? Subheading { get; set; }
     public string Goal { get; set; } = string.Empty;
+    public string? KeyMessage { get; set; }
     public List<string> PreferredChunkIds { get; set; } = new();
 }
 
@@ -61,7 +62,9 @@ public class SlideContentResult
     public string? Heading { get; set; }
     public string? Subheading { get; set; }
     public string? Goal { get; set; }
+    public string? KeyMessage { get; set; }
     public List<string> BodyBlocks { get; set; } = new();
+    public string? EvidenceFromText { get; set; }
     public string? SpeakerNotes { get; set; }
     public string? AccentTone { get; set; }
     public int? VerifierScore { get; set; }

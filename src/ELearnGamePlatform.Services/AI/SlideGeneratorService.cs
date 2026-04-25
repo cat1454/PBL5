@@ -13,18 +13,37 @@ public class SlideGeneratorService : ISlideGenerator
 {
     private readonly IOllamaService _ollamaService;
     private readonly ILogger<SlideGeneratorService> _logger;
-    private const int ChunkSize = 6500;
-    private const int ChunkOverlap = 250;
+    private const int ChunkSize = 2200;
+    private const int ChunkOverlap = 320;
     private const int EvidenceChunkLimit = 3;
+    private const int PromptCoverageChunkLimit = 8;
+    private const int PromptKeyFactLimit = 2;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
     private const int SlideRepairThreshold = 74;
+    private static readonly Regex CjkTextPattern = new(@"[\u3400-\u9FFF\uF900-\uFAFF]", RegexOptions.Compiled);
     private static readonly HashSet<string> SupportedThemes = new(StringComparer.OrdinalIgnoreCase)
     {
         "editorial-sunrise",
         "midnight-signal",
         "paper-mint",
         "cobalt-grid"
+    };
+    private static readonly string[] GenericSlidePhrases =
+    {
+        "tom tat noi dung chinh",
+        "tom tat noi dung",
+        "noi dung chinh cua tai lieu",
+        "nang cao hieu qua hoc tap",
+        "nang cao chat luong",
+        "lam ro noi dung phan",
+        "bo slide tu dong",
+        "bo slide tu tai lieu",
+        "dang cho noi dung",
+        "noi dung se duoc cap nhat",
+        "phan dau",
+        "phan giua",
+        "phan cuoi"
     };
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -48,6 +67,7 @@ public class SlideGeneratorService : ISlideGenerator
     {
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
+        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress);
         var targetCount = Math.Clamp(desiredSlideCount, 5, 10);
 
         Report(
@@ -69,10 +89,10 @@ public class SlideGeneratorService : ISlideGenerator
             {
                 try
                 {
-                    var prompt = BuildOutlinePrompt(processedContent, brief, chunks, targetCount);
+                    var prompt = BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount);
                     currentDraft = await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
                         prompt,
-                        "You are a presentation strategist. Build concise, grounded slide outlines.");
+                        "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
                 }
                 catch (Exception ex)
                 {
@@ -83,8 +103,8 @@ public class SlideGeneratorService : ISlideGenerator
 
             if (currentDraft != null)
             {
-                var outline = NormalizeOutlineResult(currentDraft, chunks, processedContent, brief, targetCount);
-                outline = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline);
+                var outline = NormalizeOutlineResult(currentDraft, chunks, sectionPlans, processedContent, brief, targetCount);
+                outline = await PolishOutlineAsync(processedContent, brief, chunks, sectionPlans, targetCount, outline);
 
                 if (IsOutlineQualityAcceptable(outline, targetCount, out qualityIssues))
                 {
@@ -97,10 +117,10 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, chunks, targetCount, qualityIssues);
+            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues);
         }
 
-        return BuildFallbackOutline(processedContent, brief, chunks, targetCount);
+        return BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
     }
 
     public async Task<SlideContentResult> GenerateSlideAsync(
@@ -113,9 +133,10 @@ public class SlideGeneratorService : ISlideGenerator
         IProgress<SlideGenerationProgressUpdate>? progress = null)
     {
         var chunks = GetCoverageChunks(NormalizeContent(content), processedContent);
+        var sectionPlans = BuildSectionPlans(chunks);
         var evidence = SelectEvidenceChunks(chunks, outlineSlide);
 
-        Report(progress, 20, "generate-slide", $"Dang sinh noi dung slide {slideNumber}/{totalSlides}", "Sinh slide");
+        Report(progress, 20, "generate-slide", $"Đang sinh nội dung slide {slideNumber}/{totalSlides}", "Sinh slide");
 
         SlideContentDraft? currentDraft = null;
         var qualityIssues = new List<string>();
@@ -126,7 +147,7 @@ public class SlideGeneratorService : ISlideGenerator
             {
                 try
                 {
-                    var prompt = BuildSlidePrompt(processedContent, brief, outlineSlide, evidence);
+                    var prompt = BuildSlidePrompt(processedContent, brief, outlineSlide, evidence, sectionPlans);
                     currentDraft = await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
                         prompt,
                         "You create concise grounded slides. Never invent facts outside allowed evidence.");
@@ -134,16 +155,16 @@ public class SlideGeneratorService : ISlideGenerator
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Error generating slide {SlideNumber}, retry/fallback will be used.", slideNumber);
-                    qualityIssues = new List<string> { "AI khong tra ve noi dung slide hop le o luot dau." };
+                    qualityIssues = new List<string> { "AI không trả về nội dung slide hợp lệ ở lượt đầu." };
                 }
             }
 
             if (currentDraft != null)
             {
                 var result = NormalizeSlideContent(currentDraft, outlineSlide, brief, evidence);
-                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, result);
+                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, sectionPlans, result);
 
-                if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, out qualityIssues))
+                if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, evidence, out qualityIssues))
                 {
                     await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: false);
                     result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result);
@@ -156,7 +177,7 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, qualityIssues);
+            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues);
         }
 
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
@@ -208,7 +229,7 @@ public class SlideGeneratorService : ISlideGenerator
     }
 
     private static string BuildOutlinePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, List<DocumentChunk> chunks, int targetCount)
-        => $@"You are creating a presentation outline from an educational document.
+        => $@"You are creating a short lesson deck from an educational document.
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -221,37 +242,41 @@ Coverage map:
 
 Requirements:
 1. Return one JSON object only.
-2. Write visible text in Vietnamese.
+2. Write visible text in Vietnamese with proper diacritics.
 3. Create exactly {targetCount} slides.
 4. Slide 1 must be Title.
 5. Include one SectionDivider in the early deck.
-6. Use a Gamma-like narrative rhythm: open strong, establish structure, reveal insights progressively, end with memorable takeaways.
-7. Use a varied mix of slideType values chosen from Title, SectionDivider, Content, Quote, Highlight, Stat.
-8. Each slide needs heading, optional subheading, short goal, and 1-3 preferredChunkIds.
-9. preferredChunkIds must come exactly from the coverage map.
-10. Cover early, middle, and late parts of the document.
-11. Headings must feel polished and presentation-ready, not like raw chapter names.
-12. Subtitle and goals must fit the brief.
+6. Treat the deck as a lesson flow for learners, not a document summary.
+7. Give every slide a clear teaching role through its goal: hook, concept, explanation, example, comparison, takeaway, or review.
+8. Use a Gamma-like lesson rhythm: open with a question/problem, build concepts step by step, add concrete evidence, end with takeaways or review.
+9. Use a varied mix of slideType values chosen from Title, SectionDivider, Content, Quote, Highlight, Stat.
+10. Each slide needs heading, optional subheading, short goal, and 1-3 preferredChunkIds.
+11. preferredChunkIds must come exactly from the coverage map.
+12. Cover early, middle, and late parts of the document.
+13. Headings must be a teachable message, not raw chapter names, file names, or ""Tóm tắt nội dung chính"".
+14. Avoid generic claims such as ""nâng cao hiệu quả học tập"" unless the coverage map directly supports them.
+15. Do not copy OCR artifacts, CJK text, broken file names, or prompt-like wording into visible text.
+16. When clear main sections exist, prefer giving each major section at least one slide through preferredChunkIds.
 
 Return JSON:
 {{
-  ""title"": ""ten deck"",
-  ""subtitle"": ""mo ta ngan"",
+  ""title"": ""tên deck"",
+  ""subtitle"": ""mô tả ngắn"",
   ""themeKey"": ""editorial-sunrise"",
   ""slides"": [
     {{
       ""slideIndex"": 1,
       ""slideType"": ""Title"",
-      ""heading"": ""tieu de slide"",
-      ""subheading"": ""phu de"",
-      ""goal"": ""muc tieu ngan"",
+      ""heading"": ""tiêu đề slide"",
+      ""subheading"": ""phụ đề"",
+      ""goal"": ""mục tiêu ngắn"",
       ""preferredChunkIds"": [""C01""]
     }}
   ]
 }}";
 
     private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence)
-        => $@"You are generating one presentation slide.
+        => $@"You are generating one learner-facing presentation slide.
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -271,27 +296,118 @@ Allowed evidence only:
 
 Requirements:
 1. Return one JSON object only.
-2. Write visible text in Vietnamese.
+2. Write visible text in Vietnamese with proper diacritics.
 3. Keep content concise and grounded in the evidence.
-4. Match the style of a polished modern presentation, not an academic wall of text.
-5. Adapt structure to the slideType.
-6. bodyBlocks must contain 1-5 short blocks.
-7. speakerNotes should be 2-4 short sentences.
-8. For Title slides, bodyBlocks should feel like a sharp framing summary.
-9. For SectionDivider slides, bodyBlocks should signal the next section.
-10. For Quote slides, make 1-2 impactful lines.
-11. For Stat slides, make each block feel like a key metric or standout fact.
-12. For Highlight slides, make the content memorable and takeaway-driven.
+4. Match the style of a clear teacher explaining a lesson, not an academic wall of text.
+5. Adapt structure to the slideType and the teaching role implied by the goal.
+6. bodyBlocks must contain 2-4 short blocks for normal content slides; Title, SectionDivider, Quote may use 1-2.
+7. Every body block should connect to the slide goal and include at least one concrete detail, term, event, actor, cause, contrast, or fact from the evidence.
+8. speakerNotes should be 2-4 short sentences in a teacher's voice: explain what to say, why it matters, and how to transition.
+9. For Title slides, bodyBlocks should frame the lesson with a question or problem.
+10. For SectionDivider slides, bodyBlocks should preview what learners will understand next.
+11. For Quote slides, make 1-2 impactful lines grounded in evidence.
+12. For Stat slides, make each block feel like a key metric or standout fact; if there is no number, make it a concrete highlighted fact.
+13. For Highlight slides, make the content memorable and takeaway-driven.
+14. Avoid generic lines such as ""Tóm tắt nội dung chính của tài liệu"", ""nâng cao hiệu quả học tập"", or ""Làm rõ nội dung phần..."".
+15. Do not include OCR artifacts, CJK text, broken file names, source file paths, or placeholder wording.
 
 Return JSON:
 {{
-  ""heading"": ""tieu de slide"",
-  ""subheading"": ""phu de"",
-  ""goal"": ""muc tieu ngan"",
-  ""bodyBlocks"": [""bullet 1"", ""bullet 2""],
-  ""speakerNotes"": ""ghi chu trinh bay"",
+  ""heading"": ""tiêu đề slide"",
+  ""subheading"": ""phụ đề"",
+  ""goal"": ""mục tiêu ngắn"",
+  ""bodyBlocks"": [""ý chính 1"", ""ý chính 2""],
+  ""speakerNotes"": ""ghi chú trình bày"",
   ""accentTone"": ""warm""
 }}";
+
+    private static string BuildOutlinePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, List<SlideSectionPlan> sectionPlans, int targetCount)
+        => $@"You are creating a short lesson deck from section summaries of an educational document.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Document analysis:
+{BuildAnalyzedContentBlock(processedContent)}
+
+Section summaries:
+{BuildSectionPlanBlock(sectionPlans)}
+
+Requirements:
+1. Return one JSON object only.
+2. Write visible text in Vietnamese with proper diacritics.
+3. Create exactly {targetCount} slides.
+4. Slide 1 must be Title.
+5. Include one SectionDivider in the early deck.
+6. Each slide needs heading, optional subheading, short goal, keyMessage, and 1-3 preferredChunkIds.
+7. preferredChunkIds must come exactly from the section summaries.
+8. Cover major sections and keep a lesson flow for learners.
+9. Headings and keyMessage must be concrete, not generic.
+
+Return JSON:
+{{
+  ""title"": ""ten deck"",
+  ""subtitle"": ""mo ta ngan"",
+  ""themeKey"": ""editorial-sunrise"",
+  ""slides"": [
+    {{
+      ""slideIndex"": 1,
+      ""slideType"": ""Title"",
+      ""heading"": ""tieu de slide"",
+      ""subheading"": ""phu de"",
+      ""goal"": ""muc tieu ngan"",
+      ""keyMessage"": ""mot y chinh ro rang"",
+      ""preferredChunkIds"": [""C01""]
+    }}
+  ]
+}}";
+
+    private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence, List<SlideSectionPlan> sectionPlans)
+        => $@"You are a system creating grounded study slides from source sections.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Document analysis:
+{BuildAnalyzedContentBlock(processedContent)}
+
+Slide brief:
+- slideType: {outlineSlide.SlideType}
+- heading: {outlineSlide.Heading}
+- subheading: {outlineSlide.Subheading}
+- goal: {outlineSlide.Goal}
+- keyMessage: {outlineSlide.KeyMessage}
+- preferredChunkIds: {string.Join(", ", outlineSlide.PreferredChunkIds)}
+
+SOURCE_TEXT:
+{BuildEvidenceBlock(evidence)}
+
+Relevant sections:
+{BuildRelevantSectionPlanBlock(sectionPlans, outlineSlide.PreferredChunkIds)}
+
+Requirements:
+- Use only information from SOURCE_TEXT.
+- Do not add outside knowledge.
+- Do not write generic filler.
+- If SOURCE_TEXT is insufficient, write ""không đủ dữ kiện"".
+- Return JSON with: title, keyMessage, bullets, evidenceFromText, speakerNotes.
+- Bullets must be short and concrete.
+
+Return JSON:
+{{
+  ""title"": ""tieu de slide"",
+  ""keyMessage"": ""mot y chinh"",
+  ""bullets"": [""y cu the 1"", ""y cu the 2"", ""y cu the 3""],
+  ""evidenceFromText"": ""can cu ngan tu SOURCE_TEXT"",
+  ""speakerNotes"": ""ghi chu trinh bay ngan""
+}}";
+
+    private static SlideOutlineResult NormalizeOutlineResult(SlideOutlineDraft? draft, List<DocumentChunk> chunks, List<SlideSectionPlan> sectionPlans, ProcessedContent? processedContent, SlideDeckBrief? brief, int targetCount)
+    {
+        var outline = NormalizeOutlineResult(draft, chunks, processedContent, brief, targetCount);
+        ApplySectionPlanKeyMessages(outline, sectionPlans);
+        return outline;
+    }
 
     private static SlideOutlineResult NormalizeOutlineResult(SlideOutlineDraft? draft, List<DocumentChunk> chunks, ProcessedContent? processedContent, SlideDeckBrief? brief, int targetCount)
     {
@@ -315,7 +431,8 @@ Return JSON:
                 SlideType = ParseSlideType(raw.SlideType, slides.Count == 0),
                 Heading = heading,
                 Subheading = NormalizeLine(raw.Subheading, 200),
-                Goal = NormalizeLine(raw.Goal, 180) ?? "Lam ro y chinh cua slide nay",
+                Goal = NormalizeLine(raw.Goal, 180) ?? BuildLessonGoal(slides.Count, heading),
+                KeyMessage = NormalizeLine(raw.KeyMessage, 220),
                 PreferredChunkIds = NormalizePreferredChunkIds(raw.PreferredChunkIds, chunks, slides.Count)
             });
         }
@@ -326,6 +443,7 @@ Return JSON:
         }
 
         ApplyNarrativeRhythm(slides);
+        slides = RebalanceSlidesForPrimarySections(slides, chunks);
 
         if (slides.Count < targetCount)
         {
@@ -349,6 +467,7 @@ Return JSON:
                     Heading = fallbackSlide.Heading,
                     Subheading = fallbackSlide.Subheading,
                     Goal = fallbackSlide.Goal,
+                    KeyMessage = fallbackSlide.KeyMessage,
                     PreferredChunkIds = fallbackSlide.PreferredChunkIds
                 });
             }
@@ -366,7 +485,8 @@ Return JSON:
 
     private static SlideContentResult NormalizeSlideContent(SlideContentDraft? draft, SlideOutlineSlide outlineSlide, SlideDeckBrief? brief, List<DocumentChunk> evidence)
     {
-        var blocks = draft?.BodyBlocks?
+        var sourceBlocks = draft?.Bullets?.Any() == true ? draft.Bullets : draft?.BodyBlocks;
+        var blocks = sourceBlocks?
             .Select(block => NormalizeLine(block, 220))
             .Where(block => !string.IsNullOrWhiteSpace(block))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -382,13 +502,28 @@ Return JSON:
 
         return new SlideContentResult
         {
-            Heading = NormalizeLine(draft?.Heading, 160) ?? outlineSlide.Heading,
+            Heading = NormalizeLine(draft?.Title ?? draft?.Heading, 160) ?? outlineSlide.Heading,
             Subheading = NormalizeLine(draft?.Subheading, 220) ?? outlineSlide.Subheading,
-            Goal = NormalizeLine(draft?.Goal, 180) ?? outlineSlide.Goal,
-            BodyBlocks = NormalizeBodyBlocksForSlideType(outlineSlide.SlideType, blocks),
+            Goal = NormalizeLine(draft?.KeyMessage ?? draft?.Goal, 180) ?? outlineSlide.KeyMessage ?? outlineSlide.Goal,
+            KeyMessage = NormalizeLine(draft?.KeyMessage, 220) ?? outlineSlide.KeyMessage ?? outlineSlide.Goal,
+            BodyBlocks = NormalizeBodyBlocksForSlideType(outlineSlide.SlideType, blocks, outlineSlide),
+            EvidenceFromText = NormalizeLine(draft?.EvidenceFromText, 320) ?? evidence.FirstOrDefault()?.EvidenceExcerpt,
             SpeakerNotes = NormalizeLine(draft?.SpeakerNotes, 520) ?? BuildSpeakerNotes(outlineSlide, evidence),
             AccentTone = NormalizeAccentTone(draft?.AccentTone, brief, outlineSlide.SlideType)
         };
+    }
+
+    private async Task<SlideOutlineResult> PolishOutlineAsync(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        List<DocumentChunk> chunks,
+        List<SlideSectionPlan> sectionPlans,
+        int targetCount,
+        SlideOutlineResult outline)
+    {
+        var polished = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline);
+        ApplySectionPlanKeyMessages(polished, sectionPlans);
+        return polished;
     }
 
     private async Task<SlideOutlineResult> PolishOutlineAsync(
@@ -418,16 +553,17 @@ Requirements:
 1. Keep the same narrative direction and keep slide count at exactly {targetCount}.
 2. Keep preferredChunkIds grounded in the same document coverage map.
 3. Rewrite only for cleaner, sharper, more presentation-ready Vietnamese.
-4. Remove OCR artifacts, raw chapter-name wording, duplicated ideas, and machine-like phrasing.
-5. Slide 1 must remain Title and at least one early slide must remain SectionDivider.
-6. Do not invent facts outside the analyzed content and coverage map.
+4. Strengthen the lesson flow: each slide should have a teaching role such as hook, concept, explanation, example, comparison, takeaway, or review.
+5. Remove OCR artifacts, raw chapter-name wording, duplicated ideas, generic claims, and machine-like phrasing.
+6. Slide 1 must remain Title and at least one early slide must remain SectionDivider.
+7. Do not invent facts outside the analyzed content and coverage map.
 
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
                 prompt,
-                "You are a Vietnamese presentation editor. Polish outlines without inventing new facts.",
+                "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.",
                 OllamaModelProfile.Generation);
 
             return polished == null
@@ -439,6 +575,25 @@ Return JSON only:
             _logger.LogWarning(ex, "Error polishing slide outline.");
             return outline;
         }
+    }
+
+    private async Task<SlideContentResult> PolishSlideContentAsync(
+        SlideDeckBrief? brief,
+        SlideOutlineSlide outlineSlide,
+        List<DocumentChunk> evidence,
+        List<SlideSectionPlan> sectionPlans,
+        SlideContentResult content)
+    {
+        var polished = await PolishSlideContentAsync(brief, outlineSlide, evidence, content);
+        if (string.IsNullOrWhiteSpace(polished.KeyMessage))
+        {
+            polished.KeyMessage = outlineSlide.KeyMessage
+                ?? BuildRelevantSectionPlanBlock(sectionPlans, outlineSlide.PreferredChunkIds)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault();
+        }
+
+        return polished;
     }
 
     private async Task<SlideContentResult> PolishSlideContentAsync(
@@ -470,16 +625,17 @@ Current slide:
 Requirements:
 1. Keep the same factual meaning and stay within the allowed evidence.
 2. Write natural, concise, presentation-ready Vietnamese.
-3. Remove OCR artifacts, prompt-like wording, placeholders, and duplicated ideas.
-4. Preserve the slideType structure and keep 1-5 short bodyBlocks.
-5. speakerNotes must be clear, calm, and learner-facing.
+3. Make the slide feel like a useful teaching moment: concrete, explanatory, and connected to the goal.
+4. Remove OCR artifacts, prompt-like wording, placeholders, generic lines, and duplicated ideas.
+5. Preserve the slideType structure and keep 2-4 short bodyBlocks for normal content slides.
+6. speakerNotes must sound like a teacher explaining the slide and transitioning to the next idea.
 
 Return JSON only:
 {BuildSlideContentExample()}";
 
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
                 prompt,
-                "You are a senior Vietnamese presentation editor. Polish slides without changing facts.",
+                "You are a senior Vietnamese lesson editor. Polish slides without changing facts.",
                 OllamaModelProfile.Generation);
 
             return ApplySlidePolishDraft(content, polished, outlineSlide, brief, evidence);
@@ -488,6 +644,50 @@ Return JSON only:
         {
             _logger.LogWarning(ex, "Error polishing slide content for {Heading}", outlineSlide.Heading);
             return content;
+        }
+    }
+
+    private async Task<SlideOutlineDraft?> RetryGenerateOutlineAsync(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        List<SlideSectionPlan> sectionPlans,
+        int targetCount,
+        IReadOnlyList<string> issues)
+    {
+        try
+        {
+            var prompt = $@"Retry the presentation outline generation from section summaries.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Document analysis:
+{BuildAnalyzedContentBlock(processedContent)}
+
+Section summaries:
+{BuildSectionPlanBlock(sectionPlans)}
+
+Previous attempt issues:
+- {string.Join("\n- ", issues.Where(issue => !string.IsNullOrWhiteSpace(issue)).DefaultIfEmpty("Outline chua dat quality gate"))}
+
+Requirements:
+1. Return exactly {targetCount} slides.
+2. Keep the deck grounded in the listed sections only.
+3. Make headings, goals, and keyMessage clean and specific in Vietnamese.
+4. Include Title first, one early SectionDivider, and a varied lesson rhythm.
+
+Return JSON only:
+{BuildOutlineExample(targetCount)}";
+
+            return await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
+                prompt,
+                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
+                OllamaModelProfile.Generation);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error retrying outline generation from section summaries.");
+            return null;
         }
     }
 
@@ -518,20 +718,76 @@ Requirements:
 1. Return exactly {targetCount} slides.
 2. Keep the deck grounded in the coverage map.
 3. Make headings and goals clean, modern, and learner-friendly in Vietnamese.
-4. Avoid OCR artifacts, repeated headings, raw chapter labels, and template wording.
-5. Include Title first, one early SectionDivider, and a varied narrative rhythm.
+4. Assign a clear teaching role to every slide: hook, concept, explanation, example, comparison, takeaway, or review.
+5. Avoid OCR artifacts, repeated headings, raw chapter labels, generic claims, and template wording.
+6. Include Title first, one early SectionDivider, and a varied lesson rhythm.
 
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
             return await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
                 prompt,
-                "You are retrying a grounded presentation outline. Return strict JSON only.",
+                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
                 OllamaModelProfile.Generation);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error retrying outline generation.");
+            return null;
+        }
+    }
+
+    private async Task<SlideContentDraft?> RetryGenerateSlideContentAsync(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        SlideOutlineSlide outlineSlide,
+        List<DocumentChunk> evidence,
+        List<SlideSectionPlan> sectionPlans,
+        IReadOnlyList<string> issues)
+    {
+        try
+        {
+            var prompt = $@"Retry one grounded slide from source text only.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Document analysis:
+{BuildAnalyzedContentBlock(processedContent)}
+
+Slide outline:
+- slideType: {outlineSlide.SlideType}
+- heading: {outlineSlide.Heading}
+- goal: {outlineSlide.Goal}
+- keyMessage: {outlineSlide.KeyMessage}
+- preferredChunkIds: {string.Join(", ", outlineSlide.PreferredChunkIds)}
+
+SOURCE_TEXT:
+{BuildEvidenceBlock(evidence)}
+
+Relevant sections:
+{BuildRelevantSectionPlanBlock(sectionPlans, outlineSlide.PreferredChunkIds)}
+
+Previous attempt issues:
+- {string.Join("\n- ", issues.Where(issue => !string.IsNullOrWhiteSpace(issue)).DefaultIfEmpty("Slide chua dat quality gate"))}
+
+Requirements:
+1. Use only SOURCE_TEXT.
+2. Do not add outside knowledge.
+3. Rewrite generic or unsupported bullets to be more specific.
+4. Return JSON only using title, keyMessage, bullets, evidenceFromText, speakerNotes.
+
+Return JSON only:
+{BuildSlideContentExample()}";
+
+            return await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
+                prompt,
+                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
+                OllamaModelProfile.Generation);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error retrying grounded slide content for {Heading}", outlineSlide.Heading);
             return null;
         }
     }
@@ -568,16 +824,17 @@ Previous attempt issues:
 
 Requirements:
 1. Stay inside the allowed evidence only.
-2. Produce polished, concise Vietnamese for a premium presentation.
-3. Remove placeholders, OCR artifacts, raw wording, and duplicate blocks.
-4. Keep 1-5 short bodyBlocks and clear speaker notes.
+2. Produce polished, concise Vietnamese for a clear lesson.
+3. Remove placeholders, OCR artifacts, CJK text, raw wording, generic claims, and duplicate blocks.
+4. Keep 2-4 short bodyBlocks for normal content slides and clear teacher-style speaker notes.
+5. Each visible block must include a concrete term, actor, event, contrast, cause, or fact supported by the evidence.
 
 Return JSON only:
 {BuildSlideContentExample()}";
 
             return await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
                 prompt,
-                "You are retrying a grounded presentation slide. Return strict JSON only.",
+                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
                 OllamaModelProfile.Generation);
         }
         catch (Exception ex)
@@ -601,10 +858,12 @@ Return JSON only:
 
         var merged = new SlideContentDraft
         {
-            Heading = draft.Heading ?? current.Heading,
+            Heading = draft.Title ?? draft.Heading ?? current.Heading,
             Subheading = draft.Subheading ?? current.Subheading,
-            Goal = draft.Goal ?? current.Goal,
-            BodyBlocks = draft.BodyBlocks?.Any() == true ? draft.BodyBlocks : current.BodyBlocks,
+            Goal = draft.KeyMessage ?? draft.Goal ?? current.Goal,
+            KeyMessage = draft.KeyMessage ?? current.KeyMessage,
+            BodyBlocks = draft.Bullets?.Any() == true ? draft.Bullets : draft.BodyBlocks?.Any() == true ? draft.BodyBlocks : current.BodyBlocks,
+            EvidenceFromText = draft.EvidenceFromText ?? current.EvidenceFromText,
             SpeakerNotes = draft.SpeakerNotes ?? current.SpeakerNotes,
             AccentTone = draft.AccentTone ?? current.AccentTone
         };
@@ -621,55 +880,71 @@ Return JSON only:
 
         if (string.IsNullOrWhiteSpace(outline.Title) || TextCleanupUtility.HasNoisyArtifacts(outline.Title))
         {
-            issues.Add("Tieu de deck chua sach hoac dang rong.");
+            issues.Add("Tiêu đề deck chưa sạch hoặc đang rỗng.");
+        }
+        else if (LooksGenericForLesson(outline.Title) || ContainsCjkText(outline.Title))
+        {
+            issues.Add("Tiêu đề deck con chung chung hoặc có artifact lạ.");
         }
 
         if (!string.IsNullOrWhiteSpace(outline.Subtitle) && TextCleanupUtility.HasNoisyArtifacts(outline.Subtitle))
         {
-            issues.Add("Phu de deck con artifact.");
+            issues.Add("Phụ đề deck con artifact.");
+        }
+        else if (!string.IsNullOrWhiteSpace(outline.Subtitle) && LooksGenericForLesson(outline.Subtitle))
+        {
+            issues.Add("Phụ đề deck con chung chung/template.");
         }
 
         if (outline.Slides.Count != targetCount)
         {
-            issues.Add("So slide chua dung theo yeu cau.");
+            issues.Add("Số slide chưa đúng theo yêu cầu.");
         }
 
         if (!outline.Slides.Any())
         {
-            issues.Add("Outline khong co slide nao.");
+            issues.Add("Outline không có slide nào.");
             return false;
         }
 
         if (outline.Slides[0].SlideType != SlideItemType.Title)
         {
-            issues.Add("Slide dau tien chua la Title.");
+            issues.Add("Slide đầu tiên chưa là Title.");
         }
 
         if (!outline.Slides.Skip(1).Take(Math.Min(3, Math.Max(0, outline.Slides.Count - 1))).Any(slide => slide.SlideType == SlideItemType.SectionDivider))
         {
-            issues.Add("Chua co SectionDivider som trong deck.");
+            issues.Add("Chưa có SectionDivider nào trong deck.");
         }
 
-        if (outline.Slides.Select(slide => slide.Heading).Distinct(StringComparer.OrdinalIgnoreCase).Count() < Math.Max(2, outline.Slides.Count - 1))
+        if (outline.Slides.Select(slide => NormalizeToken(slide.Heading)).Distinct(StringComparer.OrdinalIgnoreCase).Count() < Math.Max(2, outline.Slides.Count - 1))
         {
-            issues.Add("Heading slide bi trung qua nhieu.");
+            issues.Add("Heading slide bị trùng quá nhiều.");
         }
 
         foreach (var slide in outline.Slides)
         {
             if (string.IsNullOrWhiteSpace(slide.Heading) || slide.Heading.Length < 6 || TextCleanupUtility.HasNoisyArtifacts(slide.Heading))
             {
-                issues.Add($"Heading slide {slide.SlideIndex} chua dat chat luong.");
+                issues.Add($"Heading slide {slide.SlideIndex} chưa đạt chất lượng.");
+            }
+            else if (LooksGenericForLesson(slide.Heading) || ContainsCjkText(slide.Heading))
+            {
+                issues.Add($"Heading slide {slide.SlideIndex} còn chung chung hoặc có artifact lạ.");
             }
 
             if (!string.IsNullOrWhiteSpace(slide.Goal) && TextCleanupUtility.HasNoisyArtifacts(slide.Goal))
             {
                 issues.Add($"Goal slide {slide.SlideIndex} con artifact.");
             }
+            else if (!string.IsNullOrWhiteSpace(slide.Goal) && LooksGenericForLesson(slide.Goal))
+            {
+                issues.Add($"Goal slide {slide.SlideIndex} còn chung chung/template.");
+            }
 
             if (slide.PreferredChunkIds.Count == 0)
             {
-                issues.Add($"Slide {slide.SlideIndex} chua co preferredChunkIds.");
+                issues.Add($"Slide {slide.SlideIndex} chưa có preferredChunkIds.");
             }
         }
 
@@ -679,40 +954,71 @@ Return JSON only:
     private static bool IsSlideQualityAcceptable(
         SlideContentResult content,
         SlideItemType slideType,
+        IReadOnlyCollection<DocumentChunk> evidence,
         out List<string> issues)
     {
         issues = new List<string>();
 
         if (string.IsNullOrWhiteSpace(content.Heading) || content.Heading.Length < 6 || TextCleanupUtility.HasNoisyArtifacts(content.Heading))
         {
-            issues.Add("Heading slide chua sach hoac qua ngan.");
+            issues.Add("Heading slide chưa sạch hoặc quá ngắn.");
+        }
+        else if (LooksGenericForLesson(content.Heading))
+        {
+            issues.Add("Heading slide còn chung chung/template.");
         }
 
         if (!string.IsNullOrWhiteSpace(content.Subheading) && TextCleanupUtility.HasNoisyArtifacts(content.Subheading))
         {
             issues.Add("Subheading con artifact.");
         }
+        else if (!string.IsNullOrWhiteSpace(content.Subheading) && LooksGenericForLesson(content.Subheading))
+        {
+            issues.Add("Subheading còn chung chung/template.");
+        }
 
         if (!string.IsNullOrWhiteSpace(content.Goal) && TextCleanupUtility.HasNoisyArtifacts(content.Goal))
         {
             issues.Add("Goal con artifact.");
         }
+        else if (!string.IsNullOrWhiteSpace(content.Goal) && LooksGenericForLesson(content.Goal))
+        {
+            issues.Add("Goal còn chung chung/template.");
+        }
 
         if (!content.BodyBlocks.Any() || content.BodyBlocks.Count > 5)
         {
-            issues.Add("So body block khong hop le.");
+            issues.Add("Số body block không hợp lệ.");
         }
         else
         {
             if (content.BodyBlocks.Any(block => string.IsNullOrWhiteSpace(block) || block.Length < 6 || TextCleanupUtility.HasNoisyArtifacts(block)))
             {
-                issues.Add("Body block con artifact hoac qua ngan.");
+                issues.Add("Body block con artifact hoặc quá ngắn.");
+            }
+
+            if (content.BodyBlocks.Any(LooksGenericForLesson))
+            {
+                issues.Add("Body block còn chung chung/template.");
             }
 
             if (content.BodyBlocks.Select(block => block.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != content.BodyBlocks.Count)
             {
-                issues.Add("Body block bi trung nhau.");
+                issues.Add("Body block bị trùng nhau.");
             }
+        }
+
+        if (ContainsCjkText(content.Heading)
+            || ContainsCjkText(content.Subheading)
+            || ContainsCjkText(content.Goal)
+            || content.BodyBlocks.Any(ContainsCjkText))
+        {
+            issues.Add("Nội dung hiển thị còn ký tự CJK/OCR lạ.");
+        }
+
+        if (!HasEvidenceSpecificity(content, evidence))
+        {
+            issues.Add("Slide chưa có chi tiết cụ thể được neo vào evidence.");
         }
 
         if (!string.IsNullOrWhiteSpace(content.SpeakerNotes) && TextCleanupUtility.HasNoisyArtifacts(content.SpeakerNotes))
@@ -776,7 +1082,18 @@ Return JSON only:
 
         if (aiReview.IsGrounded == false)
         {
-            mergedIssues.Insert(0, "Verifier AI danh dau slide nay chua du grounded theo evidence duoc cap.");
+            mergedIssues.Insert(0, "Verifier AI đánh dấu slide này chưa đủ grounded theo evidence được cung cấp.");
+        }
+
+        if (aiReview.RewrittenBullets?.Any() == true)
+        {
+            content.BodyBlocks = NormalizeBodyBlocksForSlideType(
+                slideType,
+                aiReview.RewrittenBullets
+                    .Select(bullet => NormalizeLine(bullet, 220))
+                    .Where(bullet => !string.IsNullOrWhiteSpace(bullet))
+                    .Cast<string>()
+                    .ToList());
         }
 
         content.VerifierIssues = mergedIssues;
@@ -801,7 +1118,7 @@ Return JSON only:
             var repairIssues = bestContent.VerifierIssues
                 .Concat(new[]
                 {
-                    "Auto-repair: hay sua slide de grounded hon, presentation-ready hon, va giam artifact/wording may."
+                    "Auto-repair: hay sửa slide thành bài giảng rõ hơn, grounded hơn, cụ thể hơn, và bỏ generic/template."
                 })
                 .Where(issue => !string.IsNullOrWhiteSpace(issue))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -816,7 +1133,7 @@ Return JSON only:
 
             var repairedContent = NormalizeSlideContent(repairedDraft, outlineSlide, brief, evidence);
             repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent);
-            if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, out _))
+            if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, evidence, out _))
             {
                 break;
             }
@@ -853,7 +1170,12 @@ Return JSON only:
             issue.Contains("artifact", StringComparison.OrdinalIgnoreCase) ||
             issue.Contains("dang rong", StringComparison.OrdinalIgnoreCase) ||
             issue.Contains("fallback", StringComparison.OrdinalIgnoreCase) ||
-            issue.Contains("trung", StringComparison.OrdinalIgnoreCase));
+            issue.Contains("trung", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("generic", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("template", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("chung chung", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("CJK", StringComparison.OrdinalIgnoreCase) ||
+            issue.Contains("chi tiet cu the", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ShouldPreferRepairedSlide(SlideContentResult current, SlideContentResult repaired)
@@ -872,6 +1194,52 @@ Return JSON only:
         }
 
         return false;
+    }
+
+    private static bool LooksGenericForLesson(string? value)
+    {
+        var token = NormalizeToken(value);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return true;
+        }
+
+        return GenericSlidePhrases.Any(phrase => token.Contains(NormalizeToken(phrase), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ContainsCjkText(string? value)
+        => !string.IsNullOrWhiteSpace(value) && CjkTextPattern.IsMatch(value);
+
+    private static bool HasEvidenceSpecificity(SlideContentResult content, IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        if (evidence.Count == 0)
+        {
+            return true;
+        }
+
+        var visibleText = string.Join(
+            " ",
+            new[] { content.Heading, content.Subheading, content.Goal, content.KeyMessage, content.EvidenceFromText }
+                .Concat(content.BodyBlocks)
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+
+        if (visibleText.Any(char.IsDigit))
+        {
+            return true;
+        }
+
+        var visibleTokens = TokenizeForSearch(visibleText);
+        if (visibleTokens.Count == 0)
+        {
+            return false;
+        }
+
+        var evidenceTokens = evidence
+            .SelectMany(chunk => TokenizeForSearch($"{chunk.Label} {chunk.Summary} {string.Join(" ", chunk.KeyFacts)} {chunk.EvidenceExcerpt}"))
+            .Where(token => token.Length >= 4)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return visibleTokens.Intersect(evidenceTokens, StringComparer.OrdinalIgnoreCase).Take(3).Count() >= 3;
     }
 
     private static void ApplyLocalSlideVerifierMetadata(
@@ -896,23 +1264,28 @@ Return JSON only:
 
         if (usedFallback)
         {
-            AddWarning("Slide nay dang dung duong fallback vi AI chua tra ve noi dung grounded dat yeu cau.", 30);
+            AddWarning("Slide này đang dùng đường fallback vì AI chưa trả về nội dung grounded theo yêu cầu.", 30);
         }
 
         if (string.IsNullOrWhiteSpace(content.Heading))
         {
-            AddWarning("Heading slide dang rong.", 35);
+            AddWarning("Heading slide đang rỗng.", 35);
         }
         else
         {
             if (content.Heading.Length < 10 || content.Heading.Length > 120)
             {
-                AddWarning("Heading slide co do dai chua toi uu.", 8);
+                AddWarning("Heading slide có độ dài chưa tối ưu.", 8);
             }
 
             if (TextCleanupUtility.HasNoisyArtifacts(content.Heading))
             {
-                AddWarning("Heading slide con dau hieu artifact hoac wording may.", 28);
+                AddWarning("Heading slide còn dấu hiệu artifact hoặc wording may.", 28);
+            }
+
+            if (LooksGenericForLesson(content.Heading))
+            {
+                AddWarning("Heading slide còn chung chung/template.", 14);
             }
         }
 
@@ -920,10 +1293,27 @@ Return JSON only:
         {
             AddWarning("Subheading con artifact.", 14);
         }
+        else if (!string.IsNullOrWhiteSpace(content.Subheading) && LooksGenericForLesson(content.Subheading))
+        {
+            AddWarning("Subheading con chung chung/template.", 8);
+        }
 
         if (!string.IsNullOrWhiteSpace(content.Goal) && TextCleanupUtility.HasNoisyArtifacts(content.Goal))
         {
             AddWarning("Goal slide con artifact.", 14);
+        }
+        else if (!string.IsNullOrWhiteSpace(content.Goal) && LooksGenericForLesson(content.Goal))
+        {
+            AddWarning("Goal slide con chung chung/template.", 8);
+        }
+
+        if (string.IsNullOrWhiteSpace(content.KeyMessage))
+        {
+            AddWarning("Key message dang rong.", 14);
+        }
+        else if (LooksGenericForLesson(content.KeyMessage))
+        {
+            AddWarning("Key message con chung chung/template.", 10);
         }
 
         if (!content.BodyBlocks.Any())
@@ -944,34 +1334,52 @@ Return JSON only:
 
             if (content.BodyBlocks.Any(block => TextCleanupUtility.HasNoisyArtifacts(block)))
             {
-                AddWarning("Mot vai body block con artifact.", 20);
+                AddWarning("Mot vai body block còn artifact.", 20);
+            }
+
+            if (content.BodyBlocks.Any(LooksGenericForLesson))
+            {
+                AddWarning("Mot vai body block còn chung chung/template.", 14);
             }
 
             if (content.BodyBlocks.Select(block => block.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != content.BodyBlocks.Count)
             {
-                AddWarning("Body block bi trung nhau.", 14);
+                AddWarning("Body block bị trùng nhau.", 14);
             }
+        }
+
+        if (ContainsCjkText(content.Heading)
+            || ContainsCjkText(content.Subheading)
+            || ContainsCjkText(content.Goal)
+            || content.BodyBlocks.Any(ContainsCjkText))
+        {
+            AddWarning("Nội dung hiển thị còn ký tự CJK/OCR lạ.", 24);
+        }
+
+        if (!HasEvidenceSpecificity(content, evidence))
+        {
+            AddWarning("Slide chưa có chi tiết cụ thể được neo vào evidence.", 16);
         }
 
         if (evidence.Count < 2)
         {
-            AddWarning("Slide dang dua tren it evidence chunk.", 5);
+            AddWarning("Slide đang dựa trên ít evidence chunk.", 5);
         }
 
         if (string.IsNullOrWhiteSpace(content.SpeakerNotes))
         {
-            AddWarning("Speaker notes dang rong.", 8);
+            AddWarning("Speaker notes đang rỗng.", 8);
         }
         else
         {
             if (content.SpeakerNotes.Length < 40)
             {
-                AddWarning("Speaker notes kha ngan.", 6);
+                AddWarning("Speaker notes khá ngắn.", 6);
             }
 
             if (TextCleanupUtility.HasNoisyArtifacts(content.SpeakerNotes))
             {
-                AddWarning("Speaker notes con artifact.", 16);
+                AddWarning("Speaker notes còn artifact.", 16);
             }
         }
 
@@ -981,19 +1389,19 @@ Return JSON only:
             case SlideItemType.SectionDivider:
                 if (content.BodyBlocks.Count > 2)
                 {
-                    AddWarning("Title/SectionDivider dang mang qua nhieu body block.", 8);
+                    AddWarning("Title/SectionDivider đang mang quá nhiều body block.", 8);
                 }
                 break;
             case SlideItemType.Stat:
                 if (content.BodyBlocks.All(block => !block.Any(char.IsDigit)))
                 {
-                    AddWarning("Stat slide chua co metric/fact noi bat ro rang.", 12);
+                    AddWarning("Stat slide chưa có metric/fact nổi bật rõ ràng.", 12);
                 }
                 break;
             case SlideItemType.Quote:
                 if (content.BodyBlocks.Count > 2)
                 {
-                    AddWarning("Quote slide nen co it dong hon de tao diem nhan.", 8);
+                    AddWarning("Quote slide nên có ít dòng hơn để tạo điểm nhấn.", 8);
                 }
                 break;
         }
@@ -1019,13 +1427,17 @@ Slide payload:
 - heading: {content.Heading}
 - subheading: {content.Subheading}
 - goal: {content.Goal}
+- keyMessage: {content.KeyMessage}
 - bodyBlocks:
 {BuildSlideVerifierBodyBlock(content.BodyBlocks)}
+- evidenceFromText: {content.EvidenceFromText}
 - speakerNotes: {content.SpeakerNotes}
 
 Requirements:
 1. Use only the evidence above.
-2. Penalize unsupported statements, duplicated ideas, OCR artifacts, weak clarity, or presentation wording that is too generic.
+2. Penalize unsupported statements, duplicated ideas, OCR artifacts, CJK text, weak clarity, missing concrete evidence detail, or presentation wording that is too generic.
+3. invalidBullets should list the bullets that are unsupported or too generic.
+4. rewrittenBullets should rewrite only those invalid bullets to be more specific without adding outside knowledge.
 3. Score from 0 to 100.
 4. issues must be short Vietnamese bullets, maximum 5 items.
 5. isGrounded is true only when the visible slide content is supported by the evidence.
@@ -1034,6 +1446,9 @@ Return JSON only:
 {{
   ""score"": 86,
   ""issues"": [""Y thu hai con hoi chung chung""],
+  ""isValid"": false,
+  ""invalidBullets"": [""bullet can sua""],
+  ""rewrittenBullets"": [""bullet da viet lai cu the hon""],
   ""isGrounded"": true
 }}";
 
@@ -1083,6 +1498,7 @@ Return JSON only:
             builder.AppendLine($"- #{slide.SlideIndex} | {slide.SlideType} | {slide.Heading}");
             builder.AppendLine($"  Subheading: {slide.Subheading}");
             builder.AppendLine($"  Goal: {slide.Goal}");
+            builder.AppendLine($"  KeyMessage: {slide.KeyMessage}");
             builder.AppendLine($"  PreferredChunkIds: {string.Join(", ", slide.PreferredChunkIds)}");
         }
 
@@ -1095,11 +1511,13 @@ Return JSON only:
         builder.AppendLine($"Heading: {content.Heading}");
         builder.AppendLine($"Subheading: {content.Subheading}");
         builder.AppendLine($"Goal: {content.Goal}");
+        builder.AppendLine($"KeyMessage: {content.KeyMessage}");
         builder.AppendLine("Body blocks:");
         foreach (var block in content.BodyBlocks)
         {
             builder.AppendLine($"- {block}");
         }
+        builder.AppendLine($"EvidenceFromText: {content.EvidenceFromText}");
         builder.AppendLine($"Speaker notes: {content.SpeakerNotes}");
         builder.AppendLine($"Accent tone: {content.AccentTone}");
         return builder.ToString().Trim();
@@ -1107,16 +1525,16 @@ Return JSON only:
 
     private static string BuildOutlineExample(int targetCount)
         => $@"{{
-  ""title"": ""Tieu de deck ngan, ro, presentation-ready"",
-  ""subtitle"": ""Mo ta ngan, tu nhien, de doc"",
+  ""title"": ""Bài học ngắn với thông điệp rõ"",
+  ""subtitle"": ""Người học sẽ đi từ bối cảnh đến điểm cần ghi nhớ"",
   ""themeKey"": ""editorial-sunrise"",
   ""slides"": [
     {{
       ""slideIndex"": 1,
       ""slideType"": ""Title"",
-      ""heading"": ""Mo ra boi canh chinh"",
-      ""subheading"": ""Tom tat cuc ngan"",
-      ""goal"": ""Dat ky vong cho nguoi hoc"",
+      ""heading"": ""Vì sao chủ đề này đáng để học?"",
+      ""subheading"": ""Mở vấn đề bằng một chi tiết cụ thể từ tài liệu"",
+      ""goal"": ""hook: Làm người học thấy lý do cần theo dõi bài này"",
       ""preferredChunkIds"": [""C01""]
     }}
   ]
@@ -1124,13 +1542,135 @@ Return JSON only:
 
     private static string BuildSlideContentExample()
         => @"{
-  ""heading"": ""Tieu de slide ro nghia, gon, dep"",
-  ""subheading"": ""Dong phu de ngan gon"",
-  ""goal"": ""Y nghia cua slide nay"",
-  ""bodyBlocks"": [""Bullet ngan 1"", ""Bullet ngan 2""],
-  ""speakerNotes"": ""Goi y cach trinh bay ngan gon, de hieu."",
+  ""heading"": ""Một thông điệp chính để người học ghi nhớ"",
+  ""subheading"": ""Giải thích ngắn gọn bối cảnh của thông điệp"",
+  ""goal"": ""explanation: Làm rõ vì sao ý này quan trọng"",
+  ""bodyBlocks"": [""Chi tiết cụ thể từ evidence"", ""Ý nghĩa của chi tiết đó với bài học""],
+  ""speakerNotes"": ""Mở đầu bằng câu hỏi ngắn. Giải thích chi tiết trong bullet đầu, sau đó nói vì sao nó quan trọng và chuyển sang ý tiếp theo."",
   ""accentTone"": ""warm""
 }";
+
+    private static string BuildLessonTitle(ProcessedContent? processedContent, SlideDeckBrief? brief)
+    {
+        var topic = NormalizeLine(processedContent?.MainTopics.FirstOrDefault(), 90);
+        if (!string.IsNullOrWhiteSpace(topic) && !LooksGenericForLesson(topic) && !ContainsCjkText(topic))
+        {
+            return $"Hiểu nhanh: {topic}";
+        }
+
+        var goal = NormalizeLine(brief?.NarrativeGoal, 100);
+        return !string.IsNullOrWhiteSpace(goal) && !LooksGenericForLesson(goal) && !ContainsCjkText(goal)
+            ? $"Bài học: {goal}"
+            : "Bài học trong tài liệu này";
+    }
+
+    private static string? BuildLessonSubtitle(ProcessedContent? processedContent, SlideDeckBrief? brief)
+    {
+        var goal = NormalizeLine(brief?.NarrativeGoal, 180);
+        if (!string.IsNullOrWhiteSpace(goal) && !LooksGenericForLesson(goal) && !ContainsCjkText(goal))
+        {
+            return goal;
+        }
+
+        var summary = NormalizeLine(processedContent?.Summary, 180);
+        return !string.IsNullOrWhiteSpace(summary) && !LooksGenericForLesson(summary) && !ContainsCjkText(summary)
+            ? $"Người học sẽ nắm được: {summary}"
+            : "Đi từ bối cảnh, ý chính đến điểm cần ghi nhớ.";
+    }
+
+    private static string BuildFallbackLessonHeading(DocumentChunk chunk, int selectedIndex, int targetCount)
+    {
+        var anchor = NormalizeLine(chunk.NormalizedHeading, 90)
+            ?? NormalizeLine(chunk.Label, 90)
+            ?? $"phan {selectedIndex + 1}";
+        if (ContainsCjkText(anchor) || LooksGenericForLesson(anchor))
+        {
+            anchor = "ý chính từ tài liệu";
+        }
+        var role = GetLessonRole(selectedIndex, targetCount);
+
+        return role switch
+        {
+            "concept" => $"Khái niệm cần nắm: {anchor}",
+            "explanation" => $"Vì sao {anchor} quan trọng?",
+            "example" => $"Nhìn từ ví dụ: {anchor}",
+            "comparison" => $"So sánh để hiểu rõ: {anchor}",
+            "review" => $"Từ {anchor}, cần nhớ điều gì?",
+            _ => $"Mở vấn đề: {anchor}"
+        };
+    }
+
+    private static string BuildFallbackLessonSubheading(DocumentChunk chunk, int selectedIndex)
+    {
+        var summary = NormalizeLine(chunk.Summary, 150);
+        if (!string.IsNullOrWhiteSpace(summary) && !LooksGenericForLesson(summary) && !ContainsCjkText(summary))
+        {
+            return selectedIndex == 0
+                ? $"Đặt nền cho bài học: {summary}"
+                : $"Ý cần giải thích: {summary}";
+        }
+
+        return "Đưa người học từ ý chính đến điểm cần ghi nhớ.";
+    }
+
+    private static string BuildFallbackLessonGoal(DocumentChunk chunk, int selectedIndex, int targetCount)
+    {
+        var role = GetLessonRole(selectedIndex, targetCount);
+        var anchor = NormalizeLine(chunk.Label, 70) ?? chunk.ChunkId;
+        if (ContainsCjkText(anchor) || LooksGenericForLesson(anchor))
+        {
+            anchor = "ý chính từ tài liệu";
+        }
+
+        return role switch
+        {
+            "concept" => $"concept: Làm rõ khái niệm hoặc ý chính trong {anchor}",
+            "explanation" => $"explanation: Giải thích nguyên nhân, bối cảnh hoặc tác động của {anchor}",
+            "example" => $"example: Đưa chi tiết cụ thể để người học hình dung {anchor}",
+            "comparison" => $"comparison: Đặt {anchor} trong tương quan để thấy điểm khác biệt",
+            "review" => $"review: Chốt lại điều người học cần nhớ từ {anchor}",
+            _ => $"hook: Mở vấn đề và tạo lý do để học {anchor}"
+        };
+    }
+
+    private static string BuildLessonGoal(int slideIndex, string heading)
+    {
+        var role = GetLessonRole(slideIndex, Math.Max(5, slideIndex + 2));
+        var anchor = NormalizeLine(heading, 80) ?? "ý chính";
+        return $"{role}: Giúp người học hiểu {anchor}";
+    }
+
+    private static string GetLessonRole(int zeroBasedIndex, int totalSlides)
+    {
+        if (zeroBasedIndex <= 0)
+        {
+            return "hook";
+        }
+
+        if (zeroBasedIndex == 1)
+        {
+            return "concept";
+        }
+
+        if (zeroBasedIndex >= Math.Max(2, totalSlides - 2))
+        {
+            return "review";
+        }
+
+        return (zeroBasedIndex % 3) switch
+        {
+            0 => "explanation",
+            1 => "example",
+            _ => "comparison"
+        };
+    }
+
+    private static SlideOutlineResult BuildFallbackOutline(ProcessedContent? processedContent, SlideDeckBrief? brief, List<DocumentChunk> chunks, List<SlideSectionPlan> sectionPlans, int targetCount)
+    {
+        var outline = BuildFallbackOutline(processedContent, brief, chunks, targetCount);
+        ApplySectionPlanKeyMessages(outline, sectionPlans);
+        return outline;
+    }
 
     private static SlideOutlineResult BuildFallbackOutline(ProcessedContent? processedContent, SlideDeckBrief? brief, List<DocumentChunk> chunks, int targetCount)
     {
@@ -1156,9 +1696,10 @@ Return JSON only:
             {
                 SlideIndex = 1,
                 SlideType = SlideItemType.Title,
-                Heading = processedContent?.MainTopics.FirstOrDefault() ?? "Bo slide tu dong",
-                Subheading = NormalizeLine(processedContent?.Summary, 220),
-                Goal = "Mo boi canh va pham vi cua tai lieu",
+                Heading = BuildLessonTitle(processedContent, brief),
+                Subheading = BuildLessonSubtitle(processedContent, brief),
+                KeyMessage = "Nguoi hoc can nhin thay cau hoi trung tam cua bai hoc ngay tu slide dau.",
+                Goal = "hook: Đặt câu hỏi mở đầu để người học thấy vì sao bài này đáng học",
                 PreferredChunkIds = new List<string> { selected[0].ChunkId }
             }
         };
@@ -1170,18 +1711,20 @@ Return JSON only:
             {
                 SlideIndex = slides.Count + 1,
                 SlideType = GetFallbackSlideType(slides.Count, targetCount, selectedIndex),
-                Heading = chunk.Label,
-                Subheading = NormalizeLine(chunk.Summary, 180),
-                Goal = $"Lam ro noi dung phan {chunk.Zone}",
+                Heading = BuildFallbackLessonHeading(chunk, selectedIndex, targetCount),
+                Subheading = BuildFallbackLessonSubheading(chunk, selectedIndex),
+                KeyMessage = NormalizeLine(chunk.Summary, 220) ?? NormalizeLine(chunk.Label, 160),
+                Goal = BuildFallbackLessonGoal(chunk, selectedIndex, targetCount),
                 PreferredChunkIds = new List<string> { chunk.ChunkId }
             });
         }
         ApplyNarrativeRhythm(slides);
+        slides = RebalanceSlidesForPrimarySections(slides, chunks);
 
         return new SlideOutlineResult
         {
-            Title = processedContent?.MainTopics.FirstOrDefault() ?? "Bo slide tu tai lieu",
-            Subtitle = NormalizeLine(brief?.NarrativeGoal, 260) ?? NormalizeLine(processedContent?.Summary, 260) ?? "Outline du phong duoc tao tu summary va coverage map.",
+            Title = BuildLessonTitle(processedContent, brief),
+            Subtitle = BuildLessonSubtitle(processedContent, brief) ?? "Bài giảng ngắn được tạo từ các ý chính trong tài liệu.",
             ThemeKey = NormalizeThemeKey(brief?.ThemeKey),
             Brief = NormalizeBrief(brief),
             Slides = slides.Take(targetCount).ToList()
@@ -1194,6 +1737,7 @@ Return JSON only:
             .SelectMany(chunk => chunk.KeyFacts.Any() ? chunk.KeyFacts : new List<string> { chunk.Summary })
             .Select(block => NormalizeLine(block, 220))
             .Where(block => !string.IsNullOrWhiteSpace(block))
+            .Where(block => !LooksGenericForLesson(block) && !ContainsCjkText(block))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(4)
             .Cast<string>()
@@ -1207,8 +1751,9 @@ Return JSON only:
                 outlineSlide.SlideType,
                 new List<string>
                 {
-                    outlineSlide.Goal,
-                    outlineSlide.Subheading ?? outlineSlide.Heading
+                    $"Ý cần nắm: {outlineSlide.Goal}",
+                    $"Vì sao cần chú ý: {outlineSlide.Subheading ?? outlineSlide.Heading}",
+                    "Chốt lại thành một câu hỏi để người học tự kiểm tra sau slide."
                 },
                 outlineSlide);
         }
@@ -1218,7 +1763,11 @@ Return JSON only:
             Heading = outlineSlide.Heading,
             Subheading = outlineSlide.Subheading,
             Goal = outlineSlide.Goal,
+            KeyMessage = outlineSlide.KeyMessage ?? outlineSlide.Goal,
             BodyBlocks = blocks,
+            EvidenceFromText = NormalizeLine(evidence.FirstOrDefault()?.EvidenceExcerpt, 320)
+                ?? NormalizeLine(evidence.FirstOrDefault()?.Summary, 220)
+                ?? "không đủ dữ kiện",
             SpeakerNotes = BuildSpeakerNotes(outlineSlide, evidence),
             AccentTone = NormalizeAccentTone(null, brief, outlineSlide.SlideType)
         };
@@ -1236,6 +1785,15 @@ Return JSON only:
                     ChunkId = chunk.ChunkId,
                     Zone = chunk.Zone,
                     Label = chunk.Label,
+                    HeadingKind = chunk.HeadingKind,
+                    HeadingLevel = chunk.HeadingLevel,
+                    HeadingMarker = chunk.HeadingMarker,
+                    HeadingText = chunk.HeadingText,
+                    NormalizedHeading = chunk.NormalizedHeading,
+                    HeadingPath = chunk.HeadingPath,
+                    ParentHeadingPath = chunk.ParentHeadingPath,
+                    SectionKey = chunk.SectionKey,
+                    IsPrimarySection = chunk.IsPrimarySection,
                     Summary = chunk.Summary,
                     KeyFacts = chunk.KeyFacts,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
@@ -1261,6 +1819,15 @@ Return JSON only:
                 ChunkId = coverageChunk.ChunkId,
                 Zone = coverageChunk.Zone,
                 Label = coverageChunk.Label,
+                HeadingKind = coverageChunk.HeadingKind,
+                HeadingLevel = coverageChunk.HeadingLevel,
+                HeadingMarker = coverageChunk.HeadingMarker,
+                HeadingText = coverageChunk.HeadingText,
+                NormalizedHeading = coverageChunk.NormalizedHeading,
+                HeadingPath = coverageChunk.HeadingPath,
+                ParentHeadingPath = coverageChunk.ParentHeadingPath,
+                SectionKey = coverageChunk.SectionKey,
+                IsPrimarySection = coverageChunk.IsPrimarySection,
                 Summary = coverageChunk.Summary,
                 KeyFacts = coverageChunk.KeyFacts,
                 EvidenceExcerpt = coverageChunk.EvidenceExcerpt,
@@ -1272,21 +1839,207 @@ Return JSON only:
     }
 
     private static string BuildAnalyzedContentBlock(ProcessedContent? processedContent)
-        => processedContent == null
-            ? "- No precomputed analysis."
-            : $"- Language: {processedContent.Language}\n- Main topics: {string.Join(", ", processedContent.MainTopics.Take(8))}\n- Key points: {string.Join(" | ", processedContent.KeyPoints.Take(10))}\n- Summary: {processedContent.Summary}";
+    {
+        if (processedContent == null)
+        {
+            return "- No precomputed analysis. Rely on coverage map and evidence only.";
+        }
+
+        var summary = NormalizeLine(processedContent.Summary, 280) ?? "Khong co tom tat san.";
+        var topics = processedContent.MainTopics
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Take(5);
+        var keyPoints = processedContent.KeyPoints
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Select(point => NormalizeLine(point, 110))
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Take(6);
+
+        return $"- Language: {processedContent.Language}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
+    }
 
     private static string BuildBriefBlock(SlideDeckBrief? brief)
     {
         var normalized = NormalizeBrief(brief);
-        return $"- Theme: {normalized.ThemeKey}\n- Audience: {normalized.Audience}\n- Tone: {normalized.Tone}\n- Narrative goal: {normalized.NarrativeGoal}\n- Language style: {normalized.LanguageStyle}\n- Theme direction: {DescribeTheme(normalized.ThemeKey)}";
+        return $"- Theme: {normalized.ThemeKey}\n- Audience: {normalized.Audience}\n- Tone: {normalized.Tone}\n- Narrative goal: {normalized.NarrativeGoal}\n- Language style: {normalized.LanguageStyle}\n- Lesson direction: turn the source into a clear mini-lesson with hook, explanation, evidence, and takeaway\n- Theme direction: {DescribeTheme(normalized.ThemeKey)}";
+    }
+
+    private async Task<List<SlideSectionPlan>> GenerateSectionPlansAsync(
+        List<DocumentChunk> chunks,
+        IProgress<SlideGenerationProgressUpdate>? progress)
+    {
+        var plans = BuildSectionPlans(chunks);
+
+        for (var index = 0; index < plans.Count; index++)
+        {
+            var current = plans[index];
+            try
+            {
+                var prompt = $@"Summarize this section for grounded slide planning.
+
+SOURCE_TEXT:
+{current.EvidenceExcerpt}
+
+Requirements:
+- Use only SOURCE_TEXT.
+- Do not invent outside knowledge.
+- Return summary, keyIdeas, and learningSignificance in concise Vietnamese.
+
+Return JSON:
+{{
+  ""summary"": ""tóm tắt ngắn"",
+  ""keyIdeas"": [""ý 1"", ""ý 2"", ""ý 3""],
+  ""learningSignificance"": ""ý nghĩa học tập ngắn""
+}}";
+
+                var draft = await _ollamaService.GenerateStructuredResponseAsync<SlideSectionSummaryDraft>(
+                    prompt,
+                    "You summarize one source section for slide planning. Use only the supplied source.",
+                    OllamaModelProfile.Analysis);
+
+                if (draft != null)
+                {
+                    current.Summary = NormalizeLine(draft.Summary, 220) ?? current.Summary;
+                    current.KeyIdeas = (draft.KeyIdeas ?? current.KeyIdeas)
+                        .Select(value => NormalizeLine(value, 180))
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Take(4)
+                        .Cast<string>()
+                        .ToList();
+                    current.LearningSignificance = NormalizeLine(draft.LearningSignificance, 220) ?? current.LearningSignificance;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not summarize slide section {SectionId}", current.SectionId);
+            }
+
+            Report(progress, MapProgress(12, 22, index + 1, plans.Count), "section-summaries", $"Dang tom tat section {index + 1}/{plans.Count}", "Section summaries");
+        }
+
+        return plans;
+    }
+
+    private static List<SlideSectionPlan> BuildSectionPlans(List<DocumentChunk> chunks)
+        => chunks
+            .GroupBy(chunk => !string.IsNullOrWhiteSpace(chunk.SectionKey) ? chunk.SectionKey : chunk.HeadingPath ?? chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var ordered = group.OrderBy(chunk => chunk.ChunkNumber).ToList();
+                var first = ordered[0];
+                var keyIdeas = ordered
+                    .SelectMany(chunk => chunk.KeyFacts)
+                    .Select(fact => NormalizeLine(fact, 180))
+                    .Where(fact => !string.IsNullOrWhiteSpace(fact))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(4)
+                    .Cast<string>()
+                    .ToList();
+
+                return new SlideSectionPlan
+                {
+                    SectionId = first.SectionKey ?? first.HeadingPath ?? first.ChunkId,
+                    HeadingPath = first.HeadingPath,
+                    HeadingText = first.HeadingText ?? first.NormalizedHeading ?? first.Label,
+                    Summary = NormalizeLine(first.Summary, 220) ?? NormalizeLine(first.Label, 180) ?? first.ChunkId,
+                    KeyIdeas = keyIdeas,
+                    LearningSignificance = keyIdeas.FirstOrDefault() ?? NormalizeLine(first.Summary, 180) ?? "không đủ dữ kiện",
+                    EvidenceExcerpt = string.Join("\n", ordered.Select(chunk => chunk.EvidenceExcerpt).Where(text => !string.IsNullOrWhiteSpace(text)).Take(3)),
+                    SourceChunkIds = ordered.Select(chunk => chunk.ChunkId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    IsPrimarySection = ordered.Any(chunk => chunk.IsPrimarySection)
+                };
+            })
+            .OrderBy(plan => plan.SourceChunkIds.FirstOrDefault())
+            .ToList();
+
+    private static string BuildSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans)
+        => string.Join(
+            Environment.NewLine,
+            sectionPlans.Take(PromptCoverageChunkLimit).Select(plan =>
+                $"- {string.Join(", ", plan.SourceChunkIds)} | primary={plan.IsPrimarySection} | heading={NormalizeLine(plan.HeadingText, 80) ?? plan.SectionId} | summary={NormalizeLine(plan.Summary, 160) ?? "khong co"} | ideas={string.Join(" | ", plan.KeyIdeas.Take(3))} | significance={NormalizeLine(plan.LearningSignificance, 120) ?? "khong co"}"));
+
+    private static string BuildRelevantSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans, IEnumerable<string> preferredChunkIds)
+    {
+        var preferred = preferredChunkIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selected = sectionPlans
+            .Where(plan => plan.SourceChunkIds.Any(preferred.Contains))
+            .Take(3)
+            .ToList();
+
+        return selected.Any()
+            ? BuildSectionPlanBlock(selected)
+            : "- Khong co section summary trung khop.";
+    }
+
+    private static void ApplySectionPlanKeyMessages(SlideOutlineResult outline, IReadOnlyCollection<SlideSectionPlan> sectionPlans)
+    {
+        foreach (var slide in outline.Slides)
+        {
+            if (!string.IsNullOrWhiteSpace(slide.KeyMessage))
+            {
+                continue;
+            }
+
+            var plan = sectionPlans.FirstOrDefault(candidate => candidate.SourceChunkIds.Any(slide.PreferredChunkIds.Contains));
+            slide.KeyMessage = plan?.LearningSignificance ?? plan?.Summary ?? slide.Goal;
+        }
     }
 
     private static string BuildCoverageMapBlock(IEnumerable<DocumentChunk> chunks)
-        => string.Join(Environment.NewLine, chunks.Select(chunk => $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary}"));
+        => string.Join(
+            Environment.NewLine,
+            CompactPromptChunks(chunks, PromptCoverageChunkLimit)
+                .Select(chunk => $"- {chunk.ChunkId} | zone={chunk.Zone} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | summary={NormalizeLine(chunk.Summary, 140) ?? "Khong co summary"}"));
 
     private static string BuildEvidenceBlock(IEnumerable<DocumentChunk> chunks)
-        => string.Join(Environment.NewLine, chunks.Select(chunk => $"- {chunk.ChunkId} | {chunk.Label} | {chunk.EvidenceExcerpt}"));
+        => string.Join(
+            Environment.NewLine,
+            chunks.Select(chunk =>
+            {
+                var facts = chunk.KeyFacts
+                    .Where(fact => !string.IsNullOrWhiteSpace(fact))
+                    .Select(fact => NormalizeLine(fact, 120))
+                    .Where(fact => !string.IsNullOrWhiteSpace(fact))
+                    .Take(PromptKeyFactLimit)
+                    .ToList();
+
+                var evidence = facts.Any()
+                    ? string.Join(" | ", facts)
+                    : NormalizeLine(chunk.EvidenceExcerpt, 220) ?? NormalizeLine(chunk.Summary, 160) ?? "Khong co evidence.";
+
+                return $"- {chunk.ChunkId} | heading={BuildHeadingMeta(chunk)} | label={NormalizeLine(chunk.Label, 60) ?? chunk.ChunkId} | {evidence}";
+            }));
+
+    private static string BuildHeadingMeta(DocumentChunk chunk)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(chunk.HeadingKind))
+        {
+            parts.Add(chunk.HeadingKind!);
+        }
+
+        if (chunk.HeadingLevel.HasValue)
+        {
+            parts.Add($"L{chunk.HeadingLevel.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.HeadingMarker))
+        {
+            parts.Add(chunk.HeadingMarker!);
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.NormalizedHeading))
+        {
+            parts.Add(NormalizeLine(chunk.NormalizedHeading, 80)!);
+        }
+        else if (!string.IsNullOrWhiteSpace(chunk.HeadingText))
+        {
+            parts.Add(NormalizeLine(chunk.HeadingText, 80)!);
+        }
+
+        return parts.Any() ? string.Join(" / ", parts) : "none";
+    }
 
     private static SlideDeckBrief NormalizeBrief(SlideDeckBrief? brief)
     {
@@ -1319,13 +2072,20 @@ Return JSON only:
         }
 
         var preferred = new HashSet<string>(outlineSlide.PreferredChunkIds, StringComparer.OrdinalIgnoreCase);
-        var queryTokens = TokenizeForSearch($"{outlineSlide.Heading} {outlineSlide.Subheading} {outlineSlide.Goal}");
+        var queryTokens = TokenizeForSearch($"{outlineSlide.Heading} {outlineSlide.Subheading} {outlineSlide.Goal} {outlineSlide.KeyMessage}");
+        var preferredSections = chunks
+            .Where(chunk => preferred.Contains(chunk.ChunkId))
+            .Select(chunk => chunk.SectionKey ?? chunk.HeadingPath)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return chunks
             .Select(chunk => new
             {
                 Chunk = chunk,
                 Score = (preferred.Contains(chunk.ChunkId) ? 50 : 0)
+                    + (!string.IsNullOrWhiteSpace(chunk.SectionKey) && preferredSections.Contains(chunk.SectionKey) ? 24 : 0)
+                    + (!string.IsNullOrWhiteSpace(chunk.HeadingPath) && preferredSections.Contains(chunk.HeadingPath) ? 18 : 0)
                     + queryTokens.Intersect(chunk.SearchTokens, StringComparer.OrdinalIgnoreCase).Count() * 4
             })
             .OrderByDescending(item => item.Score)
@@ -1343,6 +2103,14 @@ Return JSON only:
         }
 
         var result = new List<DocumentChunk>();
+        foreach (var chunk in GetPrimarySectionChunks(chunks).Take(Math.Max(0, targetCount - 1)))
+        {
+            if (result.All(existing => existing.ChunkId != chunk.ChunkId))
+            {
+                result.Add(chunk);
+            }
+        }
+
         var step = Math.Max(1d, (chunks.Count - 1d) / Math.Max(1, targetCount - 2));
         for (var index = 0; index < targetCount - 1; index++)
         {
@@ -1353,6 +2121,33 @@ Return JSON only:
                 result.Add(chunk);
             }
         }
+        return result;
+    }
+
+    private static List<DocumentChunk> CompactPromptChunks(IEnumerable<DocumentChunk> chunks, int limit)
+    {
+        var ordered = chunks
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+        if (ordered.Count <= limit)
+        {
+            return ordered;
+        }
+
+        var result = new List<DocumentChunk>();
+        var step = Math.Max(1d, (ordered.Count - 1d) / Math.Max(1, limit - 1));
+
+        for (var index = 0; index < limit; index++)
+        {
+            var chunkIndex = Math.Min(ordered.Count - 1, (int)Math.Round(index * step));
+            var chunk = ordered[chunkIndex];
+            if (result.All(existing => existing.ChunkId != chunk.ChunkId))
+            {
+                result.Add(chunk);
+            }
+        }
+
         return result;
     }
 
@@ -1368,11 +2163,95 @@ Return JSON only:
 
         if (!normalized.Any() && chunks.Any())
         {
-            normalized.Add(chunks[Math.Min(chunks.Count - 1, fallbackIndex % chunks.Count)].ChunkId);
+            normalized.Add(SelectPreferredChunkForIndex(chunks, fallbackIndex).ChunkId);
         }
 
         return normalized;
     }
+
+    private static List<SlideOutlineSlide> RebalanceSlidesForPrimarySections(List<SlideOutlineSlide> slides, List<DocumentChunk> chunks)
+    {
+        if (slides.Count <= 1 || !chunks.Any())
+        {
+            return slides;
+        }
+
+        var primarySections = GetPrimarySectionChunks(chunks);
+        if (!primarySections.Any())
+        {
+            return slides;
+        }
+
+        var coveredChunkIds = slides
+            .SelectMany(slide => slide.PreferredChunkIds)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var nonTitleSlides = slides
+            .Where(slide => slide.SlideType != SlideItemType.Title)
+            .ToList();
+
+        var slideIndex = 0;
+        foreach (var section in primarySections)
+        {
+            if (coveredChunkIds.Contains(section.ChunkId) || !nonTitleSlides.Any())
+            {
+                continue;
+            }
+
+            var targetSlide = nonTitleSlides[slideIndex % nonTitleSlides.Count];
+            targetSlide.PreferredChunkIds = NormalizePreferredChunkIds(
+                new List<string> { section.ChunkId }.Concat(targetSlide.PreferredChunkIds).ToList(),
+                chunks,
+                slideIndex);
+            coveredChunkIds.Add(section.ChunkId);
+            slideIndex++;
+        }
+
+        return slides;
+    }
+
+    private static List<DocumentChunk> GetPrimarySectionChunks(List<DocumentChunk> chunks)
+        => chunks
+            .Where(IsPrimarySectionChunk)
+            .GroupBy(GetSectionCoverageKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderBy(chunk => chunk.ChunkNumber).First())
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+    private static DocumentChunk SelectPreferredChunkForIndex(List<DocumentChunk> chunks, int index)
+    {
+        var primarySections = GetPrimarySectionChunks(chunks);
+        if (primarySections.Any())
+        {
+            return primarySections[index % primarySections.Count];
+        }
+
+        return chunks[Math.Min(chunks.Count - 1, index % chunks.Count)];
+    }
+
+    private static bool IsPrimarySectionChunk(DocumentChunk chunk)
+    {
+        if (chunk.IsPrimarySection)
+        {
+            return true;
+        }
+
+        if (chunk.HeadingLevel.HasValue && chunk.HeadingLevel.Value <= 2)
+        {
+            return true;
+        }
+
+        return chunk.HeadingKind is "chuong" or "chapter" or "unit" or "phan" or "section";
+    }
+
+    private static string GetSectionCoverageKey(DocumentChunk chunk)
+        => !string.IsNullOrWhiteSpace(chunk.SectionKey)
+            ? chunk.SectionKey!
+            : !string.IsNullOrWhiteSpace(chunk.HeadingPath)
+            ? chunk.HeadingPath!
+            : !string.IsNullOrWhiteSpace(chunk.NormalizedHeading)
+                ? chunk.NormalizedHeading!
+                : chunk.ChunkId;
 
     private static SlideItemType ParseSlideType(string? raw, bool forceTitle)
     {
@@ -1469,7 +2348,7 @@ Return JSON only:
                 .Select(block => block.Any(char.IsDigit) ? block : $"Diem noi bat: {block}")
                 .ToList(),
             SlideItemType.Highlight => cleaned.Take(3).ToList(),
-            _ => cleaned.Take(5).ToList()
+            _ => cleaned.Take(4).ToList()
         };
     }
 
@@ -1540,7 +2419,7 @@ Return JSON only:
         => keyFacts.Any() ? Truncate(string.Join(" ", keyFacts.Take(2)), 220) : Truncate(Regex.Replace(text, @"\s+", " ").Trim(), 220);
 
     private static string BuildEvidenceExcerpt(string text, List<string> keyFacts)
-        => keyFacts.Any() ? Truncate(string.Join(" ", keyFacts.Take(3)), 520) : Truncate(Regex.Replace(text, @"\s+", " ").Trim(), 520);
+        => keyFacts.Any() ? Truncate(string.Join(" ", keyFacts.Take(2)), 420) : Truncate(Regex.Replace(text, @"\s+", " ").Trim(), 420);
 
     private static List<string> ExtractHighSignalSentences(string text, int maxCount)
         => Regex.Split(text, @"(?<=[\.\?\!])\s+|\n+")
@@ -1632,10 +2511,16 @@ Return JSON only:
 
     private static string BuildSpeakerNotes(SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence)
     {
-        var refs = evidence.Any()
-            ? "Mo rong bang cac chi tiet nam trong nhung doan noi dung lien quan cua tai lieu."
-            : "Mo rong y nay bang noi dung goc cua tai lieu.";
-        return $"Mo dau bang muc tieu: {outlineSlide.Goal}. Nhan vao 2-3 y tren slide. {refs}";
+        var concreteCue = evidence
+            .SelectMany(chunk => chunk.KeyFacts.Any() ? chunk.KeyFacts : new List<string> { chunk.Summary })
+            .Select(fact => NormalizeLine(fact, 140))
+            .FirstOrDefault(fact => !string.IsNullOrWhiteSpace(fact) && !LooksGenericForLesson(fact) && !ContainsCjkText(fact));
+
+        var evidenceSentence = !string.IsNullOrWhiteSpace(concreteCue)
+            ? $"Dùng chi tiết này để giải thích: {concreteCue}."
+            : "Nếu thiếu ví dụ cụ thể, hãy quay lại đoạn tài liệu gốc để neo ý cho người học.";
+
+        return $"Mở đầu bằng câu hỏi gắn với mục tiêu: {outlineSlide.Goal}. Giải thích từng ý như đang giảng trên lớp, tránh đọc lại bullet. {evidenceSentence} Kết slide bằng một câu chốt để nối sang ý tiếp theo.";
     }
 
     private static void AppendBodyHtml(StringBuilder builder, IReadOnlyList<string> bodyBlocks, SlideItemType slideType)
@@ -1715,10 +2600,39 @@ Return JSON only:
         public string ChunkId { get; init; } = string.Empty;
         public string Zone { get; init; } = "giua";
         public string Label { get; init; } = string.Empty;
+        public string? HeadingKind { get; init; }
+        public int? HeadingLevel { get; init; }
+        public string? HeadingMarker { get; init; }
+        public string? HeadingText { get; init; }
+        public string? NormalizedHeading { get; init; }
+        public string? HeadingPath { get; init; }
+        public string? ParentHeadingPath { get; init; }
+        public string? SectionKey { get; init; }
+        public bool IsPrimarySection { get; init; }
         public string Summary { get; init; } = string.Empty;
         public List<string> KeyFacts { get; init; } = new();
         public string EvidenceExcerpt { get; init; } = string.Empty;
         public HashSet<string> SearchTokens { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class SlideSectionPlan
+    {
+        public string SectionId { get; set; } = string.Empty;
+        public string? HeadingPath { get; set; }
+        public string HeadingText { get; set; } = string.Empty;
+        public string Summary { get; set; } = string.Empty;
+        public List<string> KeyIdeas { get; set; } = new();
+        public string LearningSignificance { get; set; } = string.Empty;
+        public string EvidenceExcerpt { get; set; } = string.Empty;
+        public List<string> SourceChunkIds { get; set; } = new();
+        public bool IsPrimarySection { get; set; }
+    }
+
+    private sealed class SlideSectionSummaryDraft
+    {
+        public string? Summary { get; set; }
+        public List<string>? KeyIdeas { get; set; }
+        public string? LearningSignificance { get; set; }
     }
 
     private sealed class SlideOutlineDraft
@@ -1736,15 +2650,20 @@ Return JSON only:
         public string? Heading { get; set; }
         public string? Subheading { get; set; }
         public string? Goal { get; set; }
+        public string? KeyMessage { get; set; }
         public List<string>? PreferredChunkIds { get; set; }
     }
 
     private sealed class SlideContentDraft
     {
+        public string? Title { get; set; }
         public string? Heading { get; set; }
         public string? Subheading { get; set; }
         public string? Goal { get; set; }
+        public string? KeyMessage { get; set; }
         public List<string>? BodyBlocks { get; set; }
+        public List<string>? Bullets { get; set; }
+        public string? EvidenceFromText { get; set; }
         public string? SpeakerNotes { get; set; }
         public string? AccentTone { get; set; }
     }
@@ -1753,6 +2672,9 @@ Return JSON only:
     {
         public int? Score { get; set; }
         public List<string>? Issues { get; set; }
+        public bool? IsValid { get; set; }
+        public List<string>? InvalidBullets { get; set; }
+        public List<string>? RewrittenBullets { get; set; }
         public bool? IsGrounded { get; set; }
     }
 }
