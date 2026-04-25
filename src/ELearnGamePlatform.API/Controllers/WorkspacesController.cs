@@ -9,22 +9,22 @@ namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class FoldersController : ControllerBase
+public class WorkspacesController : ControllerBase
 {
     private readonly IFolderProjectRepository _folderProjectRepository;
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
     private readonly IWorkspaceService _workspaceService;
-    private readonly ILogger<FoldersController> _logger;
+    private readonly ILogger<WorkspacesController> _logger;
 
-    public FoldersController(
+    public WorkspacesController(
         IFolderProjectRepository folderProjectRepository,
         IDocumentRepository documentRepository,
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
         IWorkspaceService workspaceService,
-        ILogger<FoldersController> logger)
+        ILogger<WorkspacesController> logger)
     {
         _folderProjectRepository = folderProjectRepository;
         _documentRepository = documentRepository;
@@ -35,7 +35,7 @@ public class FoldersController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> CreateFolder([FromBody] CreateFolderProjectRequest request)
+    public async Task<IActionResult> CreateWorkspace([FromBody] CreateWorkspaceRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
         {
@@ -47,58 +47,57 @@ public class FoldersController : ControllerBase
             return BadRequest("UserId is required");
         }
 
-        var folder = new FolderProject
+        var workspace = await _folderProjectRepository.CreateAsync(new FolderProject
         {
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
-            UploadedBy = request.UserId.Trim()
-        };
+            UploadedBy = request.UserId.Trim(),
+        });
 
-        var created = await _folderProjectRepository.CreateAsync(folder);
-        return Ok(BuildFolderPayload(created, Array.Empty<Document>(), null));
+        return Ok(BuildWorkspacePayload(workspace));
     }
 
     [HttpGet("user/{userId}")]
-    public async Task<IActionResult> GetUserFolders(string userId)
+    public async Task<IActionResult> GetUserWorkspaces(string userId)
     {
         var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
         await _workspaceService.AttachOrphanDocumentsAsync(userId, defaultWorkspace.Id);
 
-        var folders = await _folderProjectRepository.GetByUserAsync(userId);
-        var payload = folders.Select(folder =>
-        {
-            var sources = folder.Documents.OrderBy(source => source.FolderSourceOrder).ThenBy(source => source.CreatedAt).ToList();
-            var deck = folder.SlideDecks.OrderByDescending(item => item.CreatedAt).FirstOrDefault();
-            return BuildFolderPayload(folder, sources, deck);
-        });
-
+        var workspaces = await _folderProjectRepository.GetByUserAsync(userId);
+        var payload = workspaces.Select(BuildWorkspacePayload).ToList();
         return Ok(payload);
     }
 
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetFolder(int id)
+    [HttpGet("default/user/{userId}")]
+    public async Task<IActionResult> GetDefaultWorkspace(string userId)
     {
-        var folder = await _folderProjectRepository.GetByIdAsync(id);
-        if (folder == null)
+        var workspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
+        await _workspaceService.AttachOrphanDocumentsAsync(userId, workspace.Id);
+        return Ok(BuildWorkspacePayload(workspace));
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetWorkspace(int id)
+    {
+        var workspace = await _folderProjectRepository.GetByIdAsync(id);
+        if (workspace == null)
         {
             return NotFound();
         }
 
-        var sources = folder.Documents.OrderBy(source => source.FolderSourceOrder).ThenBy(source => source.CreatedAt).ToList();
-        var deck = folder.SlideDecks.OrderByDescending(item => item.CreatedAt).FirstOrDefault();
-        return Ok(BuildFolderPayload(folder, sources, deck));
+        return Ok(BuildWorkspacePayload(workspace));
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteFolder(int id)
+    public async Task<IActionResult> DeleteWorkspace(int id)
     {
-        var folder = await _folderProjectRepository.GetByIdAsync(id);
-        if (folder == null)
+        var workspace = await _folderProjectRepository.GetByIdAsync(id);
+        if (workspace == null)
         {
             return NotFound();
         }
 
-        foreach (var source in folder.Documents)
+        foreach (var source in workspace.Documents)
         {
             try
             {
@@ -109,7 +108,7 @@ public class FoldersController : ControllerBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not delete source file {FilePath} for folder {FolderId}", source.FilePath, id);
+                _logger.LogWarning(ex, "Could not delete source file {FilePath} for workspace {WorkspaceId}", source.FilePath, id);
             }
         }
 
@@ -120,10 +119,10 @@ public class FoldersController : ControllerBase
     [HttpPost("{id}/sources/upload")]
     public async Task<IActionResult> UploadSource(int id, [FromForm] IFormFile file, [FromForm] string userId)
     {
-        var folder = await _folderProjectRepository.GetByIdAsync(id);
-        if (folder == null)
+        var workspace = await _folderProjectRepository.GetByIdAsync(id);
+        if (workspace == null)
         {
-            return NotFound("Folder project not found");
+            return NotFound("Workspace not found");
         }
 
         try
@@ -136,50 +135,44 @@ public class FoldersController : ControllerBase
             return Ok(new
             {
                 source = BuildSourcePayload(createdDocument, 0),
+                workspaceId = id,
                 message = "Source uploaded successfully. Processing started.",
                 progressUrl = $"/api/documents/{createdDocument.Id}/progress",
-                progress = JobProgressPayloadFactory.BuildDocument(progressState, createdDocument)
+                progress = JobProgressPayloadFactory.BuildDocument(progressState, createdDocument),
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error uploading source into folder {FolderId}", id);
+            _logger.LogError(ex, "Error uploading source into workspace {WorkspaceId}", id);
             return ex is InvalidOperationException
                 ? BadRequest(ex.Message)
-                : StatusCode(500, "Error uploading folder source");
+                : StatusCode(500, "Error uploading workspace source");
         }
     }
 
     [HttpGet("{id}/sources")]
-    public async Task<IActionResult> GetFolderSources(int id)
+    public async Task<IActionResult> GetWorkspaceSources(int id)
     {
-        var folder = await _folderProjectRepository.GetByIdAsync(id);
-        if (folder == null)
+        var workspace = await _folderProjectRepository.GetByIdAsync(id);
+        if (workspace == null)
         {
             return NotFound();
         }
 
         var sources = await _documentRepository.GetByFolderProjectIdAsync(id);
-        var payload = sources.Select(source => BuildSourcePayload(source, source.Questions.Count));
-        return Ok(payload);
+        return Ok(sources.Select(source => BuildSourcePayload(source, source.Questions.Count)));
     }
 
     [HttpPut("{id}/sources/{sourceId}/slide-selection")]
-    public async Task<IActionResult> UpdateSlideSelection(int id, int sourceId, [FromBody] UpdateFolderSourceSelectionRequest request)
+    public async Task<IActionResult> UpdateSourceSelection(int id, int sourceId, [FromBody] UpdateWorkspaceSourceSelectionRequest request)
     {
-        var folder = await _folderProjectRepository.GetByIdAsync(id);
-        if (folder == null)
-        {
-            return NotFound("Folder project not found");
-        }
-
         var source = await _documentRepository.GetByIdAsync(sourceId);
         if (source == null || source.FolderProjectId != id)
         {
-            return NotFound("Folder source not found");
+            return NotFound("Workspace source not found");
         }
 
-        source.IncludeInFolderSlides = request.IncludeInFolderSlides;
+        source.IncludeInFolderSlides = request.IncludeInWorkspaceSlides;
         source.UpdatedAt = DateTime.UtcNow;
         await _documentRepository.UpdateAsync(source.Id, source);
         await _folderProjectRepository.TouchAsync(id);
@@ -187,25 +180,33 @@ public class FoldersController : ControllerBase
         return Ok(BuildSourcePayload(source, source.Questions.Count));
     }
 
-    private object BuildFolderPayload(FolderProject folder, IReadOnlyCollection<Document> sources, SlideDeck? deck)
+    private object BuildWorkspacePayload(FolderProject workspace)
     {
+        var sources = (workspace.Documents ?? Array.Empty<Document>())
+            .OrderBy(source => source.FolderSourceOrder)
+            .ThenBy(source => source.CreatedAt)
+            .ToList();
+        var deck = (workspace.SlideDecks ?? Array.Empty<SlideDeck>())
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
         var readySourceCount = sources.Count(source => source.Status == DocumentStatus.Completed);
         var selectedSourceCount = sources.Count(source => source.IncludeInFolderSlides);
         var latestDeckUpdatedAt = deck?.UpdatedAt ?? deck?.CompletedAt;
-        var isStale = deck != null && sources.Any(source =>
-            source.CreatedAt > latestDeckUpdatedAt || source.UpdatedAt > latestDeckUpdatedAt);
+        var isStale = deck != null && latestDeckUpdatedAt.HasValue && sources.Any(source =>
+            source.CreatedAt > latestDeckUpdatedAt.Value || source.UpdatedAt > latestDeckUpdatedAt.Value);
 
         return new
         {
-            id = folder.Id,
-            name = folder.Name,
-            description = folder.Description,
-            uploadedBy = folder.UploadedBy,
-            createdAt = folder.CreatedAt,
-            updatedAt = folder.UpdatedAt,
+            id = workspace.Id,
+            name = workspace.Name,
+            description = workspace.Description,
+            uploadedBy = workspace.UploadedBy,
+            createdAt = workspace.CreatedAt,
+            updatedAt = workspace.UpdatedAt,
             sourceCount = sources.Count,
             readySourceCount,
             selectedSourceCount,
+            isDefault = workspace.Name == _workspaceService.DefaultWorkspaceName,
             latestDeck = deck == null
                 ? null
                 : new
@@ -215,11 +216,11 @@ public class FoldersController : ControllerBase
                     status = deck.Status.ToString(),
                     title = deck.Title,
                     subtitle = deck.Subtitle,
-                    slideCount = deck.Items.Count,
+                    slideCount = deck.Items?.Count ?? 0,
                     updatedAt = deck.UpdatedAt,
                     completedAt = deck.CompletedAt,
-                    isStale
-                }
+                    isStale,
+                },
         };
     }
 
@@ -230,6 +231,7 @@ public class FoldersController : ControllerBase
         return new
         {
             id = source.Id,
+            workspaceId = source.FolderProjectId,
             folderProjectId = source.FolderProjectId,
             fileName = source.FileName,
             fileType = source.FileType,
@@ -245,22 +247,24 @@ public class FoldersController : ControllerBase
             uploadedBy = source.UploadedBy,
             createdAt = source.CreatedAt,
             updatedAt = source.UpdatedAt,
+            includeInWorkspaceSlides = source.IncludeInFolderSlides,
             includeInFolderSlides = source.IncludeInFolderSlides,
+            workspaceSourceOrder = source.FolderSourceOrder,
             folderSourceOrder = source.FolderSourceOrder,
             questionsCount,
-            processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, source)
+            processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, source),
         };
     }
 }
 
-public class CreateFolderProjectRequest
+public class CreateWorkspaceRequest
 {
     public string? Name { get; set; }
     public string? Description { get; set; }
     public string? UserId { get; set; }
 }
 
-public class UpdateFolderSourceSelectionRequest
+public class UpdateWorkspaceSourceSelectionRequest
 {
-    public bool IncludeInFolderSlides { get; set; }
+    public bool IncludeInWorkspaceSlides { get; set; }
 }

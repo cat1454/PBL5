@@ -67,6 +67,7 @@ builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
+builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");

@@ -338,7 +338,7 @@ function SlideStudioScreen() {
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
       <section className="card gamma-hero-card">
         <div className="gamma-hero-copy">
-          <button className="button button-secondary" onClick={() => navigate('/documents')}>Quay lai Documents</button>
+          <button className="button button-secondary" onClick={() => navigate('/workspaces')}>Quay lai Workspaces</button>
           <span className="gamma-eyebrow">AI slide studio</span>
           <h2>{deck?.title || documentMeta?.fileName || 'Create a new gamma-style deck'}</h2>
           <p className="section-subtitle">

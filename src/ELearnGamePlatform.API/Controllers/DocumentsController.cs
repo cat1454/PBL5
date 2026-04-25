@@ -16,19 +16,22 @@ public class DocumentsController : ControllerBase
     private readonly ILogger<DocumentsController> _logger;
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
+    private readonly IWorkspaceService _workspaceService;
 
     public DocumentsController(
         IDocumentRepository documentRepository,
         IQuestionRepository questionRepository,
         ILogger<DocumentsController> logger,
         IDocumentProcessingJobStore documentJobStore,
-        IDocumentIngestionService documentIngestionService)
+        IDocumentIngestionService documentIngestionService,
+        IWorkspaceService workspaceService)
     {
         _documentRepository = documentRepository;
         _questionRepository = questionRepository;
         _logger = logger;
         _documentJobStore = documentJobStore;
         _documentIngestionService = documentIngestionService;
+        _workspaceService = workspaceService;
     }
 
     [HttpPost("upload")]
@@ -46,13 +49,17 @@ public class DocumentsController : ControllerBase
 
         try
         {
-            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, userId);
+            var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
+            await _workspaceService.AttachOrphanDocumentsAsync(userId, defaultWorkspace.Id);
+
+            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, userId, defaultWorkspace.Id);
             _documentJobStore.TryGetJob(createdDocument.Id, out var progressState);
             _documentIngestionService.StartBackgroundProcessing(createdDocument.Id);
 
             return Ok(new
             {
                 id = createdDocument.Id,
+                workspaceId = defaultWorkspace.Id,
                 fileName = createdDocument.FileName,
                 status = createdDocument.Status.ToString(),
                 message = "File uploaded successfully. Processing started.",

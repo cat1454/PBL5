@@ -41,6 +41,15 @@ public class FolderProjectRepository : IFolderProjectRepository
             .ToListAsync();
     }
 
+    public async Task<FolderProject?> GetByUserAndNameAsync(string userId, string name)
+    {
+        return await _context.FolderProjects
+            .Include(folder => folder.Documents)
+            .Include(folder => folder.SlideDecks)
+                .ThenInclude(deck => deck.Items)
+            .FirstOrDefaultAsync(folder => folder.UploadedBy == userId && folder.Name == name);
+    }
+
     public async Task<bool> UpdateAsync(FolderProject folderProject)
     {
         var existing = await _context.FolderProjects.FindAsync(folderProject.Id);
