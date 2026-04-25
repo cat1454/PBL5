@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { folderService, slideService } from '../services/api';
+import { slideService, workspaceService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
+import { useLanguage } from '../context/LanguageContext';
 
 const DEMO_USER = 'demo-user';
 
@@ -74,25 +75,6 @@ function normalizeStatusLabel(status) {
   }
 }
 
-function formatRelativeTime(value) {
-  if (!value) {
-    return '-';
-  }
-
-  const diffMs = Date.now() - new Date(value).getTime();
-  if (diffMs < 60_000) {
-    return 'vua cap nhat';
-  }
-  if (diffMs < 3_600_000) {
-    return `${Math.max(1, Math.floor(diffMs / 60_000))} phut truoc`;
-  }
-  if (diffMs < 86_400_000) {
-    return `${Math.max(1, Math.floor(diffMs / 3_600_000))} gio truoc`;
-  }
-
-  return new Date(value).toLocaleString();
-}
-
 function applyTextStyle(block = {}) {
   return {
     fontFamily: block.fontFamily || 'Segoe UI',
@@ -105,7 +87,8 @@ function applyTextStyle(block = {}) {
 }
 
 function FolderStudio() {
-  const { folderId } = useParams();
+  const { t, language } = useLanguage();
+  const { workspaceId } = useParams();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
@@ -126,6 +109,34 @@ function FolderStudio() {
   const [uploading, setUploading] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [filterText, setFilterText] = useState('');
+  const audienceLabels = t('slides.options.audiences');
+  const toneLabels = t('slides.options.tones');
+  const languageStyleLabels = t('slides.options.languageStyles');
+  const slideTitlePlaceholder = language === 'vi' ? 'Tiêu đề slide' : 'Slide title';
+  const slideGoalPlaceholder = language === 'vi' ? 'Mục tiêu / take-away của slide' : 'Slide goal / take-away';
+  const bodyPlaceholder = language === 'vi' ? 'Mỗi dòng tương ứng một bullet hoặc một ý chính.' : 'Each line becomes one bullet or one key point.';
+  const notesPlaceholder = language === 'vi' ? 'Ghi chú thuyết trình, script, nhắc nhở...' : 'Speaker notes, script, reminders...';
+
+  const formatRelativeTimeLabel = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const diffMs = Date.now() - new Date(value).getTime();
+    if (diffMs < 60_000) {
+      return language === 'vi' ? 'vừa cập nhật' : 'just updated';
+    }
+    if (diffMs < 3_600_000) {
+      const count = Math.max(1, Math.floor(diffMs / 60_000));
+      return language === 'vi' ? `${count} phút trước` : `${count} minutes ago`;
+    }
+    if (diffMs < 86_400_000) {
+      const count = Math.max(1, Math.floor(diffMs / 3_600_000));
+      return language === 'vi' ? `${count} giờ trước` : `${count} hours ago`;
+    }
+
+    return new Date(value).toLocaleString();
+  };
 
   const loadWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
@@ -135,9 +146,9 @@ function FolderStudio() {
     try {
       setError('');
       const [folderData, sourceData, deckData] = await Promise.all([
-        folderService.getFolder(folderId),
-        folderService.getSources(folderId),
-        slideService.getDeckByFolder(folderId),
+        workspaceService.get(workspaceId),
+        workspaceService.listSources(workspaceId),
+        slideService.getDeckByFolder(workspaceId),
       ]);
 
       setFolder(folderData);
@@ -167,13 +178,13 @@ function FolderStudio() {
       }
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc folder studio.');
+      setError(language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.');
     } finally {
       if (!silent) {
         setLoading(false);
       }
     }
-  }, [folderId]);
+  }, [language, workspaceId]);
 
   useEffect(() => {
     loadWorkspace();
@@ -230,7 +241,7 @@ function FolderStudio() {
   }, [jobId, loadWorkspace, progress, sources]);
 
   const selectedReadySources = useMemo(
-    () => sources.filter((source) => source.status === 3 && source.includeInFolderSlides),
+    () => sources.filter((source) => source.status === 3 && (source.includeInWorkspaceSlides ?? source.includeInFolderSlides)),
     [sources]
   );
 
@@ -375,10 +386,10 @@ function FolderStudio() {
         ...current,
         [updated.id]: { past: [], future: [] },
       }));
-      setFeedback(`Da luu slide ${updated.slideIndex}.`);
+      setFeedback(language === 'vi' ? `Đã lưu slide ${updated.slideIndex}.` : `Saved slide ${updated.slideIndex}.`);
     } catch (err) {
       console.error(err);
-      setError('Khong luu duoc slide hien tai.');
+      setError(language === 'vi' ? 'Không lưu được slide hiện tại.' : 'Could not save the current slide.');
     }
   };
 
@@ -397,17 +408,17 @@ function FolderStudio() {
     try {
       setUploading(true);
       setError('');
-      setFeedback(`Dang dua ${files.length} nguon vao folder...`);
+      setFeedback(language === 'vi' ? `Đang đưa ${files.length} nguồn vào workspace...` : `Adding ${files.length} sources to the workspace...`);
 
       for (const file of files) {
-        await folderService.uploadSource(folderId, file, DEMO_USER);
+        await workspaceService.uploadSource(workspaceId, file, DEMO_USER);
       }
 
-      setFeedback(`Da them ${files.length} nguon vao folder.`);
+      setFeedback(language === 'vi' ? `Đã thêm ${files.length} nguồn vào workspace.` : `Added ${files.length} sources to the workspace.`);
       await loadWorkspace({ silent: true });
     } catch (err) {
       console.error(err);
-      setError('Khong upload duoc nguon cho folder nay.');
+      setError(language === 'vi' ? 'Không upload được source cho workspace này.' : 'Could not upload sources for this workspace.');
     } finally {
       setUploading(false);
     }
@@ -416,40 +427,44 @@ function FolderStudio() {
   const toggleSourceSelection = async (source) => {
     try {
       setError('');
-      await folderService.updateSourceSelection(folderId, source.id, !source.includeInFolderSlides);
+      await workspaceService.updateSourceSelection(
+        workspaceId,
+        source.id,
+        !(source.includeInWorkspaceSlides ?? source.includeInFolderSlides)
+      );
       setFeedback(
-        !source.includeInFolderSlides
-          ? `Da dua ${source.fileName} vao tap nguon sinh slide.`
-          : `Da bo ${source.fileName} khoi tap nguon sinh slide.`
+        !(source.includeInWorkspaceSlides ?? source.includeInFolderSlides)
+          ? (language === 'vi' ? `Đã đưa ${source.fileName} vào tập nguồn sinh slide.` : `Added ${source.fileName} to the slide source set.`)
+          : (language === 'vi' ? `Đã bỏ ${source.fileName} khỏi tập nguồn sinh slide.` : `Removed ${source.fileName} from the slide source set.`)
       );
       await loadWorkspace({ silent: true });
     } catch (err) {
       console.error(err);
-      setError('Khong cap nhat duoc trang thai chon nguon.');
+      setError(language === 'vi' ? 'Không cập nhật được trạng thái chọn nguồn.' : 'Could not update the source selection state.');
     }
   };
 
   const handleGenerateDeck = async () => {
     if (!selectedReadySources.length) {
-      setError('Can it nhat 1 source da Completed va duoc chon cho slide.');
+      setError(language === 'vi' ? 'Cần ít nhất 1 source đã Completed và được chọn cho slide.' : 'At least one completed source must be selected for slide generation.');
       return;
     }
 
     try {
       setError('');
-      setFeedback('Dang tao deck moi tu cac source da chon...');
-      const response = await slideService.startGenerateSlidesForFolder(folderId, brief);
+      setFeedback(language === 'vi' ? 'Đang tạo deck mới từ các source đã chọn...' : 'Generating a new deck from the selected sources...');
+      const response = await slideService.startGenerateSlidesForFolder(workspaceId, brief);
       setJobId(response.jobId || response.progress?.jobId || null);
       setProgress(normalizeProgressState(response.progress, {
         jobId: response.jobId,
         status: response.status,
-        stageLabel: 'Cho xu ly',
-        message: 'Da tao job sinh slide cap folder',
+        stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
+        message: language === 'vi' ? 'Đã tạo job sinh slide cấp workspace' : 'Workspace slide generation job created',
       }));
       await loadWorkspace({ silent: true });
     } catch (err) {
       console.error(err);
-      setError('Khong bat dau duoc qua trinh sinh slide cap folder.');
+      setError(language === 'vi' ? 'Không bắt đầu được quá trình sinh slide cấp workspace.' : 'Could not start workspace slide generation.');
     }
   };
 
@@ -467,10 +482,10 @@ function FolderStudio() {
         items: current.items.map((item) => (item.id === updated.id ? updated : item)),
       }));
       setMediaOpen(true);
-      setFeedback(`Da lam moi image candidates cho slide ${updated.slideIndex}.`);
+      setFeedback(language === 'vi' ? `Đã làm mới image candidates cho slide ${updated.slideIndex}.` : `Refreshed image candidates for slide ${updated.slideIndex}.`);
     } catch (err) {
       console.error(err);
-      setError('Khong refresh duoc image candidates cho slide nay.');
+      setError(language === 'vi' ? 'Không refresh được image candidates cho slide này.' : 'Could not refresh image candidates for this slide.');
     } finally {
       setMediaBusy(false);
     }
@@ -489,32 +504,32 @@ function FolderStudio() {
         ...current,
         items: current.items.map((item) => (item.id === updated.id ? updated : item)),
       }));
-      setFeedback(`Da chon anh cho slide ${updated.slideIndex}.`);
+      setFeedback(language === 'vi' ? `Đã chọn ảnh cho slide ${updated.slideIndex}.` : `Selected an image for slide ${updated.slideIndex}.`);
     } catch (err) {
       console.error(err);
-      setError('Khong chon duoc image candidate nay.');
+      setError(language === 'vi' ? 'Không chọn được image candidate này.' : 'Could not select this image candidate.');
     } finally {
       setMediaBusy(false);
     }
   };
 
   const handleDeleteFolder = async () => {
-    if (!folder || !window.confirm('Xoa folder project nay va toan bo source ben trong?')) {
+    if (!folder || !window.confirm(language === 'vi' ? 'Xóa workspace này và toàn bộ source bên trong?' : 'Delete this workspace and all sources inside it?')) {
       return;
     }
 
     try {
-      await folderService.deleteFolder(folder.id);
-      navigate('/folders');
+      await workspaceService.remove(folder.id);
+      navigate('/workspaces');
     } catch (err) {
       console.error(err);
-      setError('Khong xoa duoc folder project.');
+      setError(language === 'vi' ? 'Không xóa được workspace.' : 'Could not delete the workspace.');
     }
   };
 
   const notifySoon = (label) => {
     setError('');
-    setFeedback(`${label} da duoc dat san trong UI, minh se noi backend flow o phase tiep theo.`);
+    setFeedback(language === 'vi' ? `${label} đã được đặt sẵn trong UI, mình sẽ nối backend flow ở phase tiếp theo.` : `${label} is scaffolded in the UI and can be wired to backend flow in the next phase.`);
   };
 
   const slideItems = deck?.items || [];
@@ -537,17 +552,17 @@ function FolderStudio() {
   const qualityIssues = selectedSlide?.quality?.issues || [];
   const qualityScore = selectedSlide?.quality?.score;
   const topbarMeta = [
-    `${sources.length} nguon`,
-    `${selectedReadySources.length} source duoc chon`,
-    deck?.items?.length ? `${deck.items.length} slide` : 'Chua co deck',
-    `Cap nhat: ${formatRelativeTime(deck?.updatedAt || folder?.updatedAt)}`,
+    language === 'vi' ? `${sources.length} nguồn` : `${sources.length} sources`,
+    language === 'vi' ? `${selectedReadySources.length} source được chọn` : `${selectedReadySources.length} selected sources`,
+    deck?.items?.length ? `${deck.items.length} ${language === 'vi' ? 'slide' : 'slides'}` : (language === 'vi' ? 'Chưa có deck' : 'No deck yet'),
+    `${language === 'vi' ? 'Cập nhật' : 'Updated'}: ${formatRelativeTimeLabel(deck?.updatedAt || folder?.updatedAt)}`,
   ];
 
   if (loading) {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Dang tai folder studio...</p>
+        <p>{language === 'vi' ? 'Đang tải workspace studio...' : 'Loading workspace studio...'}</p>
       </div>
     );
   }
@@ -555,10 +570,10 @@ function FolderStudio() {
   if (!folder) {
     return (
       <div className="card folder-studio-missing">
-        <h2>Khong tim thay folder project</h2>
-        <p>Folder nay co the da bi xoa hoac chua duoc khoi tao.</p>
-        <button type="button" className="button" onClick={() => navigate('/folders')}>
-          Quay ve Folder Projects
+        <h2>{language === 'vi' ? 'Không tìm thấy workspace' : 'Workspace not found'}</h2>
+        <p>{language === 'vi' ? 'Workspace này có thể đã bị xóa hoặc chưa được khởi tạo.' : 'This workspace may have been deleted or not initialized yet.'}</p>
+        <button type="button" className="button" onClick={() => navigate('/workspaces')}>
+          {t('slides.back')}
         </button>
       </div>
     );
@@ -580,7 +595,7 @@ function FolderStudio() {
 
       <section className="folder-studio-shell">
         <div className="folder-studio-topbar">
-          <button type="button" className="folder-studio-mini-btn" onClick={() => navigate('/folders')}>
+          <button type="button" className="folder-studio-mini-btn" onClick={() => navigate('/workspaces')}>
             &lt;
           </button>
 
@@ -592,7 +607,7 @@ function FolderStudio() {
               ))}
               {topbarProgress && (
                 <span className="folder-studio-live">
-                  Live: {topbarProgress.stageLabel || topbarProgress.message || 'Dang xu ly'}
+                  Live: {topbarProgress.stageLabel || topbarProgress.message || (language === 'vi' ? 'Đang xử lý' : 'Processing')}
                   {topbarCounter ? ` | ${topbarCounter}` : ''}
                   {topbarEta ? ` | ETA ${topbarEta}` : ''}
                 </span>
@@ -602,15 +617,15 @@ function FolderStudio() {
 
           <div className="folder-studio-topbar-actions">
             <button type="button" className="folder-studio-mini-btn" onClick={() => loadWorkspace()} disabled={uploading}>
-              Lam moi
+              {language === 'vi' ? 'Làm mới' : 'Refresh'}
             </button>
             <button type="button" className="folder-studio-mini-btn" onClick={handleUploadClick} disabled={uploading}>
-              {uploading ? 'Dang them...' : 'Them nguon'}
+              {uploading ? (language === 'vi' ? 'Đang thêm...' : 'Adding...') : (language === 'vi' ? 'Thêm nguồn' : 'Add source')}
             </button>
             <div className="folder-studio-avatar">GV</div>
             <a
               className={`folder-studio-mini-primary${!deck ? ' is-disabled' : ''}`}
-              href={deck ? slideService.getFolderDeckHtmlUrl(folderId) : undefined}
+              href={deck ? slideService.getFolderDeckHtmlUrl(workspaceId) : undefined}
               target={deck ? '_blank' : undefined}
               rel={deck ? 'noreferrer' : undefined}
               onClick={(event) => {
@@ -626,14 +641,14 @@ function FolderStudio() {
 
         <div className="folder-studio-main">
           <aside className="folder-studio-sidebar">
-            <div className="folder-studio-panel-title">Nguon / Slides</div>
+            <div className="folder-studio-panel-title">{language === 'vi' ? 'Nguồn / Slides' : 'Sources / Slides'}</div>
 
             <div className="folder-studio-filter">
               <input
                 type="text"
                 value={filterText}
                 onChange={(event) => setFilterText(event.target.value)}
-                placeholder="Tim trong ten file hoac summary"
+                placeholder={language === 'vi' ? 'Tìm trong tên file hoặc summary' : 'Search by file name or summary'}
               />
               <button type="button" className="folder-studio-mini-btn" onClick={() => setFilterText('')}>
                 x
@@ -642,20 +657,20 @@ function FolderStudio() {
 
             <div className="folder-studio-sidebar-cta">
               <button type="button" className="folder-studio-side-button" onClick={handleUploadClick} disabled={uploading}>
-                + Them nguon rieng cho folder
+                {language === 'vi' ? '+ Thêm source vào workspace' : '+ Add source to workspace'}
               </button>
             </div>
 
-            <div className="folder-studio-section-label">Nguon tai lieu</div>
+            <div className="folder-studio-section-label">{language === 'vi' ? 'Nguồn tài liệu' : 'Document sources'}</div>
             <div className="folder-studio-source-list">
               {filteredSources.length === 0 && (
                 <div className="folder-studio-empty-sidebar">
-                  Chua co nguon nao trong folder nay.
+                  {language === 'vi' ? 'Chưa có source nào trong workspace này.' : 'No sources in this workspace yet.'}
                 </div>
               )}
 
               {filteredSources.map((source) => {
-                const isSelected = Boolean(source.includeInFolderSlides);
+                const isSelected = Boolean(source.includeInWorkspaceSlides ?? source.includeInFolderSlides);
                 const isReady = source.status === 3;
                 const tone = String(source.fileType || '').includes('pdf')
                   ? 'pdf'
@@ -678,11 +693,11 @@ function FolderStudio() {
                         <span className={`folder-studio-source-badge tone-${isReady ? 'completed' : showLive ? 'active' : source.status === 4 ? 'failed' : 'uploaded'}`}>
                           {showLive ? `${Math.round(progressState.percent || 0)}%` : normalizeStatusLabel(source.status)}
                         </span>
-                        <span>{isSelected ? 'Da chon cho deck' : 'Chua dua vao deck'}</span>
+                        <span>{isSelected ? (language === 'vi' ? 'Đã chọn cho deck' : 'Selected for deck') : (language === 'vi' ? 'Chưa đưa vào deck' : 'Not in deck yet')}</span>
                       </div>
                       {showLive && (
                         <div className="folder-studio-source-live">
-                          {progressState.stageLabel || progressState.message || 'Dang xu ly'}
+                          {progressState.stageLabel || progressState.message || (language === 'vi' ? 'Đang xử lý' : 'Processing')}
                           {progressState.estimatedRemainingSeconds ? ` | ${formatEta(progressState.estimatedRemainingSeconds)}` : ''}
                         </div>
                       )}
@@ -693,18 +708,18 @@ function FolderStudio() {
                       onClick={() => toggleSourceSelection(source)}
                       disabled={!isReady}
                     >
-                      {isSelected ? 'Bo' : 'Chon'}
+                      {isSelected ? (language === 'vi' ? 'Bỏ' : 'Remove') : (language === 'vi' ? 'Chọn' : 'Select')}
                     </button>
                   </div>
                 );
               })}
             </div>
 
-            <div className="folder-studio-section-label">Cau truc slide</div>
+            <div className="folder-studio-section-label">{language === 'vi' ? 'Cấu trúc slide' : 'Slide structure'}</div>
             <div className="folder-studio-flow-list">
               {!slideItems.length && (
                 <div className="folder-studio-empty-sidebar">
-                  Chua co deck. Chon source xong roi bam "Tao slide moi tu noi dung".
+                  {language === 'vi' ? 'Chưa có deck. Chọn source xong rồi bấm "Tạo slide mới từ nội dung".' : 'No deck yet. Select sources and click "Generate slides from content".'}
                 </div>
               )}
 
@@ -721,7 +736,7 @@ function FolderStudio() {
                     <span className="w-42"></span>
                   </div>
                   <div className="folder-studio-flow-copy">
-                    <p>Slide {item.slideIndex}: {item.heading || 'Untitled'}</p>
+                    <p>{t('slides.slideLabel', { index: item.slideIndex })}: {item.heading || 'Untitled'}</p>
                     <span>{item.goal || item.subheading || item.slideType}</span>
                   </div>
                   <span className={`folder-studio-flow-state${item.status === 'Ready' ? ' ready' : item.status === 'Generating' ? ' working' : ''}`}>
@@ -779,26 +794,26 @@ function FolderStudio() {
                 *
               </button>
               <div className="folder-studio-toolbar-sep"></div>
-              <button type="button" className="folder-studio-toolbar-btn" onClick={handleUndo} disabled={!activeHistory.past.length}>Undo</button>
-              <button type="button" className="folder-studio-toolbar-btn" onClick={handleRedo} disabled={!activeHistory.future.length}>Redo</button>
+              <button type="button" className="folder-studio-toolbar-btn" onClick={handleUndo} disabled={!activeHistory.past.length}>{language === 'vi' ? 'Hoàn tác' : 'Undo'}</button>
+              <button type="button" className="folder-studio-toolbar-btn" onClick={handleRedo} disabled={!activeHistory.future.length}>{language === 'vi' ? 'Làm lại' : 'Redo'}</button>
               <button type="button" className="folder-studio-toolbar-btn" onClick={() => setMediaOpen((current) => !current)} disabled={!selectedSlide}>
-                {mediaOpen ? 'An media' : 'Mo media'}
+                {mediaOpen ? (language === 'vi' ? 'Ẩn media' : 'Hide media') : (language === 'vi' ? 'Mở media' : 'Open media')}
               </button>
             </div>
 
             <div className="folder-studio-canvas">
               {!selectedSlide || !selectedDraft ? (
                 <div className="folder-studio-empty">
-                  <h3>Folder studio san sang</h3>
+                  <h3>{language === 'vi' ? 'Workspace studio sẵn sàng' : 'Workspace studio is ready'}</h3>
                   <p>
-                    Upload nhieu nguon vao folder, chon cac source da Completed, sau do sinh deck de bat dau chinh sua.
+                    {language === 'vi' ? 'Upload nhiều source vào workspace, chọn các source đã Completed, sau đó sinh deck để bắt đầu chỉnh sửa.' : 'Upload multiple sources, select completed ones, then generate a deck to start editing.'}
                   </p>
                   <div className="folder-studio-empty-actions">
                     <button type="button" className="folder-studio-mini-primary" onClick={handleUploadClick}>
-                      Them nguon
+                      {language === 'vi' ? 'Thêm nguồn' : 'Add source'}
                     </button>
                     <button type="button" className="folder-studio-mini-btn" onClick={handleGenerateDeck} disabled={!canGenerate}>
-                      Tao deck
+                      {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
                     </button>
                   </div>
                 </div>
@@ -815,7 +830,7 @@ function FolderStudio() {
                             onChange={(event) => handleFieldTextChange('title', event.target.value)}
                             className="folder-slide-title-input"
                             style={applyTextStyle(selectedDraft.title)}
-                            placeholder="Tieu de slide"
+                            placeholder={slideTitlePlaceholder}
                           />
                         </div>
 
@@ -839,7 +854,7 @@ function FolderStudio() {
                             onChange={(event) => handleFieldTextChange('goal', event.target.value)}
                             className="folder-slide-goal-input"
                             style={applyTextStyle(selectedDraft.goal)}
-                            placeholder="Muc tieu / take-away cua slide"
+                            placeholder={slideGoalPlaceholder}
                           />
                         </div>
 
@@ -851,12 +866,12 @@ function FolderStudio() {
                             onChange={(event) => handleFieldTextChange('body', event.target.value)}
                             className="folder-slide-body-input"
                             style={applyTextStyle(selectedDraft.body)}
-                            placeholder="Moi dong tuong ung mot bullet hoac mot y chinh."
+                            placeholder={bodyPlaceholder}
                           />
                           <small>
                             {selectedDraft.body.bullet
-                              ? 'Bullet mode dang bat: moi dong se duoc luu thanh 1 body block.'
-                              : 'Dang o text mode: noi dung van duoc luu theo tung dong.'}
+                              ? (language === 'vi' ? 'Bullet mode đang bật: mỗi dòng sẽ được lưu thành 1 body block.' : 'Bullet mode is on: each line will be saved as one body block.')
+                              : (language === 'vi' ? 'Đang ở text mode: nội dung vẫn được lưu theo từng dòng.' : 'Text mode is on: content is still saved line by line.')}
                           </small>
                         </div>
                       </div>
@@ -867,14 +882,14 @@ function FolderStudio() {
                         ) : (
                           <div className="folder-slide-visual-placeholder">
                             <span>{selectedImageVm?.badgeLabel || 'Media pending'}</span>
-                            <strong>{selectedImageVm?.statusLabel || 'Chua co preview'}</strong>
-                            <p>{selectedImageVm?.helperText || 'Media pipeline se noi sau khi noi dung on dinh.'}</p>
+                            <strong>{selectedImageVm?.statusLabel || (language === 'vi' ? 'Chưa có preview' : 'No preview yet')}</strong>
+                            <p>{selectedImageVm?.helperText || (language === 'vi' ? 'Media pipeline sẽ nối sau khi nội dung ổn định.' : 'The media pipeline can continue once the content is stable.')}</p>
                           </div>
                         )}
                         <div className="folder-slide-visual-meta">
-                          <span>{selectedImageVm?.badgeLabel || 'No media'}</span>
+                          <span>{selectedImageVm?.badgeLabel || (language === 'vi' ? 'Chưa có media' : 'No media')}</span>
                           <strong>{selectedImage?.provider || 'Folder visual slot'}</strong>
-                          <small>{selectedImageVm?.attributionText || 'Co the refresh de lay image candidates moi.'}</small>
+                          <small>{selectedImageVm?.attributionText || (language === 'vi' ? 'Có thể refresh để lấy image candidates mới.' : 'You can refresh to get new image candidates.')}</small>
                         </div>
                       </div>
                     </div>
@@ -884,8 +899,8 @@ function FolderStudio() {
                       <p>
                         {qualityIssues[0]
                           || selectedImageVm?.helperText
-                          || 'Deck folder nay dang cho phep sua title, subtitle, body, notes va chon image tuong ung.'}
-                        {typeof qualityScore === 'number' ? ` Diem verifier hien tai: ${qualityScore}.` : ''}
+                          || (language === 'vi' ? 'Deck workspace này đang cho phép sửa title, subtitle, body, notes và chọn image tương ứng.' : 'This workspace deck currently supports editing title, subtitle, body, notes, and the selected image.')}
+                        {typeof qualityScore === 'number' ? (language === 'vi' ? ` Điểm verifier hiện tại: ${qualityScore}.` : ` Current verifier score: ${qualityScore}.`) : ''}
                       </p>
                     </div>
                   </article>
@@ -893,8 +908,8 @@ function FolderStudio() {
                   <div className="folder-studio-panels">
                     <section className="folder-studio-panel-card">
                       <div className="folder-studio-panel-card-head">
-                        <strong>Speaker notes</strong>
-                        <span>Slide {selectedSlide.slideIndex}</span>
+                        <strong>{language === 'vi' ? 'Speaker notes' : 'Speaker notes'}</strong>
+                        <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                       </div>
                       <textarea
                         rows={5}
@@ -903,19 +918,19 @@ function FolderStudio() {
                         onChange={(event) => handleFieldTextChange('notes', event.target.value)}
                         className={`folder-slide-notes-input${activeField === 'notes' ? ' active' : ''}`}
                         style={applyTextStyle(selectedDraft.notes)}
-                        placeholder="Ghi chu thuyet trinh, script, nhac nho..."
+                        placeholder={notesPlaceholder}
                       />
                     </section>
 
                     <section className="folder-studio-panel-card">
                       <div className="folder-studio-panel-card-head">
-                        <strong>Media strip</strong>
+                        <strong>{language === 'vi' ? 'Dải media' : 'Media strip'}</strong>
                         <div className="folder-studio-inline-actions">
                           <button type="button" className="folder-studio-mini-btn" onClick={handleRefreshImages} disabled={mediaBusy}>
-                            {mediaBusy ? 'Dang refresh...' : 'Lam moi anh'}
+                            {mediaBusy ? (language === 'vi' ? 'Đang refresh...' : 'Refreshing...') : (language === 'vi' ? 'Làm mới ảnh' : 'Refresh images')}
                           </button>
                           <button type="button" className="folder-studio-mini-btn" onClick={() => setMediaOpen((current) => !current)}>
-                            {mediaOpen ? 'Thu gon' : 'Mo'}
+                            {mediaOpen ? (language === 'vi' ? 'Thu gọn' : 'Collapse') : (language === 'vi' ? 'Mở' : 'Open')}
                           </button>
                         </div>
                       </div>
@@ -923,7 +938,7 @@ function FolderStudio() {
                       {mediaOpen ? (
                         <>
                           <p className="folder-studio-media-copy">
-                            {selectedImageVm?.helperText || 'Chua co image payload cho slide nay.'}
+                            {selectedImageVm?.helperText || (language === 'vi' ? 'Chưa có image payload cho slide này.' : 'No image payload for this slide yet.')}
                           </p>
                           <div className="folder-studio-media-grid">
                             {selectedImageVm?.candidates?.length ? selectedImageVm.candidates.map((candidate) => (
@@ -946,14 +961,14 @@ function FolderStudio() {
                               </button>
                             )) : (
                               <div className="folder-studio-empty-sidebar">
-                                Chua co candidate nao. Bam "Lam moi anh" de tao / tai lai media candidates.
+                                {language === 'vi' ? 'Chưa có candidate nào. Bấm "Làm mới ảnh" để tạo / tải lại media candidates.' : 'No candidates yet. Click "Refresh images" to generate or reload media candidates.'}
                               </div>
                             )}
                           </div>
                         </>
                       ) : (
                         <p className="folder-studio-media-copy">
-                          Media strip dang thu gon. Mo ra de doi image, chon candidate hoac refresh media workflow.
+                          {language === 'vi' ? 'Media strip đang thu gọn. Mở ra để đổi image, chọn candidate hoặc refresh media workflow.' : 'The media strip is collapsed. Open it to swap images, pick a candidate, or refresh the media workflow.'}
                         </p>
                       )}
                     </section>
@@ -964,44 +979,44 @@ function FolderStudio() {
           </section>
 
           <aside className="folder-studio-rpanel">
-            <div className="folder-studio-panel-title">Studio / Hanh dong</div>
+            <div className="folder-studio-panel-title">{language === 'vi' ? 'Studio / Hành động' : 'Studio / Actions'}</div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">Tao moi</div>
+              <div className="folder-studio-section-label">{language === 'vi' ? 'Tạo mới' : 'Create'}</div>
               <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate}>
                 <span className="folder-studio-action-copy">
-                  <strong>Tao slide moi tu noi dung</strong>
-                  <span>{selectedReadySources.length} source ready dang duoc chon cho folder</span>
+                  <strong>{language === 'vi' ? 'Tạo slide mới từ nội dung' : 'Generate slides from content'}</strong>
+                  <span>{language === 'vi' ? `${selectedReadySources.length} source ready đang được chọn cho workspace` : `${selectedReadySources.length} ready sources selected for this workspace`}</span>
                 </span>
                 <span className="folder-studio-action-badge">AI</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Tao cau hoi on tap')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Tao cau hoi on tap</strong>
-                  <span>Entry point cho flow question generation cap folder</span>
+                  <strong>{language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions'}</strong>
+                  <span>{language === 'vi' ? 'Entry point cho flow question generation cấp workspace' : 'Entry point for workspace-level question generation'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Mo Quiz tuong tac')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Mở Quiz tương tác' : 'Open interactive quiz')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Mo Quiz tuong tac</strong>
-                  <span>Dat san de noi folder deck voi game flow sau nay</span>
+                  <strong>{language === 'vi' ? 'Mở Quiz tương tác' : 'Open interactive quiz'}</strong>
+                  <span>{language === 'vi' ? 'Đặt sẵn để nối workspace deck với game flow sau này' : 'Scaffolded for future workspace-to-game flow'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Mo Flashcards')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Mở Flashcards' : 'Open flashcards')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Mo Flashcards</strong>
-                  <span>Cho phep tao flashcards tu tap source da chon</span>
+                  <strong>{language === 'vi' ? 'Mở Flashcards' : 'Open flashcards'}</strong>
+                  <span>{language === 'vi' ? 'Cho phép tạo flashcards từ tập source đã chọn trong workspace' : 'Allow flashcards from the selected workspace sources'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
             </div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">Brief deck</div>
+              <div className="folder-studio-section-label">{t('slides.deckBrief')}</div>
               <label className="folder-studio-form-row">
-                <span>So slide muc tieu</span>
+                <span>{t('slides.desiredSlides')}</span>
                 <input
                   type="number"
                   min="5"
@@ -1019,77 +1034,77 @@ function FolderStudio() {
                 </select>
               </label>
               <label className="folder-studio-form-row">
-                <span>Audience</span>
+                <span>{t('slides.audience')}</span>
                 <select value={brief.audience} onChange={(event) => setBrief((current) => ({ ...current, audience: event.target.value }))}>
-                  {AUDIENCE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                  {AUDIENCE_OPTIONS.map((option, index) => (
+                    <option key={option} value={option}>{audienceLabels[index] || option}</option>
                   ))}
                 </select>
               </label>
               <label className="folder-studio-form-row">
-                <span>Tone</span>
+                <span>{t('slides.tone')}</span>
                 <select value={brief.tone} onChange={(event) => setBrief((current) => ({ ...current, tone: event.target.value }))}>
-                  {TONE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                  {TONE_OPTIONS.map((option, index) => (
+                    <option key={option} value={option}>{toneLabels[index] || option}</option>
                   ))}
                 </select>
               </label>
               <label className="folder-studio-form-row">
-                <span>Language style</span>
+                <span>{t('slides.languageStyle')}</span>
                 <select value={brief.languageStyle} onChange={(event) => setBrief((current) => ({ ...current, languageStyle: event.target.value }))}>
-                  {LANGUAGE_STYLE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                  {LANGUAGE_STYLE_OPTIONS.map((option, index) => (
+                    <option key={option} value={option}>{languageStyleLabels[index] || option}</option>
                   ))}
                 </select>
               </label>
               <label className="folder-studio-form-row">
-                <span>Narrative goal</span>
+                <span>{t('slides.narrativeGoal')}</span>
                 <textarea
                   rows={4}
                   value={brief.narrativeGoal}
                   onChange={(event) => setBrief((current) => ({ ...current, narrativeGoal: event.target.value }))}
-                  placeholder="Muc tieu cau truc va nhan manh cho deck folder nay"
+                  placeholder={language === 'vi' ? 'Mục tiêu cấu trúc và nhấn mạnh cho deck workspace này' : 'Structure and emphasis goal for this workspace deck'}
                 />
               </label>
             </div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">Phan tich & Tom tat</div>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Tom tat noi dung')}>
+              <div className="folder-studio-section-label">{language === 'vi' ? 'Phân tích & Tóm tắt' : 'Analysis & Summary'}</div>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Tom tat noi dung</strong>
-                  <span>Tong hop summary cap folder tu cac source da chon</span>
+                  <strong>{language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content'}</strong>
+                  <span>{language === 'vi' ? 'Tổng hợp summary cấp workspace từ các source đã chọn' : 'Build a workspace-level summary from selected sources'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Phan tich y chinh')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Phan tich y chinh</strong>
-                  <span>Dat san cho luong concept extraction cap folder</span>
+                  <strong>{language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas'}</strong>
+                  <span>{language === 'vi' ? 'Đặt sẵn cho luồng concept extraction cấp workspace' : 'Scaffold for workspace-level concept extraction'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Xay dung so do tu duy')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Xay dung so do tu duy</strong>
-                  <span>Noi vao luong mindmap trong phase tiep theo</span>
+                  <strong>{language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map'}</strong>
+                  <span>{language === 'vi' ? 'Nối vào luồng mindmap trong phase tiếp theo' : 'Reserved for the next-phase mindmap flow'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
             </div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">Xuat ban & Chia se</div>
+              <div className="folder-studio-section-label">{language === 'vi' ? 'Xuất bản & Chia sẻ' : 'Publish & Share'}</div>
               <button type="button" className="folder-studio-action" onClick={handleSaveSlide} disabled={!selectedDraft}>
                 <span className="folder-studio-action-copy">
-                  <strong>Luu slide hien tai</strong>
-                  <span>Persist editorState, body blocks va notes vao deck</span>
+                  <strong>{language === 'vi' ? 'Lưu slide hiện tại' : 'Save current slide'}</strong>
+                  <span>{language === 'vi' ? 'Persist editorState, body blocks và notes vào deck' : 'Persist editorState, body blocks, and notes into the deck'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Save</span>
               </button>
               <a
                 className={`folder-studio-action${!deck ? ' is-disabled' : ''}`}
-                href={deck ? slideService.getFolderDeckHtmlUrl(folderId) : undefined}
+                href={deck ? slideService.getFolderDeckHtmlUrl(workspaceId) : undefined}
                 target={deck ? '_blank' : undefined}
                 rel={deck ? 'noreferrer' : undefined}
                 onClick={(event) => {
@@ -1099,40 +1114,40 @@ function FolderStudio() {
                 }}
               >
                 <span className="folder-studio-action-copy">
-                  <strong>Tai xuong HTML / PDF</strong>
-                  <span>Xuat deck cap folder de preview hoac in PDF tu browser</span>
+                  <strong>{language === 'vi' ? 'Tải xuống HTML / PDF' : 'Download HTML / PDF'}</strong>
+                  <span>{language === 'vi' ? 'Xuất deck cấp workspace để preview hoặc in PDF từ browser' : 'Export the workspace deck for preview or browser-based PDF printing'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Export</span>
               </a>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Xuat PowerPoint')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Xuat PowerPoint</strong>
-                  <span>Cho phase xuat file pptx sau nay</span>
+                  <strong>{language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint'}</strong>
+                  <span>{language === 'vi' ? 'Cho phase xuất file pptx sau này' : 'Reserved for a future PPTX export phase'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon('Chia se lien ket')}>
+              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Chia sẻ liên kết' : 'Share link')}>
                 <span className="folder-studio-action-copy">
-                  <strong>Chia se lien ket</strong>
-                  <span>Dat san cho shareable review link</span>
+                  <strong>{language === 'vi' ? 'Chia sẻ liên kết' : 'Share link'}</strong>
+                  <span>{language === 'vi' ? 'Đặt sẵn cho shareable review link' : 'Scaffold for a shareable review link'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
             </div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">Quan tri</div>
+              <div className="folder-studio-section-label">{language === 'vi' ? 'Quản trị' : 'Admin'}</div>
               <button type="button" className="folder-studio-action" onClick={() => loadWorkspace()}>
                 <span className="folder-studio-action-copy">
-                  <strong>Lam moi du lieu</strong>
-                  <span>Tai lai sources, deck, progress va metadata cua folder</span>
+                  <strong>{language === 'vi' ? 'Làm mới dữ liệu' : 'Refresh data'}</strong>
+                  <span>{language === 'vi' ? 'Tải lại sources, deck, progress và metadata của workspace' : 'Reload sources, deck, progress, and workspace metadata'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Sync</span>
               </button>
               <button type="button" className="folder-studio-action tone-danger" onClick={handleDeleteFolder}>
                 <span className="folder-studio-action-copy">
-                  <strong>Xoa folder project</strong>
-                  <span>Thong tac nay se xoa folder va cac source ben trong</span>
+                  <strong>{language === 'vi' ? 'Xóa workspace' : 'Delete workspace'}</strong>
+                  <span>{language === 'vi' ? 'Thao tác này sẽ xóa workspace và các source bên trong' : 'This action will delete the workspace and all sources inside it'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Delete</span>
               </button>

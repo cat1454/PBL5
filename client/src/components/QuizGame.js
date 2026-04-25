@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { gameService } from '../services/api';
 import { formatTopicForDisplay } from '../services/topicDisplay';
+import { useLanguage } from '../context/LanguageContext';
 
 function QuizGame() {
+  const { t } = useLanguage();
   const { documentId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -21,16 +23,16 @@ function QuizGame() {
         const data = await gameService.getQuizGame(documentId, 10);
         setAllQuestions(data.questions);
       } catch (err) {
-        alert('Error loading quiz. Please generate questions first.');
+        alert(t('quiz.loadError'));
         console.error(err);
-        navigate('/documents');
+        navigate('/workspaces');
       } finally {
         setLoading(false);
       }
     };
 
     loadQuiz();
-  }, [documentId, navigate]);
+  }, [documentId, navigate, t]);
 
   useEffect(() => {
     setCurrentQuestionIndex(0);
@@ -50,8 +52,15 @@ function QuizGame() {
     }
   };
 
+  const isCurrentAnswerCorrect = () => {
+    const currentQuestion = questions[currentQuestionIndex];
+    return currentQuestion.correctAnswer === selectedAnswer;
+  };
+
   const handleSubmitAnswer = () => {
-    if (!selectedAnswer) return;
+    if (!selectedAnswer) {
+      return;
+    }
 
     const currentQuestion = questions[currentQuestionIndex];
     const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
@@ -60,8 +69,8 @@ function QuizGame() {
       ...answers,
       {
         questionId: currentQuestion.id,
-        selectedAnswer: selectedAnswer,
-        isCorrect: isCorrect,
+        selectedAnswer,
+        isCorrect,
       },
     ]);
 
@@ -74,16 +83,10 @@ function QuizGame() {
       setSelectedAnswer(null);
       setShowResult(false);
     } else {
-      // Quiz completed, calculate final score
-      const correctCount = answers.filter((a) => a.isCorrect).length + (showResult && isCurrentAnswerCorrect() ? 1 : 0);
+      const correctCount = answers.filter((answer) => answer.isCorrect).length + (showResult && isCurrentAnswerCorrect() ? 1 : 0);
       const score = Math.round((correctCount / questions.length) * 100);
       setFinalScore(score);
     }
-  };
-
-  const isCurrentAnswerCorrect = () => {
-    const currentQuestion = questions[currentQuestionIndex];
-    return currentQuestion.correctAnswer === selectedAnswer;
   };
 
   const getOptionClass = (optionKey) => {
@@ -105,7 +108,7 @@ function QuizGame() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Loading quiz...</p>
+        <p>{t('quiz.loading')}</p>
       </div>
     );
   }
@@ -113,43 +116,45 @@ function QuizGame() {
   if (questions.length === 0) {
     return (
       <div className="card">
-        <h2>{allQuestions.length > 0 ? 'Tat ca cau hoi hien dang bi an' : 'No Questions Available'}</h2>
+        <h2>{allQuestions.length > 0 ? t('quiz.allHiddenTitle') : t('quiz.emptyTitle')}</h2>
         <p>
           {allQuestions.length > 0
-            ? 'Tat het bo loc an low-confidence de xem lai toan bo cau hoi.'
-            : 'Please generate questions first.'}
+            ? t('quiz.allHiddenBody')
+            : t('quiz.emptyBody')}
         </p>
         {allQuestions.length > 0 && (
           <button className="button button-secondary" onClick={() => setHideLowConfidence(false)}>
-            Hien lai cau hoi diem thap
+            {t('quiz.showLowConfidence')}
           </button>
         )}
-        <button className="button" onClick={() => navigate('/documents')}>
-          Back to Documents
+        <button className="button" onClick={() => navigate('/workspaces')}>
+          {t('quiz.backToWorkspaces')}
         </button>
       </div>
     );
   }
 
   if (finalScore !== null) {
+    const correct = answers.filter((answer) => answer.isCorrect).length + (isCurrentAnswerCorrect() ? 1 : 0);
+
     return (
       <div className="game-container">
         <div className="card">
-          <h2>🎉 Quiz Completed!</h2>
+          <h2>{t('quiz.completed')}</h2>
           <div className="score-display">
             <h1 style={{ fontSize: '4em', color: finalScore >= 70 ? '#28a745' : '#dc3545' }}>
               {finalScore}%
             </h1>
             <p style={{ fontSize: '1.2em' }}>
-              You got {answers.filter((a) => a.isCorrect).length + (isCurrentAnswerCorrect() ? 1 : 0)} out of {questions.length} questions correct!
+              {t('quiz.scoreLine', { correct, total: questions.length })}
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '30px' }}>
             <button className="button" onClick={() => window.location.reload()}>
-              🔄 Retry Quiz
+              {t('quiz.retry')}
             </button>
-            <button className="button" onClick={() => navigate('/documents')}>
-              📚 Back to Documents
+            <button className="button" onClick={() => navigate('/workspaces')}>
+              {t('quiz.backToWorkspaces')}
             </button>
           </div>
         </div>
@@ -168,11 +173,11 @@ function QuizGame() {
         <div className="progress-bar">
           <div className="progress-fill" style={{ width: `${progress}%` }}></div>
         </div>
-        
-        <h3>Question {currentQuestionIndex + 1} of {questions.length}</h3>
+
+        <h3>{t('quiz.questionProgress', { current: currentQuestionIndex + 1, total: questions.length })}</h3>
         <div className="quality-toolbar">
           <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
-            {hideLowConfidence ? 'Hien tat ca cau hoi' : 'An cau hoi diem thap'}
+            {hideLowConfidence ? t('quiz.showAllQuestions') : t('quiz.hideLowConfidence')}
           </button>
           {quality.score !== undefined && quality.score !== null && (
             <span className={`quality-chip ${quality.isLowConfidence ? 'low' : 'good'}`}>
@@ -183,25 +188,25 @@ function QuizGame() {
         <p className="flashcard-meta" style={{ marginTop: '-6px' }}>{topicDisplay.friendlyLabel}</p>
         {topicDisplay.mainTopic && (
           <p className="flashcard-meta" style={{ marginTop: '-2px' }}>
-            Chủ đề chính: {topicDisplay.mainTopic}
+            {t('quiz.mainTopic')} {topicDisplay.mainTopic}
           </p>
         )}
         {topicDisplay.technicalTag && (
           <p className="flashcard-meta" style={{ marginTop: '-2px' }}>
-            Tag kỹ thuật: {topicDisplay.technicalTag}
+            {t('quiz.technicalTag')} {topicDisplay.technicalTag}
           </p>
         )}
-        
+
         <div className="question-card">
           <h2>{currentQuestion.questionText}</h2>
 
           {(quality.isLowConfidence || quality.isUnknown) && (
             <div className="alert alert-info quality-warning">
-              <strong>{quality.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+              <strong>{quality.isLowConfidence ? t('quiz.reviewNeeded') : t('quiz.noVerifier')}</strong>
               <p>
                 {quality.isLowConfidence
-                  ? `Cau hoi nay co diem verifier ${quality.score}/100. Nen doc ky explanation truoc khi hoc.`
-                  : 'Cau hoi nay da duoc chinh sua thu cong hoac chua qua verifier moi.'}
+                  ? t('quiz.lowConfidenceBody', { score: quality.score })
+                  : t('quiz.noVerifierBody')}
               </p>
               {Array.isArray(quality.issues) && quality.issues.length > 0 && (
                 <ul className="quality-issues">
@@ -212,7 +217,7 @@ function QuizGame() {
               )}
             </div>
           )}
-          
+
           <div className="options">
             {currentQuestion.options.map((option) => (
               <button
@@ -228,7 +233,7 @@ function QuizGame() {
 
           {showResult && (
             <div className={`alert ${isCurrentAnswerCorrect() ? 'alert-success' : 'alert-error'}`}>
-              <strong>{isCurrentAnswerCorrect() ? '✅ Correct!' : '❌ Incorrect'}</strong>
+              <strong>{isCurrentAnswerCorrect() ? t('quiz.correct') : t('quiz.incorrect')}</strong>
               <p>{currentQuestion.explanation}</p>
             </div>
           )}
@@ -240,11 +245,11 @@ function QuizGame() {
                 onClick={handleSubmitAnswer}
                 disabled={!selectedAnswer}
               >
-                Submit Answer
+                {t('quiz.submit')}
               </button>
             ) : (
               <button className="button" onClick={handleNextQuestion}>
-                {currentQuestionIndex < questions.length - 1 ? 'Next Question →' : 'Finish Quiz'}
+                {currentQuestionIndex < questions.length - 1 ? t('quiz.next') : t('quiz.finish')}
               </button>
             )}
           </div>

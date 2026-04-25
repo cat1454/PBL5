@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 
 function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -31,7 +33,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
       return;
     }
 
-    setError('Chi ho tro PDF, DOCX, PNG va JPG. Hay chon dung dinh dang de AI xu ly chinh xac hon.');
+    setError(t('upload.errors.invalidType'));
     setFile(null);
   };
 
@@ -39,7 +41,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     event.preventDefault();
 
     if (!file) {
-      setError('Hay chon mot tai lieu truoc khi upload.');
+      setError(t('upload.errors.noFile'));
       return;
     }
 
@@ -50,8 +52,8 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
 
     try {
       const userId = 'demo-user';
-      const result = await documentService.uploadDocument(file, userId, (progress) => {
-        setUploadProgress(progress);
+      const result = await documentService.uploadDocument(file, userId, (progressValue) => {
+        setUploadProgress(progressValue);
       });
 
       setUploadProgress(100);
@@ -60,7 +62,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
         onUploadSuccess(result);
       }
 
-      setMessage('Da upload xong.');
+      setMessage(t('upload.success'));
       setFile(null);
       event.target.reset();
 
@@ -70,7 +72,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
         setUploading(false);
       }, 2000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Error uploading file.');
+      setError(err.response?.data?.message || t('upload.errors.uploadFailed'));
       setUploading(false);
     }
   };
@@ -79,8 +81,8 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     <div className={`card document-upload-card${isMinimalDark ? ' document-upload-card-minimal-dark' : ''}`}>
       <div className="document-upload-head">
         <div>
-          <span className="document-upload-kicker">Primary action</span>
-          <h2>Upload document</h2>
+          <span className="document-upload-kicker">{t('upload.kicker')}</span>
+          <h2>{t('upload.title')}</h2>
         </div>
         <div className="document-upload-types">
           <span>PDF</span>
@@ -91,7 +93,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
       </div>
 
       <p className="section-subtitle document-upload-subtitle">
-        Dua tai lieu vao he thong de AI trich xuat noi dung, tom tat va mo cac che do hoc tap tu dong.
+        {t('upload.subtitle')}
       </p>
 
       {message && <div className="alert alert-success">{message}</div>}
@@ -99,7 +101,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
 
       <form onSubmit={handleUpload}>
         <div className={`input-group${isMinimalDark ? ' input-group-minimal-dark' : ''}`}>
-          <label htmlFor="file-upload">Chon tai lieu nguon</label>
+          <label htmlFor="file-upload">{t('upload.inputLabel')}</label>
           <input
             id="file-upload"
             type="file"
@@ -111,9 +113,9 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
 
         {file && (
           <div className={`file-info-card${isMinimalDark ? ' file-info-card-dark' : ''}`}>
-            <p><strong>Da chon:</strong> {file.name}</p>
-            <p><strong>Dung luong:</strong> {(file.size / 1024 / 1024).toFixed(2)} MB</p>
-            <p><strong>Ky vong:</strong> Upload xong nhanh, phan tich va tao cau hoi co the mat 2-3 phut.</p>
+            <p><strong>{t('upload.selected')}</strong> {file.name}</p>
+            <p><strong>{t('upload.size')}</strong> {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+            <p><strong>{t('upload.eta')}</strong> {t('upload.etaValue')}</p>
           </div>
         )}
 
@@ -128,7 +130,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
               </div>
             </div>
             <p className="progress-status">
-              {uploadProgress < 100 ? 'Dang upload tai lieu...' : 'Upload xong. Vao My Documents de theo doi qua trinh AI xu ly.'}
+              {uploadProgress < 100 ? t('upload.progressUploading') : t('upload.progressDone')}
             </p>
           </div>
         )}
@@ -139,15 +141,15 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
             className={`button${isMinimalDark ? ' button-upload-primary' : ''}`}
             disabled={!file || uploading}
           >
-            {uploading ? 'Dang upload...' : 'Upload va xu ly'}
+            {uploading ? t('upload.submitting') : t('upload.submit')}
           </button>
           <button
             type="button"
             className={`button button-secondary${isMinimalDark ? ' button-upload-secondary' : ''}`}
-            onClick={() => navigate('/documents')}
+            onClick={() => navigate('/workspaces')}
             disabled={uploading}
           >
-            Xem My Documents
+            {t('upload.workspace')}
           </button>
         </div>
       </form>

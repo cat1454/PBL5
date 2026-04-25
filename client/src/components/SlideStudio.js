@@ -1,61 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
-
-const THEME_OPTIONS = [
-  {
-    key: 'editorial-sunrise',
-    label: 'Editorial Sunrise',
-    blurb: 'Am, premium, de doc va hop voi bai giang tong quan.',
-  },
-  {
-    key: 'paper-mint',
-    label: 'Paper Mint',
-    blurb: 'Nhe, sach, hop voi deck giang giai va note hoc tap.',
-  },
-  {
-    key: 'cobalt-grid',
-    label: 'Cobalt Grid',
-    blurb: 'Cung cap, ky thuat, hop voi noi dung he thong va quy trinh.',
-  },
-  {
-    key: 'midnight-signal',
-    label: 'Midnight Signal',
-    blurb: 'Tuong phan manh, hop voi deck chien luoc hoac executive.',
-  },
-];
-
-const TONE_OPTIONS = [
-  'Ro rang, hien dai, de nho',
-  'Hoc thuat nhung de tiep thu',
-  'Tu tin, co nhan manh',
-  'Kich thich tri to mo',
-];
-
-const AUDIENCE_OPTIONS = [
-  'Sinh vien va nguoi hoc',
-  'Giao vien / nguoi thuyet trinh',
-  'Quan ly / lanh dao',
-  'Nguoi moi bat dau',
-];
-
-const LANGUAGE_STYLE_OPTIONS = [
-  'Tieng Viet ngan gon, chuyen nghiep',
-  'Tieng Viet than thien, de doc tren web',
-  'Tieng Viet hoc thuat, co cau truc',
-  'Tieng Viet thuyet trinh, nhan y manh',
-];
-
-const DEFAULT_BRIEF = {
-  themeKey: 'editorial-sunrise',
-  audience: 'Sinh vien va nguoi hoc',
-  tone: 'Ro rang, hien dai, de nho',
-  narrativeGoal: 'Giup nguoi doc nam duoc cau truc va cac y chinh cua tai lieu trong mot lan xem',
-  languageStyle: 'Tieng Viet ngan gon, chuyen nghiep',
-};
+import { useLanguage } from '../context/LanguageContext';
 
 function SlideStudio() {
+  const { t, language } = useLanguage();
   const { documentId } = useParams();
   const navigate = useNavigate();
   const [documentMeta, setDocumentMeta] = useState(null);
@@ -69,11 +19,55 @@ function SlideStudio() {
   const [desiredSlideCount, setDesiredSlideCount] = useState(8);
   const [editingSlideId, setEditingSlideId] = useState(null);
   const [drafts, setDrafts] = useState({});
-  const [deckBrief, setDeckBrief] = useState(DEFAULT_BRIEF);
   const [briefDirty, setBriefDirty] = useState(false);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
   const [expandedMediaSlideId, setExpandedMediaSlideId] = useState(null);
   const [mediaBusySlideId, setMediaBusySlideId] = useState(null);
+
+  const audienceOptions = t('slides.options.audiences');
+  const toneOptions = t('slides.options.tones');
+  const languageStyleOptions = t('slides.options.languageStyles');
+
+  const themeOptions = useMemo(() => ([
+    {
+      key: 'editorial-sunrise',
+      label: 'Editorial Sunrise',
+      blurb: t('slides.themes.editorialSunrise'),
+    },
+    {
+      key: 'paper-mint',
+      label: 'Paper Mint',
+      blurb: t('slides.themes.paperMint'),
+    },
+    {
+      key: 'cobalt-grid',
+      label: 'Cobalt Grid',
+      blurb: t('slides.themes.cobaltGrid'),
+    },
+    {
+      key: 'midnight-signal',
+      label: 'Midnight Signal',
+      blurb: t('slides.themes.midnightSignal'),
+    },
+  ]), [t]);
+
+  const defaultBrief = useMemo(() => ({
+    themeKey: 'editorial-sunrise',
+    audience: audienceOptions[0],
+    tone: toneOptions[0],
+    narrativeGoal: language === 'vi'
+      ? 'Giúp người đọc nắm được cấu trúc và các ý chính của tài liệu trong một lần xem'
+      : 'Help the reader understand the structure and key ideas of the document in one pass',
+    languageStyle: languageStyleOptions[0],
+  }), [audienceOptions, language, languageStyleOptions, toneOptions]);
+
+  const [deckBrief, setDeckBrief] = useState(defaultBrief);
+
+  useEffect(() => {
+    if (!briefDirty) {
+      setDeckBrief(defaultBrief);
+    }
+  }, [briefDirty, defaultBrief]);
 
   const loadDocument = useCallback(async () => {
     try {
@@ -87,9 +81,9 @@ function SlideStudio() {
       }));
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc thong tin tai lieu.');
+      setError(t('slides.errors.loadDocument'));
     }
-  }, [briefDirty, documentId]);
+  }, [briefDirty, documentId, t]);
 
   const loadDeck = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
@@ -106,11 +100,11 @@ function SlideStudio() {
       setDeck(data);
       if (data?.outline?.brief && !briefDirty) {
         setDeckBrief({
-          themeKey: data.outline.brief.themeKey || DEFAULT_BRIEF.themeKey,
-          audience: data.outline.brief.audience || DEFAULT_BRIEF.audience,
-          tone: data.outline.brief.tone || DEFAULT_BRIEF.tone,
-          narrativeGoal: data.outline.brief.narrativeGoal || DEFAULT_BRIEF.narrativeGoal,
-          languageStyle: data.outline.brief.languageStyle || DEFAULT_BRIEF.languageStyle,
+          themeKey: data.outline.brief.themeKey || defaultBrief.themeKey,
+          audience: data.outline.brief.audience || defaultBrief.audience,
+          tone: data.outline.brief.tone || defaultBrief.tone,
+          narrativeGoal: data.outline.brief.narrativeGoal || defaultBrief.narrativeGoal,
+          languageStyle: data.outline.brief.languageStyle || defaultBrief.languageStyle,
         });
       }
       if (data?.generationProgress) {
@@ -119,13 +113,13 @@ function SlideStudio() {
       }
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc slide deck hien tai.');
+      setError(t('slides.errors.loadDeck'));
     } finally {
       if (!silent) {
         setLoading(false);
       }
     }
-  }, [briefDirty, documentId, jobId]);
+  }, [briefDirty, defaultBrief, documentId, jobId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +171,7 @@ function SlideStudio() {
   const handleGenerate = async () => {
     try {
       setError('');
-      setFeedback('Dang tao outline va sinh deck theo brief moi...');
+      setFeedback(t('slides.feedback.generating'));
       const response = await slideService.startGenerateSlides(documentId, {
         desiredSlideCount,
         ...deckBrief,
@@ -186,13 +180,13 @@ function SlideStudio() {
       setProgress({
         status: response.status,
         percent: 0,
-        stageLabel: 'Cho xu ly',
-        message: 'Da tao job sinh slide',
+        stageLabel: 'Queued',
+        message: t('slides.feedback.jobCreated'),
       });
       await loadDeck({ silent: true });
     } catch (err) {
       console.error(err);
-      setError('Khong bat dau duoc qua trinh sinh slide.');
+      setError(t('slides.errors.generate'));
     }
   };
 
@@ -250,10 +244,10 @@ function SlideStudio() {
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
       setEditingSlideId(null);
-      setFeedback('Da luu chinh sua slide.');
+      setFeedback(t('slides.feedback.saved'));
     } catch (err) {
       console.error(err);
-      setError('Khong luu duoc thay doi cho slide nay.');
+      setError(t('slides.errors.save'));
     }
   };
 
@@ -269,10 +263,10 @@ function SlideStudio() {
         ...current,
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
-      setFeedback(`Da cap nhat image candidates cho slide ${item.slideIndex}.`);
+      setFeedback(t('slides.feedback.refreshed', { index: item.slideIndex }));
     } catch (err) {
       console.error(err);
-      setError('Khong refresh duoc image candidates cho slide nay.');
+      setError(t('slides.errors.refreshImages'));
     } finally {
       setMediaBusySlideId(null);
     }
@@ -290,10 +284,10 @@ function SlideStudio() {
         ...current,
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
-      setFeedback(`Da chon anh cho slide ${item.slideIndex}.`);
+      setFeedback(t('slides.feedback.selectedImage', { index: item.slideIndex }));
     } catch (err) {
       console.error(err);
-      setError('Khong chon duoc anh cho slide nay.');
+      setError(t('slides.errors.selectImage'));
     } finally {
       setMediaBusySlideId(null);
     }
@@ -301,11 +295,11 @@ function SlideStudio() {
 
   const formatEta = (seconds) => {
     if (typeof seconds !== 'number') {
-      return 'Dang tinh ETA...';
+      return t('slides.etaCalculating');
     }
 
     if (seconds <= 0) {
-      return 'Sap xong...';
+      return t('slides.etaAlmostDone');
     }
 
     if (seconds < 60) {
@@ -317,15 +311,15 @@ function SlideStudio() {
     return `${minutes}p ${remain}s`;
   };
 
-  const getThemeMeta = (themeKey) => THEME_OPTIONS.find((theme) => theme.key === themeKey) || THEME_OPTIONS[0];
+  const getThemeMeta = (themeKey) => themeOptions.find((theme) => theme.key === themeKey) || themeOptions[0];
 
   const normalizeSlideType = (slideType) => {
     if (typeof slideType === 'number' && Number.isFinite(slideType)) {
       switch (slideType) {
         case 0:
-          return 'title';
+          return 'cover';
         case 1:
-          return 'sectiondivider';
+          return 'section';
         case 2:
           return 'content';
         case 3:
@@ -341,9 +335,13 @@ function SlideStudio() {
 
     if (typeof slideType === 'string') {
       const normalized = slideType.trim().toLowerCase().replace(/[\s_-]+/g, '');
-      if (normalized) {
-        return normalized;
+      if (normalized === 'title') {
+        return 'cover';
       }
+      if (normalized === 'sectiondivider') {
+        return 'section';
+      }
+      return normalized || 'content';
     }
 
     return 'content';
@@ -351,18 +349,18 @@ function SlideStudio() {
 
   const getSlideTypeLabel = (slideType) => {
     switch (normalizeSlideType(slideType)) {
-      case 'title':
-        return 'Cover';
-      case 'sectiondivider':
-        return 'Section';
+      case 'cover':
+        return t('slides.relativeTypes.cover');
+      case 'section':
+        return t('slides.relativeTypes.section');
       case 'quote':
-        return 'Quote';
+        return t('slides.relativeTypes.quote');
       case 'highlight':
-        return 'Highlight';
+        return t('slides.relativeTypes.highlight');
       case 'stat':
-        return 'Stat';
+        return t('slides.relativeTypes.stat');
       default:
-        return 'Content';
+        return t('slides.relativeTypes.content');
     }
   };
 
@@ -370,7 +368,7 @@ function SlideStudio() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Dang tai Slide Studio...</p>
+        <p>{t('slides.loading')}</p>
       </div>
     );
   }
@@ -392,37 +390,35 @@ function SlideStudio() {
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
       <section className="card gamma-hero-card">
         <div className="gamma-hero-copy">
-          <button className="button button-secondary" onClick={() => navigate('/documents')}>Quay lai Documents</button>
-          <span className="gamma-eyebrow">AI slide studio</span>
-          <h2>{deck?.title || documentMeta?.fileName || 'Create a new gamma-style deck'}</h2>
-          <p className="section-subtitle">
-            Sinh outline truoc, sinh tung slide dan dan, va chinh layout/noi dung ngay trong mot workspace.
-          </p>
+          <button className="button button-secondary" onClick={() => navigate('/workspaces')}>{t('slides.back')}</button>
+          <span className="gamma-eyebrow">{t('slides.eyebrow')}</span>
+          <h2>{deck?.title || documentMeta?.fileName || t('slides.heroFallbackTitle')}</h2>
+          <p className="section-subtitle">{t('slides.heroSubtitle')}</p>
         </div>
 
         <div className="gamma-hero-meta">
           <div className="gamma-mini-stat">
-            <span>Tai lieu</span>
-            <strong>{documentMeta?.fileName || 'Khong co du lieu'}</strong>
+            <span>{t('slides.document')}</span>
+            <strong>{documentMeta?.fileName || t('slides.noData')}</strong>
           </div>
           <div className="gamma-mini-stat">
-            <span>Theme</span>
+            <span>{t('slides.theme')}</span>
             <strong>{themeMeta.label}</strong>
           </div>
           <div className="gamma-mini-stat">
-            <span>Slides</span>
+            <span>{t('slides.slides')}</span>
             <strong>{completedSlides}/{previewItems.length || desiredSlideCount}</strong>
           </div>
           <div className="gamma-mini-stat">
-            <span>Trang thai</span>
-            <strong>{activeProgress?.stageLabel || deck?.status || 'Chua tao'}</strong>
+            <span>{t('slides.status')}</span>
+            <strong>{activeProgress?.stageLabel || deck?.status || t('slides.notCreated')}</strong>
           </div>
         </div>
       </section>
 
       {!canGenerate && (
         <div className="alert alert-info">
-          Tai lieu can xu ly xong truoc khi tao slide. Trang thai hien tai: {documentMeta?.status}
+          {t('slides.processingRequired', { status: documentMeta?.status })}
         </div>
       )}
 
@@ -434,15 +430,15 @@ function SlideStudio() {
           <section className="card gamma-brief-card">
             <div className="gamma-panel-head">
               <div>
-                <span className="gamma-panel-kicker">Deck brief</span>
-                <h3>Mo ta deck truoc khi sinh</h3>
+                <span className="gamma-panel-kicker">{t('slides.deckBrief')}</span>
+                <h3>{t('slides.deckDescription')}</h3>
               </div>
               <span className="gamma-theme-pill">{themeMeta.label}</span>
             </div>
 
             <div className="gamma-brief-grid">
               <label className="gamma-field">
-                <span>So slide</span>
+                <span>{t('slides.desiredSlides')}</span>
                 <input
                   type="number"
                   min="5"
@@ -453,27 +449,27 @@ function SlideStudio() {
               </label>
 
               <label className="gamma-field">
-                <span>Audience</span>
+                <span>{t('slides.audience')}</span>
                 <select value={deckBrief.audience} onChange={(event) => handleBriefChange('audience', event.target.value)}>
-                  {AUDIENCE_OPTIONS.map((option) => (
+                  {audienceOptions.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
               </label>
 
               <label className="gamma-field">
-                <span>Tone</span>
+                <span>{t('slides.tone')}</span>
                 <select value={deckBrief.tone} onChange={(event) => handleBriefChange('tone', event.target.value)}>
-                  {TONE_OPTIONS.map((option) => (
+                  {toneOptions.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
               </label>
 
               <label className="gamma-field">
-                <span>Language style</span>
+                <span>{t('slides.languageStyle')}</span>
                 <select value={deckBrief.languageStyle} onChange={(event) => handleBriefChange('languageStyle', event.target.value)}>
-                  {LANGUAGE_STYLE_OPTIONS.map((option) => (
+                  {languageStyleOptions.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </select>
@@ -481,17 +477,17 @@ function SlideStudio() {
             </div>
 
             <label className="gamma-field">
-              <span>Muc tieu deck</span>
+              <span>{t('slides.narrativeGoal')}</span>
               <textarea
                 rows={4}
                 value={deckBrief.narrativeGoal}
                 onChange={(event) => handleBriefChange('narrativeGoal', event.target.value)}
-                placeholder="Deck nay can giup nguoi doc hieu dieu gi sau 2-3 phut?"
+                placeholder={t('slides.narrativePlaceholder')}
               />
             </label>
 
             <div className="gamma-theme-grid">
-              {THEME_OPTIONS.map((theme) => (
+              {themeOptions.map((theme) => (
                 <button
                   key={theme.key}
                   type="button"
@@ -506,17 +502,21 @@ function SlideStudio() {
 
             <div className="gamma-action-row">
               <button className="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
-                {isGenerating ? `Dang tao... ${activeProgress?.percent || 0}%` : deck ? 'Tao lai deck' : 'Tao deck bang AI'}
+                {isGenerating
+                  ? t('slides.generating', { percent: activeProgress?.percent || 0 })
+                  : deck
+                    ? t('slides.regenerate')
+                    : t('slides.generate')}
               </button>
               <button className="button button-secondary" onClick={() => setReadingMode((current) => !current)}>
-                {readingMode ? 'Tat reading mode' : 'Bat reading mode'}
+                {readingMode ? t('slides.disableReadingMode') : t('slides.enableReadingMode')}
               </button>
               <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
-                {hideLowConfidence ? 'Hien tat ca slide' : 'An slide diem thap'}
+                {hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}
               </button>
               {deck && (
                 <button className="button button-secondary" onClick={() => window.open(slideService.getDeckHtmlUrl(documentId), '_blank', 'noopener,noreferrer')}>
-                  Export HTML/PDF
+                  {t('slides.export')}
                 </button>
               )}
             </div>
@@ -526,8 +526,8 @@ function SlideStudio() {
             <section className="card gamma-progress-card">
               <div className="gamma-panel-head">
                 <div>
-                  <span className="gamma-panel-kicker">Live generation</span>
-                  <h3>{activeProgress.stageLabel || 'Dang sinh slide'}</h3>
+                  <span className="gamma-panel-kicker">{t('slides.liveGeneration')}</span>
+                  <h3>{activeProgress.stageLabel || t('slides.generatingSlides')}</h3>
                 </div>
                 <div className="gamma-progress-summary">
                   <strong>{activeProgress.percent || 0}%</strong>
@@ -541,11 +541,11 @@ function SlideStudio() {
               </div>
               {typeof activeProgress.current === 'number' && typeof activeProgress.total === 'number' && (
                 <p className="generation-progress-meta">
-                  {activeProgress.current}/{activeProgress.total} {activeProgress.unitLabel || 'slide'}
+                  {activeProgress.current}/{activeProgress.total} {activeProgress.unitLabel || t('slides.slides').toLowerCase()}
                 </p>
               )}
               {typeof lowConfidenceCount === 'number' && lowConfidenceCount > 0 && (
-                <p className="generation-progress-meta">Dang co {lowConfidenceCount} slide can review do verifier score thap.</p>
+                <p className="generation-progress-meta">{t('slides.lowConfidenceNotice', { count: lowConfidenceCount })}</p>
               )}
             </section>
           )}
@@ -553,8 +553,8 @@ function SlideStudio() {
           <section className="card gamma-outline-card">
             <div className="gamma-panel-head">
               <div>
-                <span className="gamma-panel-kicker">Live outline</span>
-                <h3>Cau truc deck</h3>
+                <span className="gamma-panel-kicker">{t('slides.liveOutline')}</span>
+                <h3>{t('slides.deckStructure')}</h3>
               </div>
               <span className="gamma-outline-count">{outlineSlides.length || desiredSlideCount} slides</span>
             </div>
@@ -574,7 +574,7 @@ function SlideStudio() {
               </div>
             ) : (
               <div className="gamma-outline-empty">
-                <p>Outline se xuat hien tai day ngay sau khi AI lap xong nhung slide dau tien.</p>
+                <p>{t('slides.outlineEmpty')}</p>
               </div>
             )}
           </section>
@@ -583,15 +583,15 @@ function SlideStudio() {
         <section className="gamma-canvas">
           <section className="card gamma-canvas-head">
             <div>
-              <span className="gamma-panel-kicker">Preview canvas</span>
-              <h3>{deck?.title || 'Gamma-style deck preview'}</h3>
+              <span className="gamma-panel-kicker">{t('slides.previewCanvas')}</span>
+              <h3>{deck?.title || t('slides.previewFallbackTitle')}</h3>
               <p>{deck?.subtitle || deckBrief.narrativeGoal}</p>
             </div>
             <div className="gamma-canvas-badges">
               <span>{themeMeta.label}</span>
               <span>{deckBrief.audience}</span>
               <span>{deckBrief.tone}</span>
-              <span>{slidesWithSelectedMedia} media ready</span>
+              <span>{t('slides.mediaReady', { count: slidesWithSelectedMedia })}</span>
             </div>
           </section>
 
@@ -603,13 +603,8 @@ function SlideStudio() {
                   <div className="gamma-empty-mockup-card"></div>
                   <div className="gamma-empty-mockup-card"></div>
                 </div>
-                <h3>{allPreviewItems.length > 0 ? 'Tat ca slide hien dang bi an' : 'Chua co deck'}</h3>
-                <p>
-                  {allPreviewItems.length > 0
-                    ? 'Tat bo loc an low-confidence de xem lai toan bo slide.'
-                    : <>Chon theme, audience, tone, roi bam <strong>Tao deck bang AI</strong>. He thong se sinh outline truoc,
-                      sau do tung slide se hien dan o canvas nay.</>}
-                </p>
+                <h3>{allPreviewItems.length > 0 ? t('slides.hiddenSlidesTitle') : t('slides.noDeckTitle')}</h3>
+                <p>{allPreviewItems.length > 0 ? t('slides.hiddenSlidesBody') : t('slides.noDeckBody')}</p>
               </div>
             )}
 
@@ -624,7 +619,7 @@ function SlideStudio() {
               return (
                 <article key={item.id} className={`slide-preview-card gamma-slide-card slide-preview-${normalizeSlideType(item.slideType)} ${item.status?.toLowerCase?.() || ''}`}>
                   <div className="slide-preview-meta">
-                    <span>Slide {item.slideIndex}</span>
+                    <span>{t('slides.slideLabel', { index: item.slideIndex })}</span>
                     <div className="quality-toolbar">
                       <span>{getSlideTypeLabel(item.slideType)}</span>
                       {item.quality?.score !== undefined && item.quality?.score !== null && (
@@ -638,14 +633,14 @@ function SlideStudio() {
                   {isEditing ? (
                     <div className="slide-edit-form">
                       <input value={draft.heading} onChange={(event) => handleDraftChange(item.id, 'heading', event.target.value)} />
-                      <input value={draft.subheading} onChange={(event) => handleDraftChange(item.id, 'subheading', event.target.value)} placeholder="Subheading" />
-                      <input value={draft.goal} onChange={(event) => handleDraftChange(item.id, 'goal', event.target.value)} placeholder="Goal" />
+                      <input value={draft.subheading} onChange={(event) => handleDraftChange(item.id, 'subheading', event.target.value)} placeholder={t('slides.subheadingPlaceholder')} />
+                      <input value={draft.goal} onChange={(event) => handleDraftChange(item.id, 'goal', event.target.value)} placeholder={t('slides.goalPlaceholder')} />
                       <textarea value={draft.bodyText} onChange={(event) => handleDraftChange(item.id, 'bodyText', event.target.value)} rows={6} />
                       <textarea value={draft.speakerNotes} onChange={(event) => handleDraftChange(item.id, 'speakerNotes', event.target.value)} rows={4} />
-                      <input value={draft.accentTone} onChange={(event) => handleDraftChange(item.id, 'accentTone', event.target.value)} placeholder="Accent tone" />
+                      <input value={draft.accentTone} onChange={(event) => handleDraftChange(item.id, 'accentTone', event.target.value)} placeholder={t('slides.accentTonePlaceholder')} />
                       <div className="slide-edit-actions">
-                        <button className="button" onClick={() => handleSave(item)}>Luu slide</button>
-                        <button className="button button-secondary" onClick={() => setEditingSlideId(null)}>Huy</button>
+                        <button className="button" onClick={() => handleSave(item)}>{t('slides.saveSlide')}</button>
+                        <button className="button button-secondary" onClick={() => setEditingSlideId(null)}>{t('slides.cancel')}</button>
                       </div>
                     </div>
                   ) : (
@@ -656,7 +651,7 @@ function SlideStudio() {
 
                       <div className={`slide-media-shell slide-media-shell-preview slide-media-shell-${imageVm.badgeTone}${imageVm.selectedImage ? ' has-image' : ''}`}>
                         {imageVm.selectedImage?.localAssetUrl ? (
-                          <img src={imageVm.selectedImage.localAssetUrl} alt={imageVm.selectedImage.altText || item.heading || `Slide ${item.slideIndex}`} />
+                          <img src={imageVm.selectedImage.localAssetUrl} alt={imageVm.selectedImage.altText || item.heading || t('slides.slideLabel', { index: item.slideIndex })} />
                         ) : (
                           <div className="slide-media-placeholder">
                             <strong>{imageVm.badgeLabel}</strong>
@@ -693,7 +688,7 @@ function SlideStudio() {
 
                       {(item.quality?.isLowConfidence || item.quality?.isUnknown) && (
                         <div className="quality-warning compact">
-                          <strong>{item.quality?.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+                          <strong>{item.quality?.isLowConfidence ? t('slides.reviewNeeded') : t('slides.noVerifier')}</strong>
                           {Array.isArray(item.quality?.issues) && item.quality.issues.length > 0 && (
                             <ul className="quality-issues">
                               {item.quality.issues.slice(0, 2).map((issue) => (
@@ -707,19 +702,19 @@ function SlideStudio() {
                       <div className="slide-preview-actions">
                         <div className="slide-preview-action-group">
                           {item.status === 'Completed' || hasContent ? (
-                            <button className="button button-secondary" onClick={() => handleEdit(item)}>Sua slide</button>
+                            <button className="button button-secondary" onClick={() => handleEdit(item)}>{t('slides.editSlide')}</button>
                           ) : (
-                            <button className="button button-secondary" disabled>Dang cho noi dung</button>
+                            <button className="button button-secondary" disabled>{t('slides.waitingContent')}</button>
                           )}
                           <button
                             className="button button-secondary"
                             onClick={() => setExpandedMediaSlideId(isMediaOpen ? null : item.id)}
                           >
                             {isMediaOpen
-                              ? 'An media'
+                              ? t('slides.hideMedia')
                               : imageVm.needsImage
-                                ? (imageVm.hasCandidates || imageVm.selectedImage ? 'Doi anh' : 'Media zone')
-                                : 'Text-only'}
+                                ? (imageVm.hasCandidates || imageVm.selectedImage ? t('slides.swapImage') : t('slides.mediaZone'))
+                                : t('slides.textOnly')}
                           </button>
                           {imageVm.needsImage && (
                             <button
@@ -727,7 +722,7 @@ function SlideStudio() {
                               onClick={() => handleRefreshImages(item)}
                               disabled={isMediaBusy}
                             >
-                              {isMediaBusy ? 'Dang tim anh...' : (imageVm.hasCandidates ? 'Tim lai anh' : 'Tim anh')}
+                              {isMediaBusy ? t('slides.searchingImage') : (imageVm.hasCandidates ? t('slides.refindImage') : t('slides.findImage'))}
                             </button>
                           )}
                         </div>
@@ -738,11 +733,11 @@ function SlideStudio() {
                         <div className="slide-media-tray">
                           <div className="slide-media-tray-head">
                             <div>
-                              <strong>Media inspector scaffold</strong>
-                              <p>Slide {item.slideIndex} se dung tray nay de doi anh, bo anh, va xem attribution o cac phase tiep theo.</p>
+                              <strong>{t('slides.mediaInspector')}</strong>
+                              <p>{t('slides.mediaInspectorBody', { index: item.slideIndex })}</p>
                             </div>
                             <button className="button button-secondary" onClick={() => setExpandedMediaSlideId(null)}>
-                              Dong
+                              {t('slides.close')}
                             </button>
                           </div>
 
@@ -770,7 +765,7 @@ function SlideStudio() {
                                       onClick={() => handleSelectImage(item, candidate.key)}
                                       disabled={isMediaBusy || candidate.key === imageVm.selectedImage?.key}
                                     >
-                                      {candidate.key === imageVm.selectedImage?.key ? 'Dang duoc chon' : 'Chon anh nay'}
+                                      {candidate.key === imageVm.selectedImage?.key ? t('slides.selected') : t('slides.chooseThisImage')}
                                     </button>
                                   </div>
                                 </article>
@@ -778,10 +773,8 @@ function SlideStudio() {
                             </div>
                           ) : (
                             <div className="slide-media-empty">
-                              <strong>Chua co image candidates</strong>
-                              <p>
-                                Bam <strong>Tim anh</strong> de lay anh web an toan nguon va luu candidate cho slide nay.
-                              </p>
+                              <strong>{t('slides.noImageCandidates')}</strong>
+                              <p>{t('slides.noImageCandidatesBody')}</p>
                             </div>
                           )}
                         </div>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import React, { useMemo, useState } from 'react';
+import { BrowserRouter as Router, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import './App.css';
 import AnalysisContent from './components/AnalysisContent';
 import DocumentList from './components/DocumentList';
@@ -9,17 +9,24 @@ import FolderProjects from './components/FolderProjects';
 import FolderStudio from './components/FolderStudio';
 import QuizGame from './components/QuizGame';
 import SlideStudio from './components/SlideStudio';
+import { useLanguage } from './context/LanguageContext';
 
 function App() {
+  const { t } = useLanguage();
   const [currentUser] = useState({
     name: 'Tran Hong Thao',
-    role: 'Teaching workspace',
+    role: t('app.userRole'),
     avatar: null,
   });
 
+  const localizedUser = useMemo(() => ({
+    ...currentUser,
+    role: t('app.userRole'),
+  }), [currentUser, t]);
+
   return (
     <Router>
-      <AppShell user={currentUser} />
+      <AppShell user={localizedUser} />
     </Router>
   );
 }
@@ -27,8 +34,9 @@ function App() {
 function AppShell({ user }) {
   const location = useLocation();
   const [currentFile, setCurrentFile] = useState(null);
-  const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders');
-  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/');
+  const { language, setLanguage, t } = useLanguage();
+  const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
+  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/');
 
   return (
     <div className={`App${isHybridRoute ? ' app-shell-documents' : ''}`}>
@@ -37,11 +45,28 @@ function AppShell({ user }) {
           <div className="app-shell-brand">
             <div className="app-shell-brand-mark">AI</div>
             <div className="app-shell-brand-copy">
-              <strong>AI Teaching</strong>
+              <strong>{t('app.brand')}</strong>
             </div>
           </div>
 
           <div className="app-shell-user">
+            <div className="language-toggle" aria-label={t('app.languageToggle.label')}>
+              <button
+                type="button"
+                className={`language-toggle-button${language === 'vi' ? ' active' : ''}`}
+                onClick={() => setLanguage('vi')}
+              >
+                VI
+              </button>
+              <button
+                type="button"
+                className={`language-toggle-button${language === 'en' ? ' active' : ''}`}
+                onClick={() => setLanguage('en')}
+              >
+                EN
+              </button>
+            </div>
+
             <div className="app-shell-user-meta">
               <span className="user-name">{user.name}</span>
               <span>{user.role}</span>
@@ -49,7 +74,7 @@ function AppShell({ user }) {
             <div className="app-shell-user-avatar">
               {user.avatar ? <img src={user.avatar} alt="avatar" /> : user.name.charAt(0)}
             </div>
-            <button type="button" className="button button-secondary">Logout</button>
+            <button type="button" className="button button-secondary">{t('app.logout')}</button>
           </div>
         </div>
       </header>
@@ -59,19 +84,15 @@ function AppShell({ user }) {
           <div className="app-sidebar-inner">
             <nav className="app-sidebar-nav">
               <NavLink to="/" end className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">Dashboard</span>
+                <span className="sidebar-emoji">{t('app.nav.dashboard')}</span>
               </NavLink>
 
-              <NavLink to="/documents" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">Documents</span>
-              </NavLink>
-
-              <NavLink to="/folders" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">Folders</span>
+              <NavLink to="/workspaces" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
+                <span className="sidebar-emoji">{t('app.nav.workspaces')}</span>
               </NavLink>
 
               <NavLink to="/settings" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">Settings</span>
+                <span className="sidebar-emoji">{t('app.nav.settings')}</span>
               </NavLink>
             </nav>
           </div>
@@ -81,15 +102,18 @@ function AppShell({ user }) {
           <div className="container app-shell-content-inner">
             {!isStudioRoute && (
               <div className="app-page-header">
-                <h1>{getPageTitle(location.pathname)}</h1>
+                <h1>{getPageTitle(location.pathname, t)}</h1>
               </div>
             )}
 
             <Routes>
               <Route path="/" element={<DashboardPage currentFile={currentFile} setCurrentFile={setCurrentFile} />} />
-              <Route path="/documents" element={<DocumentList />} />
-              <Route path="/folders" element={<FolderProjects />} />
-              <Route path="/folders/:folderId/studio" element={<FolderStudio />} />
+              <Route path="/documents" element={<Navigate to="/workspaces" replace />} />
+              <Route path="/folders" element={<Navigate to="/workspaces" replace />} />
+              <Route path="/folders/:folderId/studio" element={<LegacyWorkspaceRedirect />} />
+              <Route path="/workspaces" element={<FolderProjects />} />
+              <Route path="/workspaces/:workspaceId" element={<FolderStudio />} />
+              <Route path="/documents-legacy" element={<DocumentList />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/quiz/:documentId" element={<QuizGame />} />
               <Route path="/flashcards/:documentId" element={<FlashcardGame />} />
@@ -104,6 +128,7 @@ function AppShell({ user }) {
 
 function DashboardPage({ currentFile, setCurrentFile }) {
   const [activeTab, setActiveTab] = useState('file');
+  const { t } = useLanguage();
 
   if (!currentFile) {
     return (
@@ -111,12 +136,9 @@ function DashboardPage({ currentFile, setCurrentFile }) {
         <div className="workspace-clean-start-orb" aria-hidden="true"></div>
         <section className="upload-minimal-box">
           <div className="workspace-clean-start-copy">
-            <span className="workspace-clean-start-kicker">Workspace init</span>
-            <h2>Upload tai lieu de bat dau mot workspace tap trung va toi gian.</h2>
-            <p>
-              Khung nay duoc toi uu de nguoi dung vao thang hanh dong chinh:
-              dua document vao pipeline OCR, AI analysis, quiz, flashcards va slide.
-            </p>
+            <span className="workspace-clean-start-kicker">{t('app.dashboard.kicker')}</span>
+            <h2>{t('app.dashboard.title')}</h2>
+            <p>{t('app.dashboard.subtitle')}</p>
           </div>
           <DocumentUpload
             variant="minimal-dark"
@@ -130,14 +152,14 @@ function DashboardPage({ currentFile, setCurrentFile }) {
   return (
     <div className="workspace-container">
       <div className="workspace-breadcrumb">
-        DASHBOARD <span className="file-name">[{currentFile.fileName}]</span>
+        {t('app.dashboard.breadcrumb')} <span className="file-name">[{currentFile.fileName}]</span>
       </div>
 
       <div className="workspace-toolbar">
-        <button className={activeTab === 'file' ? 'active' : ''} onClick={() => setActiveTab('file')}>View Analysis</button>
-        <button className={activeTab === 'slide' ? 'active' : ''} onClick={() => setActiveTab('slide')}>Slide</button>
-        <button className={activeTab === 'quiz' ? 'active' : ''} onClick={() => setActiveTab('quiz')}>Quiz</button>
-        <button className={activeTab === 'flash' ? 'active' : ''} onClick={() => setActiveTab('flash')}>Flashcard</button>
+        <button className={activeTab === 'file' ? 'active' : ''} onClick={() => setActiveTab('file')}>{t('app.dashboard.tabs.analysis')}</button>
+        <button className={activeTab === 'slide' ? 'active' : ''} onClick={() => setActiveTab('slide')}>{t('app.dashboard.tabs.slides')}</button>
+        <button className={activeTab === 'quiz' ? 'active' : ''} onClick={() => setActiveTab('quiz')}>{t('app.dashboard.tabs.quiz')}</button>
+        <button className={activeTab === 'flash' ? 'active' : ''} onClick={() => setActiveTab('flash')}>{t('app.dashboard.tabs.flashcards')}</button>
       </div>
 
       <div className="workspace-main-frame">
@@ -151,44 +173,47 @@ function DashboardPage({ currentFile, setCurrentFile }) {
 }
 
 function SettingsPage() {
+  const { t } = useLanguage();
+
   return (
     <div className="card">
-      <h2>Settings</h2>
-      <p className="section-subtitle">Placeholder cho cau hinh tai khoan va giao dien. Chua co logic backend rieng.</p>
+      <h2>{t('app.settings.title')}</h2>
+      <p className="section-subtitle">{t('app.settings.subtitle')}</p>
     </div>
   );
 }
 
-function getPageTitle(pathname) {
-  if (pathname.startsWith('/documents')) {
-    return 'My Documents';
+function LegacyWorkspaceRedirect() {
+  const { folderId } = useParams();
+  return <Navigate to={`/workspaces/${folderId}`} replace />;
+}
+
+function getPageTitle(pathname, t) {
+  if (pathname.startsWith('/workspaces/')) {
+    return t('app.pageTitle.workspaceStudio');
   }
 
-  if (pathname.startsWith('/folders/')) {
-    return 'Folder Studio';
-  }
-
-  if (pathname.startsWith('/folders')) {
-    return 'Folder Projects';
+  if (pathname.startsWith('/documents') || pathname.startsWith('/folders') || pathname.startsWith('/workspaces')) {
+    return t('app.pageTitle.workspaces');
   }
 
   if (pathname.startsWith('/settings')) {
-    return 'Settings';
+    return t('app.pageTitle.settings');
   }
 
   if (pathname.startsWith('/quiz/')) {
-    return 'Quiz';
+    return t('app.pageTitle.quiz');
   }
 
   if (pathname.startsWith('/flashcards/')) {
-    return 'Flashcards';
+    return t('app.pageTitle.flashcards');
   }
 
   if (pathname.startsWith('/slides/')) {
-    return 'Slide Studio';
+    return t('app.pageTitle.slides');
   }
 
-  return 'Dashboard';
+  return t('app.pageTitle.dashboard');
 }
 
 export default App;

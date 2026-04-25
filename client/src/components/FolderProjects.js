@@ -1,47 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { folderService } from '../services/api';
+import { workspaceService } from '../services/api';
+import { useLanguage } from '../context/LanguageContext';
 
 const DEMO_USER = 'demo-user';
 
-function formatRelativeTime(value) {
-  if (!value) {
-    return '-';
-  }
-
-  const diffMs = Date.now() - new Date(value).getTime();
-  if (diffMs < 60_000) {
-    return 'vua cap nhat';
-  }
-  if (diffMs < 3_600_000) {
-    return `${Math.max(1, Math.floor(diffMs / 60_000))} phut truoc`;
-  }
-  if (diffMs < 86_400_000) {
-    return `${Math.max(1, Math.floor(diffMs / 3_600_000))} gio truoc`;
-  }
-
-  return new Date(value).toLocaleString();
-}
-
-function getDeckStatusLabel(deck) {
-  if (!deck) {
-    return 'Chua co deck';
-  }
-
-  switch (String(deck.status || '').toLowerCase()) {
-    case 'completed':
-      return deck.isStale ? 'Can regenerate' : 'Deck san sang';
-    case 'failed':
-      return 'Deck that bai';
-    case 'generatingslides':
-    case 'generatingoutline':
-      return 'Dang tao deck';
-    default:
-      return deck.status;
-  }
-}
-
 function FolderProjects() {
+  const { t } = useLanguage();
   const [folders, setFolders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,18 +18,55 @@ function FolderProjects() {
   });
   const navigate = useNavigate();
 
+  const formatRelativeTime = (value) => {
+    if (!value) {
+      return '-';
+    }
+
+    const diffMs = Date.now() - new Date(value).getTime();
+    if (diffMs < 60_000) {
+      return t('workspaces.relativeTime.justNow');
+    }
+    if (diffMs < 3_600_000) {
+      return t('workspaces.relativeTime.minutesAgo', { count: Math.max(1, Math.floor(diffMs / 60_000)) });
+    }
+    if (diffMs < 86_400_000) {
+      return t('workspaces.relativeTime.hoursAgo', { count: Math.max(1, Math.floor(diffMs / 3_600_000)) });
+    }
+
+    return new Date(value).toLocaleString();
+  };
+
+  const getDeckStatusLabel = (deck) => {
+    if (!deck) {
+      return t('workspaces.deckStatus.none');
+    }
+
+    switch (String(deck.status || '').toLowerCase()) {
+      case 'completed':
+        return deck.isStale ? t('workspaces.deckStatus.needsRegenerate') : t('workspaces.deckStatus.ready');
+      case 'failed':
+        return t('workspaces.deckStatus.failed');
+      case 'generatingslides':
+      case 'generatingoutline':
+        return t('workspaces.deckStatus.generating');
+      default:
+        return deck.status;
+    }
+  };
+
   const loadFolders = useCallback(async () => {
     try {
       setError('');
-      const data = await folderService.getUserFolders(DEMO_USER);
+      const data = await workspaceService.list(DEMO_USER);
       setFolders(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc danh sach folder projects.');
+      setError(t('workspaces.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadFolders();
@@ -74,41 +76,41 @@ function FolderProjects() {
     event.preventDefault();
 
     if (!form.name.trim()) {
-      setFeedback('Can nhap ten folder project.');
+      setFeedback(t('workspaces.errors.nameRequired'));
       return;
     }
 
     try {
       setCreating(true);
       setFeedback('');
-      await folderService.createFolder({
+      await workspaceService.create({
         name: form.name.trim(),
         description: form.description.trim(),
         userId: DEMO_USER,
       });
       setForm({ name: '', description: '' });
-      setFeedback('Da tao folder project moi.');
+      setFeedback(t('workspaces.feedback.created'));
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setFeedback('Khong tao duoc folder project.');
+      setFeedback(t('workspaces.errors.createFailed'));
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (folderId) => {
-    if (!window.confirm('Xoa folder project nay va tat ca source ben trong?')) {
+    if (!window.confirm(t('workspaces.confirmDelete'))) {
       return;
     }
 
     try {
-      await folderService.deleteFolder(folderId);
-      setFeedback('Da xoa folder project.');
+      await workspaceService.remove(folderId);
+      setFeedback(t('workspaces.feedback.deleted'));
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setFeedback('Khong xoa duoc folder project.');
+      setFeedback(t('workspaces.errors.deleteFailed'));
     }
   };
 
@@ -116,7 +118,7 @@ function FolderProjects() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Dang tai folder projects...</p>
+        <p>{t('workspaces.loading')}</p>
       </div>
     );
   }
@@ -125,30 +127,27 @@ function FolderProjects() {
     <div className="folders-page">
       <section className="folders-hero card">
         <div className="folders-hero-copy">
-          <span className="folders-eyebrow">Project workspace</span>
-          <h2>Folder Projects cho phep gom nhieu nguon va tao mot slide deck chung.</h2>
-          <p>
-            Moi project co danh sach source rieng, quy trinh chon source thu cong cho slide,
-            va mot studio editor tach biet de sua deck theo mockup.
-          </p>
+          <span className="folders-eyebrow">{t('workspaces.heroEyebrow')}</span>
+          <h2>{t('workspaces.heroTitle')}</h2>
+          <p>{t('workspaces.heroBody')}</p>
         </div>
 
         <form className="folders-create-card" onSubmit={handleCreate}>
-          <strong>Tao folder project</strong>
+          <strong>{t('workspaces.createTitle')}</strong>
           <input
             type="text"
             value={form.name}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Vi du: Giao an Lich su lop 12"
+            placeholder={t('workspaces.createNamePlaceholder')}
           />
           <textarea
             rows={3}
             value={form.description}
             onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            placeholder="Mo ta ngan ve chu de, lop hoc, hoac muc tieu deck"
+            placeholder={t('workspaces.createDescriptionPlaceholder')}
           />
           <button type="submit" className="button" disabled={creating}>
-            {creating ? 'Dang tao...' : 'Tao project'}
+            {creating ? t('workspaces.creating') : t('workspaces.createButton')}
           </button>
         </form>
       </section>
@@ -159,8 +158,8 @@ function FolderProjects() {
       <section className="folders-grid">
         {folders.length === 0 && (
           <div className="folders-empty card">
-            <h3>Chua co folder project nao</h3>
-            <p>Tao project dau tien de upload nhieu nguon va bat dau flow slide deck cap folder.</p>
+            <h3>{t('workspaces.emptyTitle')}</h3>
+            <p>{t('workspaces.emptyBody')}</p>
           </div>
         )}
 
@@ -168,9 +167,9 @@ function FolderProjects() {
           <article key={folder.id} className="folder-card card">
             <div className="folder-card-head">
               <div>
-                <span className="folder-card-kicker">Folder Project</span>
+                <span className="folder-card-kicker">{folder.isDefault ? t('workspaces.defaultWorkspace') : t('workspaces.workspace')}</span>
                 <h3>{folder.name}</h3>
-                <p>{folder.description || 'Chua co mo ta cho project nay.'}</p>
+                <p>{folder.description || t('workspaces.noDescription')}</p>
               </div>
               <span className={`folder-deck-pill${folder.latestDeck?.isStale ? ' stale' : ''}`}>
                 {getDeckStatusLabel(folder.latestDeck)}
@@ -180,36 +179,36 @@ function FolderProjects() {
             <div className="folder-stats-row">
               <div>
                 <strong>{folder.sourceCount || 0}</strong>
-                <span>Nguon</span>
+                <span>{t('workspaces.stats.sources')}</span>
               </div>
               <div>
                 <strong>{folder.readySourceCount || 0}</strong>
-                <span>Ready</span>
+                <span>{t('workspaces.stats.ready')}</span>
               </div>
               <div>
                 <strong>{folder.selectedSourceCount || 0}</strong>
-                <span>Duoc chon</span>
+                <span>{t('workspaces.stats.selected')}</span>
               </div>
               <div>
                 <strong>{folder.latestDeck?.slideCount || 0}</strong>
-                <span>Slides</span>
+                <span>{t('workspaces.stats.slides')}</span>
               </div>
             </div>
 
             <div className="folder-card-meta">
-              <span>Cap nhat: {formatRelativeTime(folder.updatedAt)}</span>
-              <span>{folder.latestDeck?.title || 'Chua co deck hien hanh'}</span>
+              <span>{t('workspaces.updated', { time: formatRelativeTime(folder.updatedAt) })}</span>
+              <span>{folder.latestDeck?.title || t('workspaces.noCurrentDeck')}</span>
             </div>
 
             <div className="folder-card-actions">
-              <button type="button" className="button" onClick={() => navigate(`/folders/${folder.id}/studio`)}>
-                Mo folder studio
+              <button type="button" className="button" onClick={() => navigate(`/workspaces/${folder.id}`)}>
+                {t('workspaces.open')}
               </button>
-              <button type="button" className="button button-secondary" onClick={() => navigate(`/folders/${folder.id}/studio`)}>
-                Quan ly source
+              <button type="button" className="button button-secondary" onClick={() => navigate(`/workspaces/${folder.id}`)}>
+                {t('workspaces.manage')}
               </button>
               <button type="button" className="button button-secondary" onClick={() => handleDelete(folder.id)}>
-                Xoa project
+                {t('workspaces.delete')}
               </button>
             </div>
           </article>

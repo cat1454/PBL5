@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { gameService } from '../services/api';
 import { formatTopicForDisplay } from '../services/topicDisplay';
+import { useLanguage } from '../context/LanguageContext';
 
 function FlashcardGame() {
+  const { t } = useLanguage();
   const { documentId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -18,16 +20,16 @@ function FlashcardGame() {
         const data = await gameService.getFlashcards(documentId);
         setAllFlashcards(data.flashcards);
       } catch (err) {
-        alert('Error loading flashcards. Please generate questions first.');
+        alert(t('flashcards.loadError'));
         console.error(err);
-        navigate('/documents');
+        navigate('/workspaces');
       } finally {
         setLoading(false);
       }
     };
 
     loadFlashcards();
-  }, [documentId, navigate]);
+  }, [documentId, navigate, t]);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -60,7 +62,7 @@ function FlashcardGame() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Dang tai flashcards...</p>
+        <p>{t('flashcards.loading')}</p>
       </div>
     );
   }
@@ -68,19 +70,19 @@ function FlashcardGame() {
   if (flashcards.length === 0) {
     return (
       <div className="card">
-        <h2>{allFlashcards.length > 0 ? 'Tat ca flashcard hien dang bi an' : 'Chua co flashcards'}</h2>
+        <h2>{allFlashcards.length > 0 ? t('flashcards.allHiddenTitle') : t('flashcards.emptyTitle')}</h2>
         <p>
           {allFlashcards.length > 0
-            ? 'Tat bo loc an low-confidence de xem lai tat ca flashcard.'
-            : 'Hay tao cau hoi truoc khi mo flashcards.'}
+            ? t('flashcards.allHiddenBody')
+            : t('flashcards.emptyBody')}
         </p>
         {allFlashcards.length > 0 && (
           <button className="button button-secondary" onClick={() => setHideLowConfidence(false)}>
-            Hien lai flashcard diem thap
+            {t('flashcards.showLowConfidence')}
           </button>
         )}
-        <button className="button" onClick={() => navigate('/documents')}>
-          Quay lai Documents
+        <button className="button" onClick={() => navigate('/workspaces')}>
+          {t('flashcards.backToWorkspaces')}
         </button>
       </div>
     );
@@ -96,13 +98,13 @@ function FlashcardGame() {
       <div className="card">
         <div className="section-header compact">
           <div>
-            <h2>🃏 Flashcards</h2>
-            <p className="section-subtitle">Cham vao the de lat mat sau va on lai dap an dung.</p>
+            <h2>{t('flashcards.title')}</h2>
+            <p className="section-subtitle">{t('flashcards.subtitle')}</p>
           </div>
           <div className="quality-toolbar">
             <span className="mini-topic-tag">{topicDisplay.friendlyLabel}</span>
             <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
-              {hideLowConfidence ? 'Hien tat ca the' : 'An the diem thap'}
+              {hideLowConfidence ? t('flashcards.showAllCards') : t('flashcards.hideLowConfidence')}
             </button>
             {quality.score !== undefined && quality.score !== null && (
               <span className={`quality-chip ${quality.isLowConfidence ? 'low' : 'good'}`}>
@@ -113,32 +115,32 @@ function FlashcardGame() {
         </div>
         {topicDisplay.mainTopic && (
           <p className="flashcard-meta" style={{ marginTop: '6px' }}>
-            Chủ đề chính: {topicDisplay.mainTopic}
+            {t('flashcards.mainTopic')} {topicDisplay.mainTopic}
           </p>
         )}
         {topicDisplay.technicalTag && (
           <p className="flashcard-meta" style={{ marginTop: '2px' }}>
-            Tag kỹ thuật: {topicDisplay.technicalTag}
+            {t('flashcards.technicalTag')} {topicDisplay.technicalTag}
           </p>
         )}
-        
+
         <div className="progress-bar">
           <div className="progress-fill" style={{ width: `${progress}%` }}></div>
         </div>
-        
+
         <p className="flashcard-meta">
-          The {currentIndex + 1} / {flashcards.length}
+          {t('flashcards.cardProgress', { current: currentIndex + 1, total: flashcards.length })}
         </p>
 
         <div className="flashcard" onClick={handleFlip}>
           <div className="flashcard-content">
             {(quality.isLowConfidence || quality.isUnknown) && (
               <div className="alert alert-info quality-warning">
-                <strong>{quality.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+                <strong>{quality.isLowConfidence ? t('flashcards.reviewNeeded') : t('flashcards.noVerifier')}</strong>
                 <p>
                   {quality.isLowConfidence
-                    ? `The nay co diem verifier ${quality.score}/100. Nen kiem tra lai dap an va explanation.`
-                    : 'The nay da duoc chinh sua thu cong hoac chua duoc verifier lai.'}
+                    ? t('flashcards.lowConfidenceBody', { score: quality.score })
+                    : t('flashcards.noVerifierBody')}
                 </p>
                 {Array.isArray(quality.issues) && quality.issues.length > 0 && (
                   <ul className="quality-issues">
@@ -151,24 +153,24 @@ function FlashcardGame() {
             )}
             {!flipped ? (
               <div>
-                <h3 style={{ color: '#667eea' }}>Question:</h3>
+                <h3 style={{ color: '#667eea' }}>{t('flashcards.question')}</h3>
                 <p>{currentCard.front}</p>
                 <p style={{ marginTop: '30px', color: '#999', fontSize: '0.9em' }}>
-                  Bam vao the de hien dap an
+                  {t('flashcards.tapToShow')}
                 </p>
               </div>
             ) : (
               <div>
-                <h3 style={{ color: '#28a745' }}>Dap an:</h3>
+                <h3 style={{ color: '#28a745' }}>{t('flashcards.answer')}</h3>
                 <p><strong>{currentCard.back}</strong></p>
                 {currentCard.explanation && (
                   <div className="flashcard-explanation">
-                    <strong>Giai thich:</strong>
+                    <strong>{t('flashcards.explanation')}</strong>
                     <p>{currentCard.explanation}</p>
                   </div>
                 )}
                 <p style={{ marginTop: '30px', color: '#999', fontSize: '0.9em' }}>
-                  Bam vao the de quay lai cau hoi
+                  {t('flashcards.tapToReturn')}
                 </p>
               </div>
             )}
@@ -181,25 +183,25 @@ function FlashcardGame() {
             onClick={handlePrevious}
             disabled={currentIndex === 0}
           >
-            ← Truoc
+            {t('flashcards.previous')}
           </button>
-          
-          <button className="button" onClick={() => navigate('/documents')}>
-            📚 Documents
+
+          <button className="button" onClick={() => navigate('/workspaces')}>
+            {t('flashcards.workspaces')}
           </button>
-          
+
           <button
             className="button"
             onClick={handleNext}
             disabled={currentIndex === flashcards.length - 1}
           >
-            Tiep →
+            {t('flashcards.next')}
           </button>
         </div>
 
         {currentIndex === flashcards.length - 1 && (
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
-            <p>🎉 Ban da xem the cuoi cung.</p>
+            <p>{t('flashcards.reachedEnd')}</p>
             <button
               className="button"
               onClick={() => {
@@ -208,7 +210,7 @@ function FlashcardGame() {
               }}
               style={{ marginTop: '10px' }}
             >
-              🔄 Hoc lai tu dau
+              {t('flashcards.restart')}
             </button>
           </div>
         )}

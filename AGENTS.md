@@ -40,6 +40,13 @@ This repo is a .NET + React MVP for document ingestion, OCR, AI analysis, quiz/f
 - When changing backend contracts, also inspect `client/src/services/api.js` and affected React screens.
 - When changing slide/image pipeline code, check both API configuration and frontend slide preview/editor flows.
 - Keep comments sparse and high-signal.
+- Follow the bilingual UI rule in `BILINGUAL_UI_REQUIREMENTS.md` for any user-facing frontend change.
+
+## Bilingual UI Rule
+
+- Any new frontend feature or change to user-facing UI text must be implemented in both English (`en`) and Vietnamese with proper diacritics (`vi`) in the same task.
+- Do not leave new buttons, labels, messages, empty states, validation errors, loading states, or settings text in only one language.
+- When updating frontend copy, update the shared translation source for both languages before considering the task complete.
 
 ## Do Not Assume
 
