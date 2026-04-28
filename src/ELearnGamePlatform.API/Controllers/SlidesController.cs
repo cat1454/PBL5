@@ -13,6 +13,8 @@ namespace ELearnGamePlatform.API.Controllers;
 [Route("api/[controller]")]
 public class SlidesController : ControllerBase
 {
+    private const int SlideLowConfidenceThreshold = 85;
+
     private readonly IDocumentRepository _documentRepository;
     private readonly ISlideDeckRepository _slideDeckRepository;
     private readonly ISlideGenerator _slideGenerator;
@@ -401,8 +403,11 @@ public class SlidesController : ControllerBase
                 item.SetBodyBlocks(content.BodyBlocks);
                 item.SetEditorState(item.BuildDefaultEditorState());
                 RefreshImageScaffold(item);
-                await slideImageService.SourceImagesForItemAsync(item);
-                item.Status = SlideItemStatus.Completed;
+                item.Status = content.SuggestedStatus;
+                if (item.Status == SlideItemStatus.Completed)
+                {
+                    await slideImageService.SourceImagesForItemAsync(item);
+                }
                 await slideDeckRepository.UpdateItemAsync(item);
 
                 UpdateJob(jobId, state =>
@@ -494,7 +499,7 @@ public class SlidesController : ControllerBase
                 averageScore = deck.Items.Any(item => item.VerifierScore.HasValue)
                     ? (int)Math.Round(deck.Items.Where(item => item.VerifierScore.HasValue).Average(item => item.VerifierScore ?? 0))
                     : (int?)null,
-                lowConfidenceCount = deck.Items.Count(item => (item.VerifierScore ?? 100) < 70),
+                lowConfidenceCount = deck.Items.Count(item => IsLowConfidenceScore(item.VerifierScore)),
                 unknownCount = deck.Items.Count(item => !item.VerifierScore.HasValue)
             },
             generationProgress = JobProgressPayloadFactory.BuildSlide(jobState, deck),
@@ -665,10 +670,13 @@ public class SlidesController : ControllerBase
         {
             score,
             issues,
-            isLowConfidence = score.HasValue && score.Value < 70,
+            isLowConfidence = IsLowConfidenceScore(score),
             isUnknown = !score.HasValue
         };
     }
+
+    private static bool IsLowConfidenceScore(int? score)
+        => score.HasValue && score.Value < SlideLowConfidenceThreshold;
 
     private static SlideOutlineResult? DeserializeOutline(string? json)
     {

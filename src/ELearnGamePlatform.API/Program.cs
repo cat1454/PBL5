@@ -20,7 +20,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = ResolveContentRoot()
 });
-builder.WebHost.UseUrls("http://localhost:5001");
+builder.WebHost.UseUrls("http://localhost:5000");
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -164,12 +164,21 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
 
     try
     {
-        EnsureColumnExists(connection, "questions", "verifier_score");
-        EnsureColumnExists(connection, "questions", "verifier_issues");
-        EnsureColumnExists(connection, "slide_items", "verifier_score");
-        EnsureColumnExists(connection, "slide_items", "verifier_issues");
-        EnsureColumnExists(connection, "slide_items", "key_message");
-        EnsureColumnExists(connection, "slide_items", "evidence_from_text");
+    EnsureColumnExists(connection, "questions", "verifier_score");
+    EnsureColumnExists(connection, "questions", "verifier_issues");
+
+    EnsureColumnExists(connection, "documents", "processed_metadata");
+
+    EnsureColumnExists(connection, "slide_items", "verifier_score");
+    EnsureColumnExists(connection, "slide_items", "verifier_issues");
+    EnsureColumnExists(connection, "slide_items", "key_message");
+    EnsureColumnExists(connection, "slide_items", "evidence_from_text");
+    EnsureColumnExists(connection, "slide_items", "evidence_debug");
+
+    EnsureColumnExists(connection, "slide_items", "image_candidates");
+    EnsureColumnExists(connection, "slide_items", "image_plan");
+    EnsureColumnExists(connection, "slide_items", "editor_state");
+    EnsureColumnExists(connection, "slide_items", "selected_image_key");
     }
     finally
     {
