@@ -14,6 +14,14 @@ namespace ELearnGamePlatform.API.Controllers;
 public class SlidesController : ControllerBase
 {
     private const int SlideLowConfidenceThreshold = 85;
+    private static readonly HashSet<string> ExplicitlyExcludedScopeClassifications = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ChunkClassifications.FrontMatter,
+        ChunkClassifications.TableOfContents,
+        ChunkClassifications.Reference,
+        ChunkClassifications.Appendix,
+        ChunkClassifications.Noise
+    };
 
     private readonly IDocumentRepository _documentRepository;
     private readonly ISlideDeckRepository _slideDeckRepository;
@@ -44,9 +52,9 @@ public class SlidesController : ControllerBase
     [HttpPost("generate/start")]
     public async Task<IActionResult> StartGenerateSlides([FromBody] GenerateSlidesRequest request)
     {
-        if (request.DesiredSlideCount is < 5 or > 12)
+        if (!IsValidSlideCount(request.DesiredSlideCount))
         {
-            return BadRequest("DesiredSlideCount must be between 5 and 12");
+            return BadRequest("DesiredSlideCount must be between 5 and 18");
         }
 
         try
@@ -68,7 +76,11 @@ public class SlidesController : ControllerBase
             Audience = request.Audience,
             Tone = request.Tone,
             NarrativeGoal = request.NarrativeGoal,
-            LanguageStyle = request.LanguageStyle
+            LanguageStyle = request.LanguageStyle,
+            Mode = request.Mode,
+            ScopePolicy = request.ScopePolicy,
+            SelectedSectionIds = request.SelectedSectionIds,
+            SourceIds = request.SourceIds
         }));
 
         return Accepted(new
@@ -389,6 +401,7 @@ public class SlidesController : ControllerBase
                     index + 1,
                     slideItems.Count,
                     slideProgress);
+                EnforceEvidenceScope(content, context.AllowedChunkIds);
 
                 item.Heading = content.Heading ?? item.Heading;
                 item.Subheading = content.Subheading;
@@ -743,7 +756,16 @@ public class SlidesController : ControllerBase
                 : request.NarrativeGoal.Trim(),
             LanguageStyle = string.IsNullOrWhiteSpace(request.LanguageStyle)
                 ? "Tieng Viet ngan gon, chuyen nghiep, de doc tren slide"
-                : request.LanguageStyle.Trim()
+                : request.LanguageStyle.Trim(),
+            Mode = NormalizeGenerationMode(request.Mode),
+            ScopePolicy = string.IsNullOrWhiteSpace(request.ScopePolicy)
+                ? "selected-sections-only"
+                : request.ScopePolicy.Trim(),
+            SelectedSectionIds = request.SelectedSectionIds?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>()
         };
     }
 
@@ -836,6 +858,25 @@ public class SlidesController : ControllerBase
                 .Select(source => $"Nguon: {source.FileName}\n\n{source.ExtractedText?.Trim()}"));
     }
 
+    private static string BuildCombinedExtractedTextFromChunks(Document source, IReadOnlyCollection<DocumentCoverageChunk> chunks)
+    {
+        var ordered = chunks.OrderBy(chunk => chunk.ChunkNumber).ToList();
+        var body = string.Join(
+            "\n\n",
+            ordered.Select(chunk =>
+                string.Join(
+                    "\n",
+                    new[]
+                    {
+                        $"[{chunk.ChunkId}] {chunk.Label}",
+                        chunk.Summary,
+                        chunk.EvidenceExcerpt,
+                        string.Join(" ", chunk.KeyFacts.Where(value => !string.IsNullOrWhiteSpace(value)))
+                    }.Where(value => !string.IsNullOrWhiteSpace(value)))));
+
+        return $"Nguon: {source.FileName}\n\n{body}";
+    }
+
     private async Task<SlideGenerationContext> ResolveGenerationContextAsync(
         SlideGenerationTarget target,
         IDocumentRepository documentRepository,
@@ -854,10 +895,22 @@ public class SlidesController : ControllerBase
                 return SlideGenerationContext.Fail("Document has not been processed yet", "Tai lieu chua co noi dung ExtractedText");
             }
 
-            return SlideGenerationContext.FromDocument(
-                document.Id,
-                document.ExtractedText,
-                BuildProcessedContentFromDocument(document));
+            var processedContent = BuildProcessedContentFromDocument(document);
+            if (target.SelectedSectionIds?.Count > 0)
+            {
+                var filtered = TryFilterProcessedContentForDocument(document, processedContent, target.SelectedSectionIds, out var filterError);
+                if (filtered == null)
+                {
+                    return SlideGenerationContext.Fail("Selected sections are invalid", filterError ?? "Khong tim thay section duoc chon");
+                }
+
+                return SlideGenerationContext.FromDocument(
+                    document.Id,
+                    BuildCombinedExtractedTextFromChunks(document, filtered.CoverageMap),
+                    filtered);
+            }
+
+            return SlideGenerationContext.FromDocument(document.Id, document.ExtractedText, processedContent);
         }
 
         if (target.FolderProjectId.HasValue)
@@ -888,6 +941,28 @@ public class SlidesController : ControllerBase
                 return SlideGenerationContext.Fail("Selected sources are not ready", "Nguon duoc chon cho slide chua OCR/analyze xong");
             }
 
+            if (target.SourceIds?.Count > 0 || target.SelectedSectionIds?.Count > 0)
+            {
+                var primarySourceId = target.SourceIds?.FirstOrDefault() ?? 0;
+                var primarySource = readySources.FirstOrDefault(source => source.Id == primarySourceId);
+                if (primarySource == null)
+                {
+                    return SlideGenerationContext.Fail("Primary source is missing", "Can chon 1 tai lieu chinh de tao deck theo chuong");
+                }
+
+                var processedContent = BuildProcessedContentFromDocument(primarySource);
+                var filtered = TryFilterProcessedContentForDocument(primarySource, processedContent, target.SelectedSectionIds ?? new List<string>(), out var filterError);
+                if (filtered == null)
+                {
+                    return SlideGenerationContext.Fail("Selected sections are invalid", filterError ?? "Khong tim thay section duoc chon");
+                }
+
+                return SlideGenerationContext.FromFolder(
+                    folder.Id,
+                    BuildCombinedExtractedTextFromChunks(primarySource, filtered.CoverageMap),
+                    filtered);
+            }
+
             return SlideGenerationContext.FromFolder(
                 folder.Id,
                 BuildCombinedExtractedText(readySources),
@@ -895,6 +970,173 @@ public class SlidesController : ControllerBase
         }
 
         return SlideGenerationContext.Fail("Missing slide generation owner", "Khong xac dinh duoc owner cua slide deck");
+    }
+
+    private static ProcessedContent? TryFilterProcessedContentForDocument(
+        Document source,
+        ProcessedContent processedContent,
+        IReadOnlyCollection<string> selectedSectionIds,
+        out string? error)
+    {
+        error = null;
+        if (selectedSectionIds.Count == 0)
+        {
+            error = "Can chon it nhat 1 chapter/section truoc khi tao slide.";
+            return null;
+        }
+
+        var normalizedSelections = selectedSectionIds
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => ParseSelectedSectionId(value.Trim(), source.Id))
+            .Where(parsed => parsed.SourceId == source.Id && !string.IsNullOrWhiteSpace(parsed.SectionKey))
+            .Select(parsed => parsed.SectionKey!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (normalizedSelections.Count == 0)
+        {
+            error = "Section da chon khong thuoc tai lieu chinh hien tai.";
+            return null;
+        }
+
+        var structure = processedContent.Structure ?? new List<DocumentSectionDescriptor>();
+        var selectedSections = structure
+            .Where(section => normalizedSelections.Contains(section.SectionKey))
+            .ToList();
+
+        if (selectedSections.Count == 0)
+        {
+            error = "Khong tim thay section duoc chon trong metadata cau truc.";
+            return null;
+        }
+
+        var allowedChunkIds = selectedSections
+            .SelectMany(section => section.ChunkIds ?? new List<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var explicitlyAllowedClassifications = selectedSections
+            .Select(section => section.Classification)
+            .Where(value => !string.IsNullOrWhiteSpace(value) && ExplicitlyExcludedScopeClassifications.Contains(value))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var filteredCoverage = processedContent.CoverageMap
+            .Where(chunk => allowedChunkIds.Contains(chunk.ChunkId))
+            .Where(chunk =>
+                !ExplicitlyExcludedScopeClassifications.Contains(chunk.Classification)
+                || explicitlyAllowedClassifications.Contains(chunk.Classification))
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .ToList();
+
+        if (filteredCoverage.Count == 0)
+        {
+            error = "Section da chon khong co chunk day hoc hop le de tao slide.";
+            return null;
+        }
+
+        var filteredStructure = selectedSections
+            .Select(section => new DocumentSectionDescriptor
+            {
+                SectionKey = BuildScopedSectionId(source.Id, section.SectionKey),
+                Heading = section.Heading,
+                Classification = section.Classification,
+                StartPage = section.StartPage,
+                EndPage = section.EndPage,
+                ChunkIds = section.ChunkIds
+                    .Where(allowedChunkIds.Contains)
+                    .ToList()
+            })
+            .ToList();
+
+        var keyPoints = filteredCoverage
+            .SelectMany(chunk => chunk.KeyFacts)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(24)
+            .ToList();
+
+        return new ProcessedContent
+        {
+            MainTopics = processedContent.MainTopics
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Take(12)
+                .ToList(),
+            KeyPoints = keyPoints.Any()
+                ? keyPoints
+                : processedContent.KeyPoints
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Take(18)
+                    .ToList(),
+            Summary = string.Join(" ", filteredStructure
+                .Select(section => section.Heading)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)),
+            Language = processedContent.Language,
+            DocumentType = processedContent.DocumentType,
+            Title = processedContent.Title,
+            MainContentStartPage = filteredStructure
+                .Select(section => section.StartPage)
+                .FirstOrDefault(page => page.HasValue),
+            Structure = filteredStructure,
+            ExcludedContent = processedContent.ExcludedContent
+                .Where(item => item.ChunkId == null || !allowedChunkIds.Contains(item.ChunkId))
+                .ToList(),
+            CoverageMap = filteredCoverage
+        };
+    }
+
+    private static string BuildScopedSectionId(int sourceId, string sectionKey)
+        => $"{sourceId}::{sectionKey}";
+
+    private static (int? SourceId, string? SectionKey) ParseSelectedSectionId(string rawValue, int fallbackSourceId)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return (fallbackSourceId, null);
+        }
+
+        var parts = rawValue.Split(new[] { "::" }, StringSplitOptions.None);
+        if (parts.Length == 2 && int.TryParse(parts[0], out var sourceId))
+        {
+            return (sourceId, parts[1]);
+        }
+
+        return (fallbackSourceId, rawValue);
+    }
+
+    private static string NormalizeGenerationMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return "lecture";
+        }
+
+        return mode.Trim().ToLowerInvariant() switch
+        {
+            "summary" => "summary",
+            "exam-review" => "exam-review",
+            "timeline" => "timeline",
+            _ => "lecture"
+        };
+    }
+
+    private static object? BuildScopeRecommendation(GenerateFolderSlidesRequest request)
+    {
+        if (request.SelectedSectionIds == null || request.SelectedSectionIds.Count == 0)
+        {
+            return null;
+        }
+
+        if (request.DesiredSlideCount >= 18)
+        {
+            return null;
+        }
+
+        return new
+        {
+            suggestedSlideCount = request.DesiredSlideCount < 12 ? 12 : 18,
+            reason = "Selected sections may need a larger deck to preserve chapter structure and review flow."
+        };
     }
 
     private static bool IsFolderDeckStale(SlideDeck deck, IEnumerable<Document> sources)
@@ -906,6 +1148,36 @@ public class SlidesController : ControllerBase
 
         var comparisonPoint = deck.CompletedAt ?? deck.UpdatedAt;
         return sources.Any(source => source.CreatedAt > comparisonPoint || source.UpdatedAt > comparisonPoint);
+    }
+
+    private static void EnforceEvidenceScope(SlideContentResult content, IReadOnlyCollection<string> allowedChunkIds)
+    {
+        if (content.EvidenceDebug?.SelectedChunks == null || content.EvidenceDebug.SelectedChunks.Count == 0)
+        {
+            return;
+        }
+
+        var allowed = allowedChunkIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var outOfScope = content.EvidenceDebug.SelectedChunks
+            .Where(chunk => !string.IsNullOrWhiteSpace(chunk.ChunkId) && !allowed.Contains(chunk.ChunkId))
+            .Select(chunk => chunk.ChunkId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (outOfScope.Count == 0)
+        {
+            return;
+        }
+
+        content.SuggestedStatus = SlideItemStatus.NeedsReview;
+        content.VerifierScore = Math.Min(content.VerifierScore ?? 75, 75);
+        content.VerifierIssues = content.VerifierIssues
+            .Concat(new[]
+            {
+                $"Evidence vuot pham vi section da chon: {string.Join(", ", outOfScope)}."
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void FailJob(string jobId, string error, string message)
@@ -995,9 +1267,25 @@ public class SlidesController : ControllerBase
     [HttpPost("folders/{folderId}/generate/start")]
     public async Task<IActionResult> StartGenerateSlidesForFolder(int folderId, [FromBody] GenerateFolderSlidesRequest request)
     {
-        if (request.DesiredSlideCount is < 5 or > 12)
+        if (!IsValidSlideCount(request.DesiredSlideCount))
         {
-            return BadRequest("DesiredSlideCount must be between 5 and 12");
+            return BadRequest("DesiredSlideCount must be between 5 and 18");
+        }
+
+        if (request.SourceIds?.Count > 1)
+        {
+            return BadRequest("V1 supports one primary source document per deck run.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ScopePolicy) &&
+            !string.Equals(request.ScopePolicy, "selected-sections-only", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest("Only scopePolicy=selected-sections-only is supported.");
+        }
+
+        if (!IsSupportedGenerationMode(request.Mode))
+        {
+            return BadRequest("Unsupported slide generation mode.");
         }
 
         try
@@ -1019,8 +1307,14 @@ public class SlidesController : ControllerBase
             Audience = request.Audience,
             Tone = request.Tone,
             NarrativeGoal = request.NarrativeGoal,
-            LanguageStyle = request.LanguageStyle
+            LanguageStyle = request.LanguageStyle,
+            SourceIds = request.SourceIds,
+            SelectedSectionIds = request.SelectedSectionIds,
+            Mode = request.Mode,
+            ScopePolicy = request.ScopePolicy
         }));
+
+        var recommendation = BuildScopeRecommendation(request);
 
         return Accepted(new
         {
@@ -1028,9 +1322,20 @@ public class SlidesController : ControllerBase
             status = "queued",
             progressUrl = $"/api/slides/generate/progress/{jobId}",
             resultUrl = $"/api/slides/folders/{folderId}",
-            progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state)
+            progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state),
+            scopeRecommendation = recommendation
         });
     }
+
+    private static bool IsValidSlideCount(int desiredSlideCount)
+        => desiredSlideCount is >= 5 and <= 18;
+
+    private static bool IsSupportedGenerationMode(string? mode)
+        => string.IsNullOrWhiteSpace(mode)
+            || mode.Equals("lecture", StringComparison.OrdinalIgnoreCase)
+            || mode.Equals("summary", StringComparison.OrdinalIgnoreCase)
+            || mode.Equals("exam-review", StringComparison.OrdinalIgnoreCase)
+            || mode.Equals("timeline", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSlideSchemaMissing(PostgresException ex)
     {
@@ -1297,6 +1602,10 @@ public class GenerateSlidesRequest
     public string? Tone { get; set; }
     public string? NarrativeGoal { get; set; }
     public string? LanguageStyle { get; set; }
+    public List<int>? SourceIds { get; set; }
+    public List<string>? SelectedSectionIds { get; set; }
+    public string? Mode { get; set; }
+    public string? ScopePolicy { get; set; }
 }
 
 public class GenerateFolderSlidesRequest
@@ -1307,6 +1616,10 @@ public class GenerateFolderSlidesRequest
     public string? Tone { get; set; }
     public string? NarrativeGoal { get; set; }
     public string? LanguageStyle { get; set; }
+    public List<int>? SourceIds { get; set; }
+    public List<string>? SelectedSectionIds { get; set; }
+    public string? Mode { get; set; }
+    public string? ScopePolicy { get; set; }
 }
 
 public class UpdateSlideItemRequest
@@ -1335,6 +1648,10 @@ internal sealed class SlideGenerationTarget
     public string? Tone { get; init; }
     public string? NarrativeGoal { get; init; }
     public string? LanguageStyle { get; init; }
+    public List<int>? SourceIds { get; init; }
+    public List<string>? SelectedSectionIds { get; init; }
+    public string? Mode { get; init; }
+    public string? ScopePolicy { get; init; }
 }
 
 internal sealed class SlideGenerationContext
@@ -1344,6 +1661,7 @@ internal sealed class SlideGenerationContext
     public int? FolderProjectId { get; private init; }
     public string ExtractedText { get; private init; } = string.Empty;
     public ProcessedContent ProcessedContent { get; private init; } = new();
+    public HashSet<string> AllowedChunkIds { get; private init; } = new(StringComparer.OrdinalIgnoreCase);
     public string? Error { get; private init; }
     public string? ErrorMessage { get; private init; }
 
@@ -1353,7 +1671,10 @@ internal sealed class SlideGenerationContext
             Success = true,
             DocumentId = documentId,
             ExtractedText = extractedText,
-            ProcessedContent = processedContent
+            ProcessedContent = processedContent,
+            AllowedChunkIds = processedContent.CoverageMap
+                .Select(chunk => chunk.ChunkId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
         };
 
     public static SlideGenerationContext FromFolder(int folderProjectId, string extractedText, ProcessedContent processedContent)
@@ -1362,7 +1683,10 @@ internal sealed class SlideGenerationContext
             Success = true,
             FolderProjectId = folderProjectId,
             ExtractedText = extractedText,
-            ProcessedContent = processedContent
+            ProcessedContent = processedContent,
+            AllowedChunkIds = processedContent.CoverageMap
+                .Select(chunk => chunk.ChunkId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
         };
 
     public static SlideGenerationContext Fail(string error, string errorMessage)

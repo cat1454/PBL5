@@ -17,6 +17,7 @@ public class DocumentsController : ControllerBase
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
     private readonly IWorkspaceService _workspaceService;
+    private readonly IContentAnalyzer _contentAnalyzer;
 
     public DocumentsController(
         IDocumentRepository documentRepository,
@@ -24,7 +25,8 @@ public class DocumentsController : ControllerBase
         ILogger<DocumentsController> logger,
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
-        IWorkspaceService workspaceService)
+        IWorkspaceService workspaceService,
+        IContentAnalyzer contentAnalyzer)
     {
         _documentRepository = documentRepository;
         _questionRepository = questionRepository;
@@ -32,6 +34,7 @@ public class DocumentsController : ControllerBase
         _documentJobStore = documentJobStore;
         _documentIngestionService = documentIngestionService;
         _workspaceService = workspaceService;
+        _contentAnalyzer = contentAnalyzer;
     }
 
     [HttpPost("upload")]
@@ -103,6 +106,61 @@ public class DocumentsController : ControllerBase
         return Ok(JobProgressPayloadFactory.BuildDocument(progressState, document));
     }
 
+    [HttpGet("{id}/structure")]
+    public async Task<IActionResult> GetDocumentStructure(int id)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        return Ok(BuildDocumentStructurePayload(document));
+    }
+
+    [HttpPost("{id}/analyze-structure")]
+    public async Task<IActionResult> AnalyzeDocumentStructure(int id)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        if (string.IsNullOrWhiteSpace(document.ExtractedText))
+        {
+            return BadRequest("Document has not been processed yet");
+        }
+
+        try
+        {
+            var processedContent = await _contentAnalyzer.AnalyzeContentAsync(document.ExtractedText);
+            document.SetMainTopics(processedContent.MainTopics);
+            document.SetKeyPoints(processedContent.KeyPoints);
+            document.SetCoverageMap(processedContent.CoverageMap);
+            document.SetProcessingMetadata(new DocumentProcessingMetadata
+            {
+                DocumentType = processedContent.DocumentType,
+                Language = processedContent.Language,
+                Title = processedContent.Title,
+                MainContentStartPage = processedContent.MainContentStartPage,
+                Structure = processedContent.Structure,
+                ExcludedContent = processedContent.ExcludedContent
+            });
+            document.Summary = processedContent.Summary;
+            document.Language = processedContent.Language;
+            document.UpdatedAt = DateTime.UtcNow;
+
+            await _documentRepository.UpdateAsync(document.Id, document);
+            return Ok(BuildDocumentStructurePayload(document));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error re-analyzing document structure for {DocumentId}", id);
+            return StatusCode(500, "Error analyzing document structure");
+        }
+    }
+
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserDocuments(string userId)
     {
@@ -171,6 +229,43 @@ public class DocumentsController : ControllerBase
             createdAt = doc.CreatedAt,
             updatedAt = doc.UpdatedAt,
             questionsCount,
+            processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, doc)
+        };
+    }
+
+    private object BuildDocumentStructurePayload(Document doc)
+    {
+        _documentJobStore.TryGetJob(doc.Id, out var progressState);
+        var processingMetadata = doc.GetProcessingMetadata();
+        var structure = processingMetadata.Structure ?? new List<DocumentSectionDescriptor>();
+
+        return new
+        {
+            id = doc.Id,
+            fileName = doc.FileName,
+            status = doc.Status,
+            documentType = processingMetadata.DocumentType,
+            title = processingMetadata.Title,
+            language = processingMetadata.Language ?? doc.Language,
+            mainContentStartPage = processingMetadata.MainContentStartPage,
+            analysisStatus = doc.Status == DocumentStatus.Completed
+                ? "ready"
+                : doc.Status == DocumentStatus.Failed
+                    ? "failed"
+                    : "processing",
+            isStructureReady = structure.Count > 0,
+            sectionCount = structure.Count,
+            structure = structure.Select(section => new
+            {
+                sectionKey = section.SectionKey,
+                heading = section.Heading,
+                classification = section.Classification,
+                startPage = section.StartPage,
+                endPage = section.EndPage,
+                chunkCount = section.ChunkIds?.Count ?? 0,
+                chunkIds = section.ChunkIds
+            }),
+            excludedContent = processingMetadata.ExcludedContent,
             processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, doc)
         };
     }

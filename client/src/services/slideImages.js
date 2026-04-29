@@ -1,5 +1,16 @@
 const TEXT_ONLY_SLIDE_TYPES = new Set(['sectiondivider', 'quote']);
 
+const fallbackTranslate = (_key, fallback, params) => {
+  if (!params) {
+    return fallback;
+  }
+
+  return Object.entries(params).reduce(
+    (message, [key, value]) => message.replace(`{{${key}}}`, value),
+    fallback
+  );
+};
+
 const normalizeOptionalString = (value) => {
   if (typeof value !== 'string') {
     return null;
@@ -127,7 +138,7 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
         candidate?.Provider,
         candidate?.domain,
         candidate?.Domain,
-        sourceType === 'generated' ? 'Ảnh AI tạo' : 'Web'
+        sourceType === 'generated' ? 'AI Generated' : 'Web'
       ),
       originUrl: pickFirstString(candidate?.originUrl, candidate?.OriginUrl, candidate?.sourceUrl, candidate?.SourceUrl),
       localAssetUrl: pickFirstString(
@@ -152,7 +163,7 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
         candidate?.url,
         candidate?.Url
       ),
-      altText: pickFirstString(candidate?.altText, candidate?.AltText, 'Ảnh minh họa cho slide'),
+      altText: pickFirstString(candidate?.altText, candidate?.AltText, 'Illustration for slide'),
       licenseLabel: pickFirstString(candidate?.licenseLabel, candidate?.LicenseLabel),
       attributionText: pickFirstString(candidate?.attributionText, candidate?.AttributionText),
       width: Number.isFinite(candidate?.width) ? candidate.width : (Number.isFinite(candidate?.Width) ? candidate.Width : null),
@@ -186,52 +197,52 @@ export const normalizeSelectedImage = (item) => {
   return candidates.find((candidate) => candidate.isSelected) || null;
 };
 
-const getImageStatusLabel = (status) => {
+const getImageStatusLabel = (status, t = fallbackTranslate) => {
   switch (status) {
     case 'ready':
-      return 'Da co media preview';
+      return t('slides.imageStates.ready', 'Media is ready');
     case 'queued':
-      return 'Dang cho image workflow';
+      return t('slides.imageStates.queued', 'Waiting for media workflow');
     case 'running':
-      return 'Dang xu ly image workflow';
+      return t('slides.imageStates.running', 'Media workflow is running');
     case 'sourcing-web':
-      return 'Dang tim anh web';
+      return t('slides.imageStates.sourcingWeb', 'Searching safe web images');
     case 'generating-fallback':
-      return 'Dang tao anh fallback';
+      return t('slides.imageStates.generatingFallback', 'Generating fallback image');
     case 'failed':
-      return 'Image workflow that bai';
+      return t('slides.imageStates.failed', 'Media workflow failed');
     case 'no-image-needed':
-      return 'Slide uu tien text-only';
+      return t('slides.imageStates.noImageNeeded', 'This slide works best as text-only');
     case 'no-license-safe-image':
-      return 'Chua co anh web an toan';
+      return t('slides.imageStates.noLicenseSafeImage', 'No license-safe image found yet');
     case 'not-requested':
     default:
-      return 'Chua co du lieu anh';
+      return t('slides.imageStates.notRequested', 'No media requested yet');
   }
 };
 
-const getImageBadgeLabel = (status, selectedImage, needsImage) => {
+const getImageBadgeLabel = (status, selectedImage, needsImage, t = fallbackTranslate) => {
   if (!needsImage) {
-    return 'Chỉ văn bản';
+    return t('slides.imageBadges.textOnly', 'Text only');
   }
 
   if (selectedImage?.sourceType === 'generated') {
-    return 'Ảnh AI tạo';
+    return t('slides.imageBadges.generated', 'AI image');
   }
 
   if (selectedImage?.sourceType === 'web') {
-    return 'Ảnh web';
+    return t('slides.imageBadges.web', 'Web image');
   }
 
   if (status === 'no-license-safe-image') {
-    return 'Chưa có ảnh an toàn bản quyền';
+    return t('slides.imageBadges.noSafeImage', 'No license-safe image yet');
   }
 
   if (status === 'ready') {
-    return 'Đã có media';
+    return t('slides.imageBadges.ready', 'Media ready');
   }
 
-  return 'Đang chờ ảnh';
+  return t('slides.imageBadges.pending', 'Waiting for image');
 };
 
 const getBadgeTone = (status, selectedImage, needsImage) => {
@@ -254,13 +265,13 @@ const getBadgeTone = (status, selectedImage, needsImage) => {
   return 'pending';
 };
 
-const buildAttributionText = (selectedImage) => {
+const buildAttributionText = (selectedImage, t = fallbackTranslate) => {
   if (!selectedImage) {
     return null;
   }
 
   if (selectedImage.sourceType === 'generated') {
-    return `Nguon: ${selectedImage.provider}`;
+    return t('slides.imageAttribution.generated', 'Source: {{provider}}', { provider: selectedImage.provider });
   }
 
   const segments = [
@@ -269,41 +280,41 @@ const buildAttributionText = (selectedImage) => {
     selectedImage.attributionText,
   ].filter(Boolean);
 
-  return segments.length > 0 ? segments.join(' · ') : 'Nguon web';
+  return segments.length > 0 ? segments.join(' • ') : t('slides.imageAttribution.web', 'Web source');
 };
 
-const buildDefaultMessage = ({ needsImage, status, selectedImage, candidateCount }) => {
+const buildDefaultMessage = ({ needsImage, status, selectedImage, candidateCount, t = fallbackTranslate }) => {
   if (!needsImage) {
-    return 'Slide nay duoc de xuat giu text-only de giu nhip doc.';
+    return t('slides.imageMessages.textOnly', 'This slide is intentionally text-only to keep the reading rhythm clean.');
   }
 
   if (selectedImage) {
-    return 'Da co media preview cho slide nay.';
+    return t('slides.imageMessages.hasSelected', 'Media preview is already ready for this slide.');
   }
 
   if (candidateCount > 0) {
-    return `Da co ${candidateCount} image candidate cho slide nay.`;
+    return t('slides.imageMessages.hasCandidates', '{{count}} image candidates are ready for review.', { count: candidateCount });
   }
 
   switch (status) {
     case 'queued':
     case 'running':
-      return 'Image workflow se bat dau sau khi noi dung slide on dinh.';
+      return t('slides.imageMessages.queued', 'The media workflow will start after the slide content stabilizes.');
     case 'sourcing-web':
-      return 'He thong dang tim anh web co nguon ro rang.';
+      return t('slides.imageMessages.sourcingWeb', 'The system is searching for clearly sourced web images.');
     case 'generating-fallback':
-      return 'Dang tao anh fallback tu prompt da redacted.';
+      return t('slides.imageMessages.generatingFallback', 'Generating a safe fallback image from the current prompt.');
     case 'no-license-safe-image':
-      return 'Chua tim thay anh web dap ung chinh sach nguon/licensing.';
+      return t('slides.imageMessages.noSafeImage', 'No web image currently satisfies the source and licensing policy.');
     case 'failed':
-      return 'Image workflow gap loi. Can thu lai o pha backend tiep theo.';
+      return t('slides.imageMessages.failed', 'The media workflow hit an error. Try running the image search again.');
     case 'not-requested':
     default:
-      return 'Chua co payload image. UI dang san sang cho phase backend tiep theo.';
+      return t('slides.imageMessages.notRequested', 'No media has been requested yet. This slide is ready for image sourcing when needed.');
   }
 };
 
-export const buildSlideImageViewModel = (item) => {
+export const buildSlideImageViewModel = (item, t = fallbackTranslate) => {
   const slideType = normalizeSlideType(item?.slideType ?? item?.SlideType);
   const candidates = normalizeImageCandidates(resolveRawCandidates(item));
   const selectedImage = normalizeSelectedImage(item);
@@ -327,20 +338,21 @@ export const buildSlideImageViewModel = (item) => {
       status,
       selectedImage,
       candidateCount: candidates.length,
+      t,
     });
 
   return {
     slideType,
     needsImage,
     status,
-    statusLabel: getImageStatusLabel(status),
-    badgeLabel: getImageBadgeLabel(status, selectedImage, needsImage),
+    statusLabel: getImageStatusLabel(status, t),
+    badgeLabel: getImageBadgeLabel(status, selectedImage, needsImage, t),
     badgeTone: getBadgeTone(status, selectedImage, needsImage),
     selectedImage,
     candidates,
     hasCandidates: candidates.length > 0,
     candidateCount: candidates.length,
     helperText: message,
-    attributionText: buildAttributionText(selectedImage),
+    attributionText: buildAttributionText(selectedImage, t),
   };
 };

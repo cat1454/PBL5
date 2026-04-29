@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { slideService, workspaceService } from '../services/api';
+import { documentService, slideService, workspaceService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 import { useLanguage } from '../context/LanguageContext';
@@ -8,12 +8,14 @@ import { useLanguage } from '../context/LanguageContext';
 const DEMO_USER = 'demo-user';
 
 const DEFAULT_BRIEF = {
-  desiredSlideCount: 8,
+  desiredSlideCount: 12,
   themeKey: 'editorial-sunrise',
   audience: 'Sinh vien va nguoi hoc',
   tone: 'Ro rang, hien dai, de nho',
   narrativeGoal: 'Tong hop cac y chinh de tao mot deck giang day ngan gon, de doc, de sua.',
   languageStyle: 'Tieng Viet ngan gon, chuyen nghiep, de doc tren slide',
+  mode: 'lecture',
+  scopePolicy: 'selected-sections-only',
 };
 
 const FONT_OPTIONS = ['Georgia', 'Trebuchet MS', 'Segoe UI', 'Palatino Linotype', 'Courier New'];
@@ -42,6 +44,19 @@ const LANGUAGE_STYLE_OPTIONS = [
   'Tieng Viet hoc thuat, co cau truc',
   'Tieng Viet thuyet trinh, nhan y manh',
 ];
+const DECK_LENGTH_OPTIONS = [8, 12, 18];
+const DECK_MODE_OPTIONS = ['lecture', 'summary', 'exam-review', 'timeline'];
+const EXCLUDED_SCOPE_CLASSES = ['FRONT_MATTER', 'TABLE_OF_CONTENTS', 'REFERENCE', 'APPENDIX', 'NOISE'];
+
+function buildScopedSectionId(sourceId, sectionKey) {
+  return `${sourceId}::${sectionKey}`;
+}
+
+function getSelectableSections(source) {
+  return Array.isArray(source?.structure)
+    ? source.structure.filter((section) => !EXCLUDED_SCOPE_CLASSES.includes(section.classification))
+    : [];
+}
 
 function createFallbackEditorState(item) {
   return item?.editorState || {
@@ -108,10 +123,40 @@ function FolderStudio() {
   const [mediaBusy, setMediaBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
+  const [selectedSourceId, setSelectedSourceId] = useState(null);
+  const [selectedSectionIds, setSelectedSectionIds] = useState([]);
+  const [scopeRecommendation, setScopeRecommendation] = useState(null);
   const [filterText, setFilterText] = useState('');
+  const [activeSidebarTab, setActiveSidebarTab] = useState('slides');
+  const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
   const audienceLabels = t('slides.options.audiences');
   const toneLabels = t('slides.options.tones');
   const languageStyleLabels = t('slides.options.languageStyles');
+  const getModeLabel = (mode) => {
+    if (language === 'vi') {
+      switch (mode) {
+        case 'summary':
+          return 'Tóm tắt';
+        case 'exam-review':
+          return 'Ôn thi';
+        case 'timeline':
+          return 'Timeline lịch sử';
+        default:
+          return 'Bài giảng';
+      }
+    }
+
+    switch (mode) {
+      case 'summary':
+        return 'Summary';
+      case 'exam-review':
+        return 'Exam review';
+      case 'timeline':
+        return 'Historical timeline';
+      default:
+        return 'Lecture';
+    }
+  };
   const slideTitlePlaceholder = language === 'vi' ? 'Tiêu đề slide' : 'Slide title';
   const slideGoalPlaceholder = language === 'vi' ? 'Mục tiêu / take-away của slide' : 'Slide goal / take-away';
   const bodyPlaceholder = language === 'vi' ? 'Mỗi dòng tương ứng một bullet hoặc một ý chính.' : 'Each line becomes one bullet or one key point.';
@@ -174,6 +219,8 @@ function FolderStudio() {
           tone: deckData.outline.brief.tone || current.tone,
           narrativeGoal: deckData.outline.brief.narrativeGoal || current.narrativeGoal,
           languageStyle: deckData.outline.brief.languageStyle || current.languageStyle,
+          mode: deckData.outline.brief.mode || current.mode,
+          scopePolicy: deckData.outline.brief.scopePolicy || current.scopePolicy,
         }));
       }
     } catch (err) {
@@ -244,11 +291,49 @@ function FolderStudio() {
     () => sources.filter((source) => source.status === 3 && (source.includeInWorkspaceSlides ?? source.includeInFolderSlides)),
     [sources]
   );
+  const readySources = useMemo(
+    () => sources.filter((source) => source.status === 3),
+    [sources]
+  );
+  const selectedSource = useMemo(
+    () => sources.find((source) => source.id === selectedSourceId) || null,
+    [selectedSourceId, sources]
+  );
+  const selectableSections = useMemo(
+    () => getSelectableSections(selectedSource),
+    [selectedSource]
+  );
 
   const selectedSlide = deck?.items?.find((item) => item.id === selectedSlideId) || deck?.items?.[0] || null;
   const selectedDraft = selectedSlide ? (drafts[selectedSlide.id] || createFallbackEditorState(selectedSlide)) : null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide) : null;
   const activeProgress = progress || (deck?.generationProgress ? normalizeProgressState(deck.generationProgress) : null);
+
+  useEffect(() => {
+    if (!sources.length) {
+      setSelectedSourceId(null);
+      return;
+    }
+
+    setSelectedSourceId((current) => {
+      if (current && sources.some((source) => source.id === current)) {
+        return current;
+      }
+
+      const included = readySources.find((source) => source.includeInWorkspaceSlides ?? source.includeInFolderSlides);
+      return included?.id ?? readySources[0]?.id ?? sources[0].id;
+    });
+  }, [readySources, sources]);
+
+  useEffect(() => {
+    if (!selectedSource) {
+      setSelectedSectionIds([]);
+      return;
+    }
+
+    const validIds = new Set(getSelectableSections(selectedSource).map((section) => buildScopedSectionId(selectedSource.id, section.sectionKey)));
+    setSelectedSectionIds((current) => current.filter((id) => validIds.has(id)));
+  }, [selectedSource]);
 
   const pushHistory = (slideId, previousDraft) => {
     setHistory((current) => {
@@ -443,9 +528,88 @@ function FolderStudio() {
       setError(language === 'vi' ? 'Không cập nhật được trạng thái chọn nguồn.' : 'Could not update the source selection state.');
     }
   };
+  void toggleSourceSelection;
+
+  const handleSelectPrimarySource = async (source) => {
+    if (false && !selectedSectionIds.length) {
+      setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
+      return;
+    }
+
+    if (false && !selectedSectionIds.length) {
+      setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
+      return;
+    }
+
+    try {
+      setError('');
+
+      for (const item of sources) {
+        const nextIncluded = item.id === source.id;
+        const currentIncluded = Boolean(item.includeInWorkspaceSlides ?? item.includeInFolderSlides);
+        if (currentIncluded === nextIncluded) {
+          continue;
+        }
+
+        await workspaceService.updateSourceSelection(workspaceId, item.id, nextIncluded);
+      }
+
+      setSelectedSourceId(source.id);
+      setSelectedSectionIds([]);
+      setFeedback(language === 'vi'
+        ? `Đã chọn ${source.fileName} làm tài liệu chính cho deck.`
+        : `Selected ${source.fileName} as the primary source for this deck.`);
+      await loadWorkspace({ silent: true });
+    } catch (err) {
+      console.error(err);
+      setError(language === 'vi' ? 'Không cập nhật được tài liệu chính cho deck.' : 'Could not update the primary source for this deck.');
+    }
+  };
+
+  const handleAnalyzeStructure = async () => {
+    if (!selectedSource) {
+      return;
+    }
+
+    try {
+      setError('');
+      setFeedback(language === 'vi' ? 'Đang phân tích lại cấu trúc tài liệu...' : 'Re-analyzing document structure...');
+      await documentService.analyzeStructure(selectedSource.id);
+      await loadWorkspace({ silent: true });
+      setFeedback(language === 'vi' ? 'Đã cập nhật cấu trúc tài liệu.' : 'Document structure updated.');
+    } catch (err) {
+      console.error(err);
+      setError(language === 'vi' ? 'Không phân tích lại được cấu trúc tài liệu này.' : 'Could not re-analyze this document structure.');
+    }
+  };
+
+  const handleToggleSection = (sectionKey) => {
+    if (!selectedSource) {
+      return;
+    }
+
+    const scopedId = buildScopedSectionId(selectedSource.id, sectionKey);
+    setSelectedSectionIds((current) => (
+      current.includes(scopedId)
+        ? current.filter((id) => id !== scopedId)
+        : [...current, scopedId]
+    ));
+  };
+
+  const handleSelectAllSections = () => {
+    if (!selectedSource) {
+      return;
+    }
+
+    setSelectedSectionIds(selectableSections.map((section) => buildScopedSectionId(selectedSource.id, section.sectionKey)));
+  };
+
+  const handleClearSections = () => {
+    setSelectedSectionIds([]);
+  };
 
   const handleGenerateDeck = async () => {
-    if (!selectedReadySources.length) {
+    if (!selectedSource || selectedSource.status !== 3) {
       setError(language === 'vi' ? 'Cần ít nhất 1 source đã Completed và được chọn cho slide.' : 'At least one completed source must be selected for slide generation.');
       return;
     }
@@ -453,7 +617,19 @@ function FolderStudio() {
     try {
       setError('');
       setFeedback(language === 'vi' ? 'Đang tạo deck mới từ các source đã chọn...' : 'Generating a new deck from the selected sources...');
-      const response = await slideService.startGenerateSlidesForFolder(workspaceId, brief);
+      if (!selectedSectionIds.length) {
+        setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
+        return;
+      }
+
+      const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
+        ...brief,
+        sourceIds: [selectedSource.id],
+        selectedSectionIds,
+        mode: brief.mode,
+        scopePolicy: 'selected-sections-only',
+      });
+      setScopeRecommendation(response.scopeRecommendation || null);
       setJobId(response.jobId || response.progress?.jobId || null);
       setProgress(normalizeProgressState(response.progress, {
         jobId: response.jobId,
@@ -548,7 +724,8 @@ function FolderStudio() {
   const activeFieldState = selectedDraft?.[activeField] || null;
   const activeHistory = selectedSlide ? (history[selectedSlide.id] || { past: [], future: [] }) : { past: [], future: [] };
   const selectedImage = selectedImageVm?.selectedImage || null;
-  const canGenerate = selectedReadySources.length > 0 && !(activeProgress && isActiveProgress(activeProgress));
+  const canGenerate = Boolean(selectedSource && selectedSource.status === 3 && selectedSectionIds.length > 0)
+    && !(activeProgress && isActiveProgress(activeProgress));
   const qualityIssues = selectedSlide?.quality?.issues || [];
   const qualityScore = selectedSlide?.quality?.score;
   const topbarMeta = [
@@ -592,6 +769,13 @@ function FolderStudio() {
 
       {error && <div className="alert alert-error">{error}</div>}
       {feedback && <div className="alert alert-info">{feedback}</div>}
+      {scopeRecommendation && (
+        <div className="alert alert-info">
+          {language === 'vi'
+            ? `Gợi ý phạm vi: nên dùng khoảng ${scopeRecommendation.suggestedSlideCount} slide để giữ mạch chương rõ hơn.`
+            : `Scope suggestion: use about ${scopeRecommendation.suggestedSlideCount} slides to preserve the chapter flow more clearly.`}
+        </div>
+      )}
 
       <section className="folder-studio-shell">
         <div className="folder-studio-topbar">
@@ -616,6 +800,9 @@ function FolderStudio() {
           </div>
 
           <div className="folder-studio-topbar-actions">
+            <button type="button" className="folder-studio-mini-btn" onClick={() => setIsActionPanelOpen((current) => !current)}>
+              {isActionPanelOpen ? (language === 'vi' ? 'Ẩn điều khiển' : 'Hide controls') : (language === 'vi' ? 'Mở điều khiển' : 'Show controls')}
+            </button>
             <button type="button" className="folder-studio-mini-btn" onClick={() => loadWorkspace()} disabled={uploading}>
               {language === 'vi' ? 'Làm mới' : 'Refresh'}
             </button>
@@ -639,8 +826,26 @@ function FolderStudio() {
           </div>
         </div>
 
-        <div className="folder-studio-main">
-          <aside className="folder-studio-sidebar">
+        <div className={`folder-studio-main${isActionPanelOpen ? ' action-open' : ' action-closed'}`}>
+          <aside className={`folder-studio-sidebar tab-${activeSidebarTab}`}>
+            <div className="folder-studio-panel-title">{language === 'vi' ? 'Điều hướng nội dung' : 'Content navigation'}</div>
+
+            <div className="folder-studio-sidebar-tabs">
+              <button
+                type="button"
+                className={`folder-studio-sidebar-tab${activeSidebarTab === 'slides' ? ' active' : ''}`}
+                onClick={() => setActiveSidebarTab('slides')}
+              >
+                {language === 'vi' ? 'Cấu trúc slide' : 'Slides'}
+              </button>
+              <button
+                type="button"
+                className={`folder-studio-sidebar-tab${activeSidebarTab === 'sources' ? ' active' : ''}`}
+                onClick={() => setActiveSidebarTab('sources')}
+              >
+                {language === 'vi' ? 'Nguồn tài liệu' : 'Sources'}
+              </button>
+            </div>
             <div className="folder-studio-panel-title">{language === 'vi' ? 'Nguồn / Slides' : 'Sources / Slides'}</div>
 
             <div className="folder-studio-filter">
@@ -670,7 +875,7 @@ function FolderStudio() {
               )}
 
               {filteredSources.map((source) => {
-                const isSelected = Boolean(source.includeInWorkspaceSlides ?? source.includeInFolderSlides);
+                const isSelected = source.id === selectedSourceId;
                 const isReady = source.status === 3;
                 const tone = String(source.fileType || '').includes('pdf')
                   ? 'pdf'
@@ -707,7 +912,7 @@ function FolderStudio() {
                     <button
                       type="button"
                       className={`folder-studio-pick-btn${isSelected ? ' active' : ''}`}
-                      onClick={() => toggleSourceSelection(source)}
+                      onClick={() => handleSelectPrimarySource(source)}
                       disabled={!isReady}
                     >
                       {isSelected ? (language === 'vi' ? 'Bỏ' : 'Remove') : (language === 'vi' ? 'Chọn' : 'Select')}
@@ -718,6 +923,72 @@ function FolderStudio() {
             </div>
 
             <div className="folder-studio-section-label">{language === 'vi' ? 'Cấu trúc slide' : 'Slide structure'}</div>
+            <div className="folder-studio-section-label">{language === 'vi' ? 'Phạm vi nội dung' : 'Content scope'}</div>
+            <div className="folder-studio-scope-card">
+              {!selectedSource ? (
+                <div className="folder-studio-empty-sidebar">
+                  {language === 'vi' ? 'Chọn một tài liệu chính để xem cây chương/mục.' : 'Choose one primary source to inspect its chapter/section structure.'}
+                </div>
+              ) : (
+                <>
+                  <div className="folder-studio-scope-head">
+                    <strong>{selectedSource.fileName}</strong>
+                    <span>
+                      {selectedSource.isStructureReady
+                        ? (language === 'vi' ? `${selectableSections.length} phần khả dụng` : `${selectableSections.length} selectable sections`)
+                        : (language === 'vi' ? 'Đang chờ metadata cấu trúc' : 'Waiting for structure metadata')}
+                    </span>
+                  </div>
+                  <div className="folder-studio-inline-actions">
+                    <button type="button" className="folder-studio-mini-btn" onClick={handleSelectAllSections} disabled={!selectableSections.length}>
+                      {language === 'vi' ? 'Toàn bộ tài liệu' : 'Whole document'}
+                    </button>
+                    <button type="button" className="folder-studio-mini-btn" onClick={handleClearSections} disabled={!selectedSectionIds.length}>
+                      {language === 'vi' ? 'Bỏ chọn' : 'Clear'}
+                    </button>
+                    <button type="button" className="folder-studio-mini-btn" onClick={handleAnalyzeStructure}>
+                      {language === 'vi' ? 'Phân tích lại' : 'Analyze again'}
+                    </button>
+                  </div>
+                  {!selectedSource.isStructureReady && (
+                    <div className="folder-studio-source-live">
+                      {language === 'vi'
+                        ? 'Source này chưa có structure ready. Hãy chờ pipeline hoàn tất hoặc bấm phân tích lại.'
+                        : 'This source is not structure-ready yet. Wait for processing to finish or run structure analysis again.'}
+                    </div>
+                  )}
+                  <div className="folder-studio-structure-list">
+                    {selectableSections.map((section) => {
+                      const scopedId = buildScopedSectionId(selectedSource.id, section.sectionKey);
+                      const checked = selectedSectionIds.includes(scopedId);
+                      return (
+                        <label key={scopedId} className={`folder-studio-structure-item${checked ? ' active' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => handleToggleSection(section.sectionKey)}
+                          />
+                          <div className="folder-studio-structure-copy">
+                            <strong>{section.heading || section.sectionKey}</strong>
+                            <span>
+                              {language === 'vi'
+                                ? `Trang ${section.startPage || '?'}-${section.endPage || '?'} | ${section.chunkCount || section.chunkIds?.length || 0} chunk`
+                                : `Pages ${section.startPage || '?'}-${section.endPage || '?'} | ${section.chunkCount || section.chunkIds?.length || 0} chunks`}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                    {selectedSource.isStructureReady && !selectableSections.length && (
+                      <div className="folder-studio-empty-sidebar">
+                        {language === 'vi' ? 'Chưa phát hiện được chương/mục phù hợp để chọn.' : 'No selectable chapter or section was detected yet.'}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
             <div className="folder-studio-flow-list">
               {!slideItems.length && (
                 <div className="folder-studio-empty-sidebar">
@@ -776,24 +1047,28 @@ function FolderStudio() {
               <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.italic ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, italic: !block.italic }))} disabled={!selectedDraft}>I</button>
               <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.underline ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, underline: !block.underline }))} disabled={!selectedDraft}>U</button>
               <div className="folder-studio-toolbar-sep"></div>
-              {['left', 'center', 'right'].map((align) => (
+              {[
+                { key: 'left', label: language === 'vi' ? 'Trái' : 'Left' },
+                { key: 'center', label: language === 'vi' ? 'Giữa' : 'Center' },
+                { key: 'right', label: language === 'vi' ? 'Phải' : 'Right' },
+              ].map(({ key, label }) => (
                 <button
-                  key={align}
+                  key={key}
                   type="button"
-                  className={`folder-studio-toolbar-btn${activeFieldState?.align === align ? ' active' : ''}`}
-                  onClick={() => handleStyleChange((block) => ({ ...block, align }))}
+                  className={`folder-studio-toolbar-btn folder-studio-toolbar-btn-word${activeFieldState?.align === key ? ' active' : ''}`}
+                  onClick={() => handleStyleChange((block) => ({ ...block, align: key }))}
                   disabled={!selectedDraft}
                 >
-                  {align === 'left' ? 'L' : align === 'center' ? 'C' : 'R'}
+                  {label}
                 </button>
               ))}
               <button
                 type="button"
-                className={`folder-studio-toolbar-btn${activeFieldState?.bullet ? ' active' : ''}`}
+                className={`folder-studio-toolbar-btn folder-studio-toolbar-btn-word${activeFieldState?.bullet ? ' active' : ''}`}
                 onClick={() => handleStyleChange((block) => ({ ...block, bullet: !block.bullet }))}
                 disabled={!selectedDraft || activeField !== 'body'}
               >
-                *
+                Bullet
               </button>
               <div className="folder-studio-toolbar-sep"></div>
               <button type="button" className="folder-studio-toolbar-btn" onClick={handleUndo} disabled={!activeHistory.past.length}>{language === 'vi' ? 'Hoàn tác' : 'Undo'}</button>
@@ -980,7 +1255,7 @@ function FolderStudio() {
             </div>
           </section>
 
-          <aside className="folder-studio-rpanel">
+          <aside className={`folder-studio-rpanel${isActionPanelOpen ? ' open' : ''}`}>
             <div className="folder-studio-panel-title">{language === 'vi' ? 'Studio / Hành động' : 'Studio / Actions'}</div>
 
             <div className="folder-studio-action-section">
@@ -1017,15 +1292,29 @@ function FolderStudio() {
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{t('slides.deckBrief')}</div>
+              <div className="folder-studio-source-live">
+                {selectedSource
+                  ? (language === 'vi'
+                    ? `Nguồn chính: ${selectedSource.fileName} | Đã chọn ${selectedSectionIds.length} phần`
+                    : `Primary source: ${selectedSource.fileName} | ${selectedSectionIds.length} sections selected`)
+                  : (language === 'vi'
+                    ? 'Bước 1-2: chọn tài liệu chính và phạm vi chapter/section trước khi tạo deck.'
+                    : 'Steps 1-2: choose the primary source and chapter/section scope before generating the deck.')}
+              </div>
               <label className="folder-studio-form-row">
                 <span>{t('slides.desiredSlides')}</span>
-                <input
-                  type="number"
-                  min="5"
-                  max="12"
+                <select
                   value={brief.desiredSlideCount}
-                  onChange={(event) => setBrief((current) => ({ ...current, desiredSlideCount: Number(event.target.value) || 8 }))}
-                />
+                  onChange={(event) => setBrief((current) => ({ ...current, desiredSlideCount: Number(event.target.value) || 12 }))}
+                >
+                  {DECK_LENGTH_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      {language === 'vi'
+                        ? (count === 8 ? 'Ngắn - 8 slide' : count === 12 ? 'Vừa - 12 slide' : 'Đầy đủ - 18 slide')
+                        : (count === 8 ? 'Short - 8 slides' : count === 12 ? 'Medium - 12 slides' : 'Full - 18 slides')}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="folder-studio-form-row">
                 <span>Theme</span>
@@ -1048,6 +1337,14 @@ function FolderStudio() {
                 <select value={brief.tone} onChange={(event) => setBrief((current) => ({ ...current, tone: event.target.value }))}>
                   {TONE_OPTIONS.map((option, index) => (
                     <option key={option} value={option}>{toneLabels[index] || option}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="folder-studio-form-row">
+                <span>{language === 'vi' ? 'Kiểu deck' : 'Deck mode'}</span>
+                <select value={brief.mode} onChange={(event) => setBrief((current) => ({ ...current, mode: event.target.value }))}>
+                  {DECK_MODE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{getModeLabel(option)}</option>
                   ))}
                 </select>
               </label>

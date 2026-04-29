@@ -80,6 +80,10 @@ public class ApplicationDbContext : DbContext
                 .WithOne(deck => deck.Document)
                 .HasForeignKey(deck => deck.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(e => e.ProcessedMetadataJson)
+                .HasColumnName("processed_metadata")
+                .HasColumnType("text");
         });
 
         // Question configuration
@@ -144,6 +148,10 @@ public class ApplicationDbContext : DbContext
                 .HasColumnType("jsonb");
 
             entity.Property(e => e.EvidenceFromText)
+                .HasColumnType("text");
+
+            entity.Property(e => e.EvidenceDebugJson)
+                .HasColumnName("evidence_debug")
                 .HasColumnType("text");
 
             entity.Property(e => e.SpeakerNotes)

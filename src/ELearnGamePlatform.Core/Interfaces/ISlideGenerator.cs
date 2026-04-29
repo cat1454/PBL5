@@ -27,14 +27,13 @@ public class SlideDeckBrief
 {
     public string ThemeKey { get; set; } = "editorial-sunrise";
     public string Audience { get; set; } = "Sinh vien va nguoi hoc";
-    public string Tone { get; set; } = "Rõ ràng, hiện đại, dễ nhớ";
+    public string Tone { get; set; } = "Ro rang, hien dai, de nho";
     public string NarrativeGoal { get; set; } = "Giup nguoi doc hieu nhanh va ghi nho cac y chinh";
     public string LanguageStyle { get; set; } = "Tieng Viet don gian, chuyen nghiep";
-
-    public SlideDeckBrief()
-    {
-        Tone = "Ro rang, hien dai, de nho";
-    }
+    public string Mode { get; set; } = "lecture";
+    public string ScopePolicy { get; set; } = "selected-sections-only";
+    public List<string> SelectedSectionIds { get; set; } = new();
+    public List<string> SelectedSectionHeadings { get; set; } = new();
 }
 
 public class SlideOutlineResult
@@ -70,4 +69,6 @@ public class SlideContentResult
     public int? VerifierScore { get; set; }
     public List<string> VerifierIssues { get; set; } = new();
     public SlideEvidenceDebugMetadata? EvidenceDebug { get; set; }
+    public SlideItemStatus SuggestedStatus { get; set; } = SlideItemStatus.Completed;
+    public bool UsedFallback { get; set; }
 }

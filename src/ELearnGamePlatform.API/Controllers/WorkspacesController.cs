@@ -227,6 +227,7 @@ public class WorkspacesController : ControllerBase
     private object BuildSourcePayload(Document source, int questionsCount)
     {
         _documentJobStore.TryGetJob(source.Id, out var progressState);
+        var metadata = source.GetProcessingMetadata();
 
         return new
         {
@@ -243,6 +244,17 @@ public class WorkspacesController : ControllerBase
             coverageChunkCount = source.GetCoverageMap().Count,
             summary = source.Summary,
             language = source.Language,
+            documentType = metadata.DocumentType,
+            title = metadata.Title,
+            mainContentStartPage = metadata.MainContentStartPage,
+            structure = metadata.Structure,
+            excludedContent = metadata.ExcludedContent,
+            isStructureReady = metadata.Structure?.Count > 0,
+            structureAnalysisStatus = source.Status == DocumentStatus.Completed
+                ? "ready"
+                : source.Status == DocumentStatus.Failed
+                    ? "failed"
+                    : "processing",
             status = source.Status,
             uploadedBy = source.UploadedBy,
             createdAt = source.CreatedAt,

@@ -147,7 +147,8 @@ public enum SlideItemStatus
     Pending,
     Generating,
     Completed,
-    Failed
+    Failed,
+    NeedsReview
 }
 
 public enum SlideItemType

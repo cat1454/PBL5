@@ -31,6 +31,16 @@ export const documentService = {
     return response.data;
   },
 
+  getStructure: async (id) => {
+    const response = await axios.get(`${API_BASE_URL}/documents/${id}/structure`);
+    return response.data;
+  },
+
+  analyzeStructure: async (id) => {
+    const response = await axios.post(`${API_BASE_URL}/documents/${id}/analyze-structure`);
+    return response.data;
+  },
+
   getUserDocuments: async (userId) => {
     const response = await axios.get(`${API_BASE_URL}/documents/user/${userId}`);
     return response.data;
@@ -249,6 +259,10 @@ export const slideService = {
       tone: payload?.tone,
       narrativeGoal: payload?.narrativeGoal,
       languageStyle: payload?.languageStyle,
+      sourceIds: payload?.sourceIds,
+      selectedSectionIds: payload?.selectedSectionIds,
+      mode: payload?.mode,
+      scopePolicy: payload?.scopePolicy,
     });
     return response.data;
   },
@@ -270,6 +284,10 @@ export const slideService = {
       tone: payload?.tone,
       narrativeGoal: payload?.narrativeGoal,
       languageStyle: payload?.languageStyle,
+      sourceIds: payload?.sourceIds,
+      selectedSectionIds: payload?.selectedSectionIds,
+      mode: payload?.mode,
+      scopePolicy: payload?.scopePolicy,
     });
     return response.data;
   },

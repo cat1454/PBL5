@@ -37,9 +37,10 @@ function AppShell({ user }) {
   const { language, setLanguage, t } = useLanguage();
   const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
   const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/');
+  const isSlideStudioRoute = location.pathname.startsWith('/slides/');
 
   return (
-    <div className={`App${isHybridRoute ? ' app-shell-documents' : ''}`}>
+    <div className={`App${isHybridRoute ? ' app-shell-documents' : ''}${isSlideStudioRoute ? ' app-shell-slide-route' : ''}`}>
       <header className="App-header app-shell-header">
         <div className="container app-shell-header-inner">
           <div className="app-shell-brand">
@@ -84,15 +85,18 @@ function AppShell({ user }) {
           <div className="app-sidebar-inner">
             <nav className="app-sidebar-nav">
               <NavLink to="/" end className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">{t('app.nav.dashboard')}</span>
+                <span className="app-sidebar-icon" aria-hidden="true">⌂</span>
+                <span className="app-sidebar-label">{t('app.nav.dashboard')}</span>
               </NavLink>
 
               <NavLink to="/workspaces" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">{t('app.nav.workspaces')}</span>
+                <span className="app-sidebar-icon" aria-hidden="true">▤</span>
+                <span className="app-sidebar-label">{t('app.nav.workspaces')}</span>
               </NavLink>
 
               <NavLink to="/settings" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="sidebar-emoji">{t('app.nav.settings')}</span>
+                <span className="app-sidebar-icon" aria-hidden="true">⚙</span>
+                <span className="app-sidebar-label">{t('app.nav.settings')}</span>
               </NavLink>
             </nav>
           </div>

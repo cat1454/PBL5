@@ -20,8 +20,13 @@ public class SlideGeneratorService : ISlideGenerator
     private const int PromptKeyFactLimit = 2;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
-    private const int SlideRepairThreshold = 74;
+    private const int SlideRepairThreshold = 85;
+    private const int SlideCompletionThreshold = 76;
+    private const int PreferredEvidenceTeachabilityThreshold = 50;
+    private const int MinimumFallbackEvidenceTeachabilityThreshold = 45;
     private static readonly Regex CjkTextPattern = new(@"[\u3400-\u9FFF\uF900-\uFAFF]", RegexOptions.Compiled);
+    private static readonly Regex GuidLikePattern = new(@"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){2,4}\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PageMarkerPattern = new(@"\[?\s*page\s+\d+\s*\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly HashSet<string> SupportedThemes = new(StringComparer.OrdinalIgnoreCase)
     {
         "editorial-sunrise",
@@ -32,12 +37,12 @@ public class SlideGeneratorService : ISlideGenerator
     private static readonly string[] GenericSlidePhrases =
     {
         "general content",
-        "tong hop cac y chinh",
-        "tom tat noi dung chinh",
-        "tom tat noi dung",
-        "noi dung chinh cua tai lieu",
-        "nang cao hieu qua hoc tap",
-        "nang cao chat luong",
+        "tổng hợp các ý chính",
+        "tóm tắt nội dung chính",
+        "tóm tắt nội dung",
+        "nội dung chính của tài liệu",
+        "nâng cao hiệu quả học tập",
+        "nâng cao chất lượng học tập",
         "lam ro noi dung phan",
         "bo slide tu dong",
         "bo slide tu tai lieu",
@@ -70,7 +75,7 @@ public class SlideGeneratorService : ISlideGenerator
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
         var sectionPlans = await GenerateSectionPlansAsync(chunks, progress);
-        var targetCount = Math.Clamp(desiredSlideCount, 5, 10);
+        var targetCount = Math.Clamp(desiredSlideCount, 5, 18);
 
         Report(
             progress,
@@ -168,9 +173,12 @@ public class SlideGeneratorService : ISlideGenerator
 
                 if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, evidence, out qualityIssues))
                 {
-                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: false);
+                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback);
                     result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result);
-                    return result;
+                    result.SuggestedStatus = DetermineSuggestedSlideStatus(result, evidence);
+                    return result.SuggestedStatus == SlideItemStatus.Completed
+                        ? result
+                        : ConvertToReviewRequiredSlideContent(result, outlineSlide);
                 }
             }
 
@@ -185,7 +193,8 @@ public class SlideGeneratorService : ISlideGenerator
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
         await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
         fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback);
-        return fallback;
+        fallback.SuggestedStatus = DetermineSuggestedSlideStatus(fallback, evidence);
+        return ConvertToReviewRequiredSlideContent(fallback, outlineSlide);
     }
 
     public string RenderDeckHtml(SlideDeck deck, IReadOnlyList<SlideItem> items)
@@ -345,6 +354,11 @@ Requirements:
 7. preferredChunkIds must come exactly from the section summaries.
 8. Cover major sections and keep a lesson flow for learners.
 9. Headings and keyMessage must be concrete, not generic.
+10. Respect the selected section scope only. Do not imply chapters, references, or appendices outside the supplied section summaries.
+11. If mode=lecture, make the deck feel like a chapter-based lesson: chapter opening, learning objective, major subsections in order, key events or timeline when relevant, synthesis, and review.
+12. If mode=summary, prioritize concise synthesis and retention.
+13. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
+14. If mode=timeline, emphasize chronology, turning points, and period transitions.
 
 Return JSON:
 {{
@@ -394,6 +408,8 @@ Requirements:
 - If SOURCE_TEXT is insufficient, write ""không đủ dữ kiện"".
 - Return JSON with: title, keyMessage, bullets, evidenceFromText, speakerNotes.
 - Bullets must be short and concrete.
+- Keep the content inside the selected section scope and preserve the local teaching sequence of that chapter/section.
+- For lecture mode, explain like a teacher guiding learners through a chapter, not like a generic summary.
 
 Return JSON:
 {{
@@ -511,7 +527,9 @@ Return JSON:
             BodyBlocks = NormalizeBodyBlocksForSlideType(outlineSlide.SlideType, blocks, outlineSlide),
             EvidenceFromText = NormalizeLine(draft?.EvidenceFromText, 320) ?? evidence.FirstOrDefault()?.EvidenceExcerpt,
             SpeakerNotes = NormalizeLine(draft?.SpeakerNotes, 520) ?? BuildSpeakerNotes(outlineSlide, evidence),
-            AccentTone = NormalizeAccentTone(draft?.AccentTone, brief, outlineSlide.SlideType)
+            AccentTone = NormalizeAccentTone(draft?.AccentTone, brief, outlineSlide.SlideType),
+            SuggestedStatus = SlideItemStatus.Completed,
+            UsedFallback = false
         };
     }
 
@@ -970,9 +988,9 @@ Return JSON only:
             issues.Add("Heading slide còn chung chung/template.");
         }
 
-        if (LooksLikeFileName(content.Heading) || LooksLikeFileName(content.Subheading) || LooksLikeFileName(content.Goal))
+        if (HasBadVisibleSlideArtifacts(content))
         {
-            issues.Add("Nội dung slide đang dùng tên file làm nội dung chính.");
+            issues.Add("Noi dung slide dang chua filename, page marker, hoac artifact khong nen hien thi.");
         }
 
         if (LooksLikeAuthorListOnly(content.Heading, content.Subheading, content.BodyBlocks))
@@ -1160,7 +1178,7 @@ Return JSON only:
                 break;
             }
 
-            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: false);
+            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: repairedContent.UsedFallback);
 
             if (!ShouldPreferRepairedSlide(bestContent, repairedContent))
             {
@@ -1287,6 +1305,11 @@ Return JSON only:
         if (usedFallback)
         {
             AddWarning("Slide này đang dùng đường fallback vì AI chưa trả về nội dung grounded theo yêu cầu.", 30);
+        }
+
+        if (HasBadVisibleSlideArtifacts(content))
+        {
+            AddWarning("Noi dung hien thi con filename, page marker, hoac artifact khong nen xuat hien.", 24);
         }
 
         if (string.IsNullOrWhiteSpace(content.Heading))
@@ -1464,6 +1487,24 @@ Return JSON only:
     private static bool LooksLikeFileName(string? value)
         => !string.IsNullOrWhiteSpace(value)
             && Regex.IsMatch(value, @"\.(pdf|docx|pptx|ppt|txt|xlsx?)\b", RegexOptions.IgnoreCase);
+
+    private static bool LooksLikeUuidFragment(string? value)
+        => !string.IsNullOrWhiteSpace(value) && GuidLikePattern.IsMatch(value);
+
+    private static bool LooksLikePageMarker(string? value)
+        => !string.IsNullOrWhiteSpace(value) && PageMarkerPattern.IsMatch(value);
+
+    private static bool HasBadVisibleSlideArtifacts(SlideContentResult content)
+    {
+        var visibleValues = new[] { content.Heading, content.Subheading, content.Goal }
+            .Concat(content.BodyBlocks)
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+
+        return visibleValues.Any(value =>
+            LooksLikeFileName(value)
+            || LooksLikeUuidFragment(value)
+            || LooksLikePageMarker(value));
+    }
 
     private static bool LooksLikeAuthorListOnly(string? heading, string? subheading, IReadOnlyCollection<string> bodyBlocks)
     {
@@ -1824,9 +1865,8 @@ Return JSON only:
                 outlineSlide.SlideType,
                 new List<string>
                 {
-                    $"Ý cần nắm: {outlineSlide.Goal}",
-                    $"Vì sao cần chú ý: {outlineSlide.Subheading ?? outlineSlide.Heading}",
-                    "Chốt lại thành một câu hỏi để người học tự kiểm tra sau slide."
+                    outlineSlide.Goal,
+                    outlineSlide.KeyMessage ?? outlineSlide.Heading
                 },
                 outlineSlide);
         }
@@ -1840,9 +1880,11 @@ Return JSON only:
             BodyBlocks = blocks,
             EvidenceFromText = NormalizeLine(evidence.FirstOrDefault()?.EvidenceExcerpt, 320)
                 ?? NormalizeLine(evidence.FirstOrDefault()?.Summary, 220)
-                ?? "không đủ dữ kiện",
+                ?? "Khong du du kien grounded",
             SpeakerNotes = BuildSpeakerNotes(outlineSlide, evidence),
-            AccentTone = NormalizeAccentTone(null, brief, outlineSlide.SlideType)
+            AccentTone = NormalizeAccentTone(null, brief, outlineSlide.SlideType),
+            SuggestedStatus = SlideItemStatus.NeedsReview,
+            UsedFallback = true
         };
     }
 
@@ -2007,7 +2049,10 @@ Return JSON only:
     private static string BuildBriefBlock(SlideDeckBrief? brief)
     {
         var normalized = NormalizeBrief(brief);
-        return $"- Theme: {normalized.ThemeKey}\n- Audience: {normalized.Audience}\n- Tone: {normalized.Tone}\n- Narrative goal: {normalized.NarrativeGoal}\n- Language style: {normalized.LanguageStyle}\n- Lesson direction: turn the source into a clear mini-lesson with hook, explanation, evidence, and takeaway\n- Theme direction: {DescribeTheme(normalized.ThemeKey)}";
+        var selectedSections = normalized.SelectedSectionHeadings.Any()
+            ? string.Join(" | ", normalized.SelectedSectionHeadings.Take(6))
+            : string.Join(" | ", normalized.SelectedSectionIds.Take(6));
+        return $"- Theme: {normalized.ThemeKey}\n- Audience: {normalized.Audience}\n- Tone: {normalized.Tone}\n- Narrative goal: {normalized.NarrativeGoal}\n- Language style: {normalized.LanguageStyle}\n- Mode: {normalized.Mode}\n- Scope policy: {normalized.ScopePolicy}\n- Selected sections: {(string.IsNullOrWhiteSpace(selectedSections) ? "current filtered scope" : selectedSections)}\n- Lesson direction: turn the source into a clear mini-lesson with hook, explanation, evidence, and takeaway\n- Theme direction: {DescribeTheme(normalized.ThemeKey)}";
     }
 
     private async Task<List<SlideSectionPlan>> GenerateSectionPlansAsync(
@@ -2205,7 +2250,19 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             Audience = NormalizeLine(brief?.Audience, 120) ?? "Sinh vien va nguoi hoc",
             Tone = NormalizeLine(brief?.Tone, 120) ?? "Ro rang, hien dai, de nho",
             NarrativeGoal = NormalizeLine(brief?.NarrativeGoal, 220) ?? "Giup nguoi doc hieu nhanh va ghi nho cac y chinh",
-            LanguageStyle = NormalizeLine(brief?.LanguageStyle, 140) ?? "Tieng Viet don gian, chuyen nghiep"
+            LanguageStyle = NormalizeLine(brief?.LanguageStyle, 140) ?? "Tieng Viet don gian, chuyen nghiep",
+            Mode = string.IsNullOrWhiteSpace(brief?.Mode) ? "lecture" : brief.Mode.Trim().ToLowerInvariant(),
+            ScopePolicy = string.IsNullOrWhiteSpace(brief?.ScopePolicy) ? "selected-sections-only" : brief.ScopePolicy.Trim(),
+            SelectedSectionIds = brief?.SelectedSectionIds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>(),
+            SelectedSectionHeadings = brief?.SelectedSectionHeadings?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => NormalizeLine(value, 120) ?? value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>()
         };
 
 #pragma warning disable CS0162
@@ -2230,16 +2287,22 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         var includeExercise = ShouldUseExerciseEvidence(outlineSlide);
         var allowedChunks = chunks
             .Where(chunk => IsAllowedSlideEvidenceClassification(chunk.Classification, includeExercise))
-            .Where(chunk => chunk.TeachabilityScore >= 34)
+            .Where(chunk => chunk.TeachabilityScore >= PreferredEvidenceTeachabilityThreshold)
             .ToList();
 
         if (!allowedChunks.Any())
         {
             allowedChunks = chunks
-                .Where(chunk => chunk.TeachabilityScore >= 40)
+                .Where(chunk => IsAllowedSlideEvidenceClassification(chunk.Classification, includeExercise))
+                .Where(chunk => chunk.TeachabilityScore >= MinimumFallbackEvidenceTeachabilityThreshold)
                 .OrderByDescending(chunk => chunk.TeachabilityScore)
                 .Take(EvidenceChunkLimit)
                 .ToList();
+        }
+
+        if (!allowedChunks.Any())
+        {
+            return new List<DocumentChunk>();
         }
 
         var preferred = new HashSet<string>(outlineSlide.PreferredChunkIds, StringComparer.OrdinalIgnoreCase);
@@ -2265,6 +2328,78 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             .Select(item => item.Chunk)
             .Take(EvidenceChunkLimit)
             .ToList();
+    }
+
+    private static SlideItemStatus DetermineSuggestedSlideStatus(
+        SlideContentResult content,
+        IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        if (!content.BodyBlocks.Any())
+        {
+            return SlideItemStatus.Failed;
+        }
+
+        if (!evidence.Any())
+        {
+            return SlideItemStatus.Failed;
+        }
+
+        if (evidence.All(chunk => chunk.Classification is ChunkClassifications.FrontMatter or ChunkClassifications.TableOfContents or ChunkClassifications.Reference or ChunkClassifications.Appendix or ChunkClassifications.Noise))
+        {
+            return SlideItemStatus.Failed;
+        }
+
+        if (content.UsedFallback || HasBadVisibleSlideArtifacts(content))
+        {
+            return SlideItemStatus.NeedsReview;
+        }
+
+        var score = content.VerifierScore ?? 0;
+        if (score < SlideCompletionThreshold)
+        {
+            return score <= 0 ? SlideItemStatus.Failed : SlideItemStatus.NeedsReview;
+        }
+
+        return SlideItemStatus.Completed;
+    }
+
+    private static SlideContentResult ConvertToReviewRequiredSlideContent(
+        SlideContentResult source,
+        SlideOutlineSlide outlineSlide)
+    {
+        if (source.SuggestedStatus == SlideItemStatus.Completed)
+        {
+            return source;
+        }
+
+        source.Heading ??= outlineSlide.Heading;
+        source.Subheading ??= outlineSlide.Subheading;
+        source.Goal ??= outlineSlide.Goal;
+        source.KeyMessage ??= outlineSlide.KeyMessage ?? outlineSlide.Goal;
+
+        var cleanedBlocks = source.BodyBlocks
+            .Where(block => !string.IsNullOrWhiteSpace(block))
+            .Select(block => NormalizeLine(block, 180))
+            .Where(block => !string.IsNullOrWhiteSpace(block))
+            .Cast<string>()
+            .ToList();
+
+        if (!cleanedBlocks.Any())
+        {
+            cleanedBlocks = new List<string>
+            {
+                outlineSlide.Goal,
+                outlineSlide.KeyMessage ?? outlineSlide.Heading
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        }
+
+        source.BodyBlocks = NormalizeBodyBlocksForSlideType(outlineSlide.SlideType, cleanedBlocks, outlineSlide);
+        source.SpeakerNotes = NormalizeLine(source.SpeakerNotes, 320)
+            ?? BuildSpeakerNotes(outlineSlide, new List<DocumentChunk>());
+        return source;
     }
 
     private static bool ShouldUseExerciseEvidence(SlideOutlineSlide outlineSlide)

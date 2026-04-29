@@ -1,34 +1,37 @@
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace ELearnGamePlatform.Infrastructure.Migrations
 {
-    public partial class AddSlideGroundingFields : Migration
+    /// <inheritdoc />
+    public partial class AddDocumentAndSlideDebugMetadata : Migration
     {
+        /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
                 ALTER TABLE public.slide_items
-                ADD COLUMN IF NOT EXISTS evidence_from_text text;
+                ADD COLUMN IF NOT EXISTS evidence_debug text;
             """);
 
             migrationBuilder.Sql("""
-                ALTER TABLE public.slide_items
-                ADD COLUMN IF NOT EXISTS key_message character varying(400);
+                ALTER TABLE public.documents
+                ADD COLUMN IF NOT EXISTS processed_metadata text;
             """);
         }
 
+        /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
                 ALTER TABLE public.slide_items
-                DROP COLUMN IF EXISTS evidence_from_text;
+                DROP COLUMN IF EXISTS evidence_debug;
             """);
 
             migrationBuilder.Sql("""
-                ALTER TABLE public.slide_items
-                DROP COLUMN IF EXISTS key_message;
+                ALTER TABLE public.documents
+                DROP COLUMN IF EXISTS processed_metadata;
             """);
         }
     }
