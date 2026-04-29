@@ -10,8 +10,8 @@ const DEMO_USER = 'demo-user';
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
   themeKey: 'editorial-sunrise',
-  audience: 'Sinh vien va nguoi hoc',
-  tone: 'Ro rang, hien dai, de nho',
+  audience: 'Sinh viên và người học',
+  tone: 'Rõ ràng, hien dai, dễ nhớ',
   narrativeGoal: 'Tong hop cac y chinh de tao mot deck giang day ngan gon, de doc, de sua.',
   languageStyle: 'Tieng Viet ngan gon, chuyen nghiep, de doc tren slide',
   mode: 'lecture',
@@ -72,7 +72,36 @@ function createFallbackEditorState(item) {
 function cloneDraft(draft) {
   return JSON.parse(JSON.stringify(draft));
 }
+function getItemBodyText(item) {
+  const editorBody = item?.editorState?.body?.text || '';
+  const blockBody = Array.isArray(item?.bodyBlocks) ? item.bodyBlocks.join('\n') : '';
+  return editorBody || blockBody;
+}
 
+function getDraftBodyText(draft) {
+  return draft?.body?.text || '';
+}
+
+function isDraftBodyEmpty(draft) {
+  return !getDraftBodyText(draft).trim();
+}
+
+function itemHasGeneratedBody(item) {
+  return Boolean(getItemBodyText(item).trim());
+}
+
+function getSlideSourceRevision(item) {
+  return [
+    item?.updatedAt || '',
+    item?.status || '',
+    item?.heading || '',
+    item?.subheading || '',
+    item?.goal || '',
+    item?.keyMessage || '',
+    getItemBodyText(item),
+    item?.speakerNotes || '',
+  ].join('::');
+}
 function normalizeStatusLabel(status) {
   switch (status) {
     case 0:
@@ -111,6 +140,8 @@ function FolderStudio() {
   const [sources, setSources] = useState([]);
   const [deck, setDeck] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [dirtyDrafts, setDirtyDrafts] = useState({});
+  const [draftMeta, setDraftMeta] = useState({});
   const [history, setHistory] = useState({});
   const [selectedSlideId, setSelectedSlideId] = useState(null);
   const [activeField, setActiveField] = useState('body');
@@ -255,14 +286,36 @@ function FolderStudio() {
 
     setDrafts((current) => {
       const next = { ...current };
+      const metaPatch = {};
+      let changed = false;
+
       deck.items.forEach((item) => {
-        if (!next[item.id]) {
+        const revision = getSlideSourceRevision(item);
+        const currentDraft = next[item.id];
+        const isDirty = Boolean(dirtyDrafts[item.id]);
+        const currentMeta = draftMeta[item.id];
+
+        const shouldCreateDraft = !currentDraft;
+        const shouldRefreshFromBackend = !isDirty && currentMeta?.sourceRevision !== revision;
+        const shouldRepairEmptyBody = !isDirty && isDraftBodyEmpty(currentDraft) && itemHasGeneratedBody(item);
+
+        if (shouldCreateDraft || shouldRefreshFromBackend || shouldRepairEmptyBody) {
           next[item.id] = createFallbackEditorState(item);
+          metaPatch[item.id] = { sourceRevision: revision };
+          changed = true;
         }
       });
-      return next;
+
+      if (Object.keys(metaPatch).length > 0) {
+        setDraftMeta((currentMeta) => ({
+          ...currentMeta,
+          ...metaPatch,
+        }));
+      }
+
+      return changed ? next : current;
     });
-  }, [deck]);
+  }, [deck, dirtyDrafts, draftMeta]);
 
   useEffect(() => {
     const hasRunningSources = sources.some((source) => source.processingProgress && isActiveProgress(source.processingProgress));
@@ -349,6 +402,13 @@ function FolderStudio() {
   };
 
   const mutateDraft = (slideId, updater, { trackHistory = true } = {}) => {
+    if (trackHistory) {
+      setDirtyDrafts((current) => ({
+        ...current,
+        [slideId]: true,
+      }));
+    }
+
     setDrafts((current) => {
       const base = current[slideId] || createFallbackEditorState(deck?.items?.find((item) => item.id === slideId));
       if (trackHistory) {
@@ -361,7 +421,6 @@ function FolderStudio() {
       };
     });
   };
-
   const handleFieldTextChange = (fieldKey, value) => {
     if (!selectedSlide) {
       return;
@@ -467,6 +526,15 @@ function FolderStudio() {
         ...current,
         [updated.id]: createFallbackEditorState(updated),
       }));
+      setDirtyDrafts((current) => ({
+        ...current,
+        [updated.id]: false,
+      }));
+
+      setDraftMeta((current) => ({
+        ...current,
+        [updated.id]: { sourceRevision: getSlideSourceRevision(updated) },
+      }));
       setHistory((current) => ({
         ...current,
         [updated.id]: { past: [], future: [] },
@@ -531,15 +599,6 @@ function FolderStudio() {
   void toggleSourceSelection;
 
   const handleSelectPrimarySource = async (source) => {
-    if (false && !selectedSectionIds.length) {
-      setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
-      return;
-    }
-
-    if (false && !selectedSectionIds.length) {
-      setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
-      return;
-    }
 
     try {
       setError('');

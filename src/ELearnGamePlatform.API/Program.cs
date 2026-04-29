@@ -78,23 +78,16 @@ builder.Services.AddSingleton<IQuestionGenerationJobStore, QuestionGenerationJob
 builder.Services.AddSingleton<ISlideGenerationJobStore, SlideGenerationJobStore>();
 
 // Configure CORS
+// Configure CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReactApp",
-        builder => builder
+    options.AddPolicy("AllowReactApp", policy =>
+    {
+        policy
             .WithOrigins("http://localhost:3000", "http://localhost:5173")
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials());
-});
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+            .AllowCredentials();
     });
 });
 var app = builder.Build();
@@ -134,7 +127,6 @@ using (var scope = app.Services.CreateScope())
 
 //app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
-app.UseCors("AllowAll");
 var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
 if (!Directory.Exists(uploadsPath))
 {
@@ -147,7 +139,6 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/uploads"
 });
 app.UseAuthorization();
-app.UseCors("AllowAll");
 app.MapControllers();
 
 app.Run();
