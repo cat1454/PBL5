@@ -16,6 +16,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [jobId, setJobId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [generationError, setGenerationError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [desiredSlideCount, setDesiredSlideCount] = useState(8);
   const [editingSlideId, setEditingSlideId] = useState(null);
@@ -162,21 +163,32 @@ function SlideStudio({ documentId: propDocumentId }) {
           if (nextProgress.slideDeckId) {
             setJobId(nextProgress.jobId || jobId);
           }
+          if (nextProgress.status === 'failed') {
+            setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
+          } else {
+            setGenerationError('');
+          }
+          if (nextProgress.status === 'completed') {
+            await loadDeck({ silent: true });
+            setJobId(null);
+            return;
+          }
         }
 
         await loadDeck({ silent: true });
       } catch (err) {
         console.error(err);
+        setGenerationError(t('slides.generationStatus.pollFailed'));
       }
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [deck, isGenerating, jobId, loadDeck]);
+  }, [deck, isGenerating, jobId, loadDeck, t]);
 
   const handleGenerate = async () => {
     try {
       setError('');
-      setFeedback(t('slides.feedback.generating'));
+      setGenerationError('');
       const response = await slideService.startGenerateSlides(documentId, {
         desiredSlideCount,
         ...deckBrief,
@@ -528,7 +540,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       )}
 
       {error && <div className="alert alert-error">{error}</div>}
-      {feedback && <div className="alert alert-info">{feedback}</div>}
+      {feedback && !isGenerating && <div className="alert alert-info">{feedback}</div>}
 
       <div className={`studio-workspace${isInspectorOpen ? ' inspector-open' : ' inspector-closed'}`}>
         <aside className="studio-left-panel">
@@ -677,6 +689,31 @@ function SlideStudio({ documentId: propDocumentId }) {
           </section>
 
           <div className="studio-canvas-body">
+            {activeProgress && isGenerating && (
+              <div className="studio-canvas-progress-shell">
+                <div className="studio-progress-card studio-progress-card-large">
+                  <div className="studio-progress-head">
+                    <strong>{getProgressStageLabel(activeProgress)}</strong>
+                    <span>{Math.max(0, Math.min(100, activeProgress.percent || 0))}%</span>
+                  </div>
+                  <div className="generation-progress-bar">
+                    <div className="generation-progress-fill" style={{ width: `${Math.max(0, Math.min(100, activeProgress.percent || 0))}%` }}></div>
+                  </div>
+                  <p>{activeProgress.message || activeProgress.stageLabel || t('slides.generationStatus.runningFallback')}</p>
+                  <small>{formatEta(activeProgress.estimatedRemainingSeconds)}</small>
+                </div>
+              </div>
+            )}
+
+            {generationError && (
+              <div className="studio-progress-card studio-progress-card-large tone-error">
+                <div className="studio-progress-head">
+                  <strong>{t('slides.generationStatus.failedTitle')}</strong>
+                </div>
+                <p>{generationError}</p>
+              </div>
+            )}
+
             {selectedSlide ? (
               <div className="studio-canvas-stage" style={getZoomStyle(canvasZoom)}>
                 <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}`}>

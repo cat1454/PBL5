@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import './App.css';
 import AnalysisContent from './components/AnalysisContent';
@@ -34,19 +34,41 @@ function App() {
 function AppShell({ user }) {
   const location = useLocation();
   const [currentFile, setCurrentFile] = useState(null);
+  const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const { language, setLanguage, t } = useLanguage();
   const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
   const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/');
   const isSlideStudioRoute = location.pathname.startsWith('/slides/');
 
+  useEffect(() => {
+    setIsMainMenuOpen(false);
+  }, [location.pathname]);
+
+  const openMenuLabel = language === 'vi' ? 'Mở menu điều hướng' : 'Open navigation menu';
+  const closeMenuLabel = language === 'vi' ? 'Đóng menu' : 'Close menu';
+  const navigationMenuLabel = language === 'vi' ? 'Menu điều hướng chính' : 'Main navigation menu';
+
   return (
-    <div className={`App${isHybridRoute ? ' app-shell-documents' : ''}${isSlideStudioRoute ? ' app-shell-slide-route' : ''}`}>
-      <header className="App-header app-shell-header">
+    <div className={`App app-shell${isHybridRoute ? ' app-shell-documents' : ''}${isSlideStudioRoute ? ' app-shell-slide-route' : ''}${isMainMenuOpen ? ' is-menu-open' : ''}`}>
+      <header className="App-header app-shell-header app-topbar">
         <div className="container app-shell-header-inner">
-          <div className="app-shell-brand">
-            <div className="app-shell-brand-mark">AI</div>
-            <div className="app-shell-brand-copy">
-              <strong>{t('app.brand')}</strong>
+          <div className="app-shell-header-start">
+            <button
+              type="button"
+              className="app-menu-toggle"
+              onClick={() => setIsMainMenuOpen(true)}
+              aria-label={openMenuLabel}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+
+            <div className="app-shell-brand">
+              <div className="app-shell-brand-mark">AI</div>
+              <div className="app-shell-brand-copy">
+                <strong>{t('app.brand')}</strong>
+              </div>
             </div>
           </div>
 
@@ -80,30 +102,47 @@ function AppShell({ user }) {
         </div>
       </header>
 
-      <div className="app-shell-body">
-        <aside className="app-sidebar">
-          <div className="app-sidebar-inner">
-            <nav className="app-sidebar-nav">
-              <NavLink to="/" end className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="app-sidebar-icon" aria-hidden="true">⌂</span>
-                <span className="app-sidebar-label">{t('app.nav.dashboard')}</span>
-              </NavLink>
+      {isMainMenuOpen && (
+        <div
+          className="app-menu-backdrop"
+          onClick={() => setIsMainMenuOpen(false)}
+        >
+          <aside
+            className="app-menu-drawer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="app-menu-header">
+              <div className="app-menu-logo">AI</div>
+              <strong>{t('app.brand')}</strong>
 
-              <NavLink to="/workspaces" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="app-sidebar-icon" aria-hidden="true">▤</span>
-                <span className="app-sidebar-label">{t('app.nav.workspaces')}</span>
-              </NavLink>
+              <button
+                type="button"
+                className="app-menu-close"
+                onClick={() => setIsMainMenuOpen(false)}
+                aria-label={closeMenuLabel}
+              >
+                ×
+              </button>
+            </div>
 
-              <NavLink to="/settings" className={({ isActive }) => `app-sidebar-link${isActive ? ' active' : ''}`}>
-                <span className="app-sidebar-icon" aria-hidden="true">⚙</span>
-                <span className="app-sidebar-label">{t('app.nav.settings')}</span>
+            <nav className="app-menu-nav" aria-label={navigationMenuLabel}>
+              <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+                {t('app.nav.dashboard')}
+              </NavLink>
+              <NavLink to="/workspaces" className={({ isActive }) => (isActive ? 'active' : '')}>
+                {t('app.nav.workspaces')}
+              </NavLink>
+              <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
+                {t('app.nav.settings')}
               </NavLink>
             </nav>
-          </div>
-        </aside>
+          </aside>
+        </div>
+      )}
 
-        <main className="app-shell-content">
-          <div className="container app-shell-content-inner">
+      <div className="app-shell-body">
+        <main className="app-main app-shell-content">
+          <div className="app-shell-content-inner">
             {!isStudioRoute && (
               <div className="app-page-header">
                 <h1>{getPageTitle(location.pathname, t)}</h1>

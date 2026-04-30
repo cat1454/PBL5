@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, slideService, workspaceService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
-import { formatEta, getProgressCounterLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
+import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import { useLanguage } from '../context/LanguageContext';
 
 const DEMO_USER = 'demo-user';
@@ -58,6 +58,56 @@ function getSelectableSections(source) {
     : [];
 }
 
+function normalizeSectionText(value, fallback = '') {
+  const normalized = String(value || fallback).replace(/\s+/g, ' ').trim();
+  return normalized || fallback;
+}
+
+function getSectionTitle(section) {
+  const raw = section?.heading || section?.sectionKey || 'Phan noi dung';
+  const normalized = normalizeSectionText(raw, 'Phan noi dung');
+  const markerMatch = normalized.match(/\s((\d+|I|II|III|IV|V|VI)\.)\s/);
+  const cleanTitle = markerMatch
+    ? normalized.slice(0, markerMatch.index).trim()
+    : normalized;
+
+  if (cleanTitle.length <= 90) {
+    return cleanTitle;
+  }
+
+  return `${cleanTitle.slice(0, 90).trim()}...`;
+}
+
+function getSectionDetail(section) {
+  return normalizeSectionText(
+    section?.heading || section?.sectionKey || 'Phan noi dung',
+    'Phan noi dung'
+  );
+}
+
+function getSectionMetaLabel(section, language = 'vi') {
+  const pageRange = section?.startPage && section?.endPage
+    ? (language === 'vi'
+      ? `Trang ${section.startPage}-${section.endPage}`
+      : `Pages ${section.startPage}-${section.endPage}`)
+    : section?.startPage
+      ? (language === 'vi' ? `Trang ${section.startPage}` : `Page ${section.startPage}`)
+      : '';
+
+  const chunkCount = section?.chunkCount ?? section?.chunkIds?.length ?? 0;
+  const chunkLabel = chunkCount > 0
+    ? (language === 'vi'
+      ? `${chunkCount} đoạn nội dung`
+      : `${chunkCount} chunks`)
+    : '';
+
+  return [pageRange, chunkLabel].filter(Boolean).join(' · ');
+}
+
+function isSourceIncluded(source) {
+  return Boolean(source?.includeInWorkspaceSlides ?? source?.includeInFolderSlides);
+}
+
 function createFallbackEditorState(item) {
   return item?.editorState || {
     layoutVariant: 'standard',
@@ -102,6 +152,30 @@ function getSlideSourceRevision(item) {
     item?.speakerNotes || '',
   ].join('::');
 }
+
+function getNewestSlideId(deckData) {
+  if (!deckData?.items?.length) {
+    return null;
+  }
+
+  return [...deckData.items]
+    .sort((left, right) => (left.slideIndex || 0) - (right.slideIndex || 0))
+    .at(-1)?.id || null;
+}
+
+function getAnimationChunkSize(currentText, targetText) {
+  const remaining = Math.max(0, targetText.length - currentText.length);
+
+  if (remaining <= 2) {
+    return remaining;
+  }
+
+  if (targetText.charAt(currentText.length) === '\n') {
+    return 1;
+  }
+
+  return Math.min(3, remaining);
+}
 function normalizeStatusLabel(status) {
   switch (status) {
     case 0:
@@ -129,7 +203,51 @@ function applyTextStyle(block = {}) {
     textAlign: block.align || 'left',
   };
 }
+function WorkspaceDeckProgressCard({ progress, language }) {
+  if (!progress) {
+    return null;
+  }
 
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const counterLabel = getProgressCounterLabel(progress);
+  const etaLabel = formatEta(progress.estimatedRemainingSeconds);
+
+  return (
+    <div className="workspace-generate-progress-card">
+      <div className="workspace-generate-progress-head">
+        <div>
+          <p className="workspace-generate-kicker">
+            {language === 'vi' ? 'Đang tạo slide deck' : 'Generating slide deck'}
+          </p>
+          <h3>{progress.stageLabel || (language === 'vi' ? 'Đang xử lý' : 'Processing')}</h3>
+        </div>
+
+        <span className="workspace-generate-percent">{percent}%</span>
+      </div>
+
+      <div className="workspace-generate-progress-track">
+        <div
+          className="workspace-generate-progress-fill"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      <p className="workspace-generate-message">
+        {progress.message || (language === 'vi' ? 'Hệ thống đang xử lý deck.' : 'The deck is being processed.')}
+      </p>
+
+      {progress.detail && (
+        <p className="workspace-generate-detail">{progress.detail}</p>
+      )}
+
+      <div className="workspace-generate-meta">
+        {counterLabel && <span>{counterLabel}</span>}
+        {etaLabel && <span>ETA: {etaLabel}</span>}
+      </div>
+    </div>
+  );
+}
+void WorkspaceDeckProgressCard;
 function FolderStudio() {
   const { t, language } = useLanguage();
   const { workspaceId } = useParams();
@@ -150,16 +268,24 @@ function FolderStudio() {
   const [feedback, setFeedback] = useState('');
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [generationError, setGenerationError] = useState('');
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
+  const [isScopePickerOpen, setIsScopePickerOpen] = useState(false);
+  const [expandedSectionIds, setExpandedSectionIds] = useState([]);
   const [scopeRecommendation, setScopeRecommendation] = useState(null);
   const [filterText, setFilterText] = useState('');
   const [activeSidebarTab, setActiveSidebarTab] = useState('slides');
   const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
+  const [animatingSlides, setAnimatingSlides] = useState({});
+  const progressRef = useRef(null);
+  const typewriterTimersRef = useRef({});
+  const typewriterStateRef = useRef({});
+  const animatedRevisionRef = useRef({});
   const audienceLabels = t('slides.options.audiences');
   const toneLabels = t('slides.options.tones');
   const languageStyleLabels = t('slides.options.languageStyles');
@@ -193,6 +319,23 @@ function FolderStudio() {
   const bodyPlaceholder = language === 'vi' ? 'Mỗi dòng tương ứng một bullet hoặc một ý chính.' : 'Each line becomes one bullet or one key point.';
   const notesPlaceholder = language === 'vi' ? 'Ghi chú thuyết trình, script, nhắc nhở...' : 'Speaker notes, script, reminders...';
 
+  const getSourceStatusText = (status) => {
+    switch (status) {
+      case 0:
+        return t('slides.scopePicker.statuses.uploaded');
+      case 1:
+        return t('slides.scopePicker.statuses.extracting');
+      case 2:
+        return t('slides.scopePicker.statuses.analyzing');
+      case 3:
+        return t('slides.scopePicker.statuses.completed');
+      case 4:
+        return t('slides.scopePicker.statuses.failed');
+      default:
+        return t('slides.scopePicker.statuses.unknown');
+    }
+  };
+
   const formatRelativeTimeLabel = (value) => {
     if (!value) {
       return '-';
@@ -214,6 +357,119 @@ function FolderStudio() {
     return new Date(value).toLocaleString();
   };
 
+  const stopTypewriterAnimation = useCallback((slideId) => {
+    if (!slideId) {
+      return;
+    }
+
+    if (typewriterTimersRef.current[slideId]) {
+      clearTimeout(typewriterTimersRef.current[slideId]);
+      delete typewriterTimersRef.current[slideId];
+    }
+
+    if (typewriterStateRef.current[slideId]) {
+      delete typewriterStateRef.current[slideId];
+    }
+
+    setAnimatingSlides((current) => {
+      if (!current[slideId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[slideId];
+      return next;
+    });
+  }, []);
+
+  const startTypewriterAnimation = useCallback((item, revision) => {
+    if (!item?.id || !revision) {
+      return;
+    }
+
+    const slideId = item.id;
+    const targetDraft = createFallbackEditorState(item);
+    animatedRevisionRef.current[slideId] = revision;
+    stopTypewriterAnimation(slideId);
+
+    typewriterStateRef.current[slideId] = {
+      revision,
+      targetDraft,
+    };
+
+    setAnimatingSlides((current) => ({
+      ...current,
+      [slideId]: revision,
+    }));
+
+    setDrafts((current) => {
+      const base = current[slideId] || createFallbackEditorState(item);
+      return {
+        ...current,
+        [slideId]: {
+          ...cloneDraft(base),
+          title: { ...base.title, text: '' },
+          subtitle: { ...base.subtitle, text: '' },
+          goal: { ...base.goal, text: '' },
+          body: { ...base.body, text: '' },
+          notes: { ...base.notes, text: '' },
+        },
+      };
+    });
+
+    const tick = () => {
+      const activeAnimation = typewriterStateRef.current[slideId];
+      if (!activeAnimation || activeAnimation.revision !== revision) {
+        return;
+      }
+
+      let done = true;
+
+      setDrafts((current) => {
+        const base = current[slideId] || createFallbackEditorState(item);
+        const nextDraft = cloneDraft(base);
+        let changed = false;
+
+        ['title', 'subtitle', 'goal', 'body', 'notes'].forEach((fieldKey) => {
+          const targetText = activeAnimation.targetDraft[fieldKey]?.text || '';
+          const currentText = nextDraft[fieldKey]?.text || '';
+
+          if (currentText !== targetText) {
+            done = false;
+            nextDraft[fieldKey].text = targetText.slice(0, currentText.length + getAnimationChunkSize(currentText, targetText));
+            changed = true;
+          }
+        });
+
+        if (!changed) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [slideId]: nextDraft,
+        };
+      });
+
+      if (done) {
+        stopTypewriterAnimation(slideId);
+        setDraftMeta((current) => ({
+          ...current,
+          [slideId]: { ...(current[slideId] || {}), sourceRevision: revision },
+        }));
+        return;
+      }
+
+      typewriterTimersRef.current[slideId] = setTimeout(tick, 36);
+    };
+
+    typewriterTimersRef.current[slideId] = setTimeout(tick, 48);
+  }, [stopTypewriterAnimation]);
+
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
+
   const loadWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
       setLoading(true);
@@ -232,12 +488,12 @@ function FolderStudio() {
       setDeck(deckData || null);
 
       if (deckData?.generationProgress) {
-        const nextProgress = normalizeProgressState(deckData.generationProgress);
+        const nextProgress = normalizeProgressState(deckData.generationProgress, progressRef.current || {});
         setProgress(nextProgress);
         if (nextProgress.jobId) {
           setJobId(nextProgress.jobId);
         }
-      } else {
+      } else if (!progressRef.current || isTerminalProgress(progressRef.current)) {
         setProgress(null);
         setJobId(null);
       }
@@ -254,9 +510,16 @@ function FolderStudio() {
           scopePolicy: deckData.outline.brief.scopePolicy || current.scopePolicy,
         }));
       }
+
+      return {
+        folderData,
+        sourceData,
+        deckData,
+      };
     } catch (err) {
       console.error(err);
       setError(language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.');
+      return null;
     } finally {
       if (!silent) {
         setLoading(false);
@@ -294,14 +557,16 @@ function FolderStudio() {
         const currentDraft = next[item.id];
         const isDirty = Boolean(dirtyDrafts[item.id]);
         const currentMeta = draftMeta[item.id];
+        const isSelected = item.id === selectedSlideId;
 
         const shouldCreateDraft = !currentDraft;
         const shouldRefreshFromBackend = !isDirty && currentMeta?.sourceRevision !== revision;
         const shouldRepairEmptyBody = !isDirty && isDraftBodyEmpty(currentDraft) && itemHasGeneratedBody(item);
+        const shouldSyncSelectedImmediately = isSelected && animatedRevisionRef.current[item.id] === revision;
 
-        if (shouldCreateDraft || shouldRefreshFromBackend || shouldRepairEmptyBody) {
+        if (shouldCreateDraft || shouldRepairEmptyBody || (shouldRefreshFromBackend && (!isSelected || shouldSyncSelectedImmediately))) {
           next[item.id] = createFallbackEditorState(item);
-          metaPatch[item.id] = { sourceRevision: revision };
+          metaPatch[item.id] = { ...(currentMeta || {}), sourceRevision: revision };
           changed = true;
         }
       });
@@ -315,33 +580,106 @@ function FolderStudio() {
 
       return changed ? next : current;
     });
-  }, [deck, dirtyDrafts, draftMeta]);
+  }, [deck, dirtyDrafts, draftMeta, selectedSlideId]);
 
   useEffect(() => {
-    const hasRunningSources = sources.some((source) => source.processingProgress && isActiveProgress(source.processingProgress));
-    const hasRunningDeck = progress && isActiveProgress(progress);
-
-    if (!hasRunningSources && !hasRunningDeck) {
+    if (!selectedSlideId || !deck?.items?.length) {
       return undefined;
     }
 
-    const interval = setInterval(async () => {
+    const selectedItem = deck.items.find((item) => item.id === selectedSlideId);
+    if (!selectedItem) {
+      return undefined;
+    }
+
+    const revision = getSlideSourceRevision(selectedItem);
+    const isDirty = Boolean(dirtyDrafts[selectedItem.id]);
+    const currentMeta = draftMeta[selectedItem.id];
+
+    if (isDirty || currentMeta?.sourceRevision === revision || animatedRevisionRef.current[selectedItem.id] === revision) {
+      return undefined;
+    }
+
+    startTypewriterAnimation(selectedItem, revision);
+    return undefined;
+  }, [deck, dirtyDrafts, draftMeta, selectedSlideId, startTypewriterAnimation]);
+
+  useEffect(() => {
+    Object.keys(typewriterStateRef.current).forEach((slideId) => {
+      if (String(slideId) !== String(selectedSlideId)) {
+        stopTypewriterAnimation(slideId);
+      }
+    });
+  }, [selectedSlideId, stopTypewriterAnimation]);
+
+  useEffect(() => {
+    const timerMap = typewriterTimersRef.current;
+    return () => {
+      Object.keys(timerMap).forEach((slideId) => {
+        stopTypewriterAnimation(slideId);
+      });
+    };
+  }, [stopTypewriterAnimation]);
+
+  useEffect(() => {
+    if (!jobId || !progress || isTerminalProgress(progress)) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const pollProgress = async () => {
       try {
-        if (jobId) {
-          const nextProgress = normalizeProgressState(await slideService.getGenerateProgress(jobId), progress);
-          setProgress(nextProgress);
+        const nextProgress = normalizeProgressState(
+          await slideService.getGenerateProgress(jobId),
+          progressRef.current || progress
+        );
+
+        if (cancelled) {
+          return;
         }
+
+        setProgress(nextProgress);
         await loadWorkspace({ silent: true });
+
+        if (nextProgress.status === 'completed') {
+          setGenerationError('');
+          const finalWorkspace = await loadWorkspace({ silent: true });
+          if (cancelled) {
+            return;
+          }
+
+          const newestSlideId = getNewestSlideId(finalWorkspace?.deckData);
+          if (newestSlideId) {
+            setSelectedSlideId(newestSlideId);
+          }
+          return;
+        }
+
+        if (nextProgress.status === 'failed') {
+          setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
+        } else {
+          setGenerationError('');
+        }
       } catch (err) {
         console.error(err);
+        if (!cancelled) {
+          setGenerationError(t('slides.generationStatus.pollFailed'));
+        }
       }
-    }, 1800);
+    };
 
-    return () => clearInterval(interval);
-  }, [jobId, loadWorkspace, progress, sources]);
+    pollProgress();
+    const interval = setInterval(pollProgress, 1500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [jobId, loadWorkspace, progress, t]);
 
   const selectedReadySources = useMemo(
-    () => sources.filter((source) => source.status === 3 && (source.includeInWorkspaceSlides ?? source.includeInFolderSlides)),
+    () => sources.filter((source) => source.status === 3 && isSourceIncluded(source)),
     [sources]
   );
   const readySources = useMemo(
@@ -373,19 +711,22 @@ function FolderStudio() {
         return current;
       }
 
-      const included = readySources.find((source) => source.includeInWorkspaceSlides ?? source.includeInFolderSlides);
-      return included?.id ?? readySources[0]?.id ?? sources[0].id;
+      return readySources[0]?.id ?? sources[0].id;
     });
   }, [readySources, sources]);
 
   useEffect(() => {
     if (!selectedSource) {
       setSelectedSectionIds([]);
+      setIsScopePickerOpen(false);
+      setExpandedSectionIds([]);
       return;
     }
 
     const validIds = new Set(getSelectableSections(selectedSource).map((section) => buildScopedSectionId(selectedSource.id, section.sectionKey)));
     setSelectedSectionIds((current) => current.filter((id) => validIds.has(id)));
+    setIsScopePickerOpen(false);
+    setExpandedSectionIds((current) => current.filter((id) => validIds.has(id)));
   }, [selectedSource]);
 
   const pushHistory = (slideId, previousDraft) => {
@@ -426,6 +767,7 @@ function FolderStudio() {
       return;
     }
 
+    stopTypewriterAnimation(selectedSlide.id);
     mutateDraft(selectedSlide.id, (draft) => {
       draft[fieldKey].text = value;
       return draft;
@@ -577,6 +919,31 @@ function FolderStudio() {
     }
   };
 
+  const handleFocusSource = useCallback((source) => {
+    if (!source?.id) {
+      return;
+    }
+
+    setSelectedSourceId(source.id);
+    setSelectedSectionIds([]);
+  }, []);
+
+  const handleSetSourceIncluded = async (source, nextIncluded) => {
+    try {
+      setError('');
+      await workspaceService.updateSourceSelection(workspaceId, source.id, nextIncluded);
+      setFeedback(
+        nextIncluded
+          ? (language === 'vi' ? `ÄÃ£ Ä‘Æ°a ${source.fileName} vÃ o táº­p nguá»“n sinh slide.` : `Added ${source.fileName} to the slide source set.`)
+          : (language === 'vi' ? `ÄÃ£ bá» ${source.fileName} khá»i táº­p nguá»“n sinh slide.` : `Removed ${source.fileName} from the slide source set.`)
+      );
+      await loadWorkspace({ silent: true });
+    } catch (err) {
+      console.error(err);
+      setError(language === 'vi' ? 'KhÃ´ng cáº­p nháº­t Ä‘Æ°á»£c tráº¡ng thÃ¡i chá»n nguá»“n.' : 'Could not update the source selection state.');
+    }
+  };
+
   const toggleSourceSelection = async (source) => {
     try {
       setError('');
@@ -599,31 +966,9 @@ function FolderStudio() {
   void toggleSourceSelection;
 
   const handleSelectPrimarySource = async (source) => {
-
-    try {
-      setError('');
-
-      for (const item of sources) {
-        const nextIncluded = item.id === source.id;
-        const currentIncluded = Boolean(item.includeInWorkspaceSlides ?? item.includeInFolderSlides);
-        if (currentIncluded === nextIncluded) {
-          continue;
-        }
-
-        await workspaceService.updateSourceSelection(workspaceId, item.id, nextIncluded);
-      }
-
-      setSelectedSourceId(source.id);
-      setSelectedSectionIds([]);
-      setFeedback(language === 'vi'
-        ? `Đã chọn ${source.fileName} làm tài liệu chính cho deck.`
-        : `Selected ${source.fileName} as the primary source for this deck.`);
-      await loadWorkspace({ silent: true });
-    } catch (err) {
-      console.error(err);
-      setError(language === 'vi' ? 'Không cập nhật được tài liệu chính cho deck.' : 'Could not update the primary source for this deck.');
-    }
+    handleFocusSource(source);
   };
+  void handleSelectPrimarySource;
 
   const handleAnalyzeStructure = async () => {
     if (!selectedSource) {
@@ -655,6 +1000,14 @@ function FolderStudio() {
     ));
   };
 
+  const handleToggleSectionDetail = (scopedId) => {
+    setExpandedSectionIds((current) => (
+      current.includes(scopedId)
+        ? current.filter((id) => id !== scopedId)
+        : [...current, scopedId]
+    ));
+  };
+
   const handleSelectAllSections = () => {
     if (!selectedSource) {
       return;
@@ -668,40 +1021,43 @@ function FolderStudio() {
   };
 
   const handleGenerateDeck = async () => {
-    if (!selectedSource || selectedSource.status !== 3) {
-      setError(language === 'vi' ? 'Cần ít nhất 1 source đã Completed và được chọn cho slide.' : 'At least one completed source must be selected for slide generation.');
-      return;
-    }
+  if (!selectedSource || selectedSource.status !== 3) {
+    setError(language === 'vi' ? 'Cần ít nhất 1 source đã Completed và được chọn cho slide.' : 'At least one completed source must be selected for slide generation.');
+    return;
+  }
 
-    try {
-      setError('');
-      setFeedback(language === 'vi' ? 'Đang tạo deck mới từ các source đã chọn...' : 'Generating a new deck from the selected sources...');
-      if (!selectedSectionIds.length) {
-        setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
-        return;
-      }
+  if (!selectedSectionIds.length) {
+    setError(language === 'vi' ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.' : 'Choose at least one chapter or section before generating slides.');
+    return;
+  }
 
-      const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
-        ...brief,
-        sourceIds: [selectedSource.id],
-        selectedSectionIds,
-        mode: brief.mode,
-        scopePolicy: 'selected-sections-only',
-      });
-      setScopeRecommendation(response.scopeRecommendation || null);
-      setJobId(response.jobId || response.progress?.jobId || null);
-      setProgress(normalizeProgressState(response.progress, {
-        jobId: response.jobId,
-        status: response.status,
-        stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
-        message: language === 'vi' ? 'Đã tạo job sinh slide cấp workspace' : 'Workspace slide generation job created',
-      }));
-      await loadWorkspace({ silent: true });
-    } catch (err) {
-      console.error(err);
-      setError(language === 'vi' ? 'Không bắt đầu được quá trình sinh slide cấp workspace.' : 'Could not start workspace slide generation.');
-    }
-  };
+  try {
+    setError('');
+    setFeedback('');
+
+    const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
+      ...brief,
+      sourceIds: [selectedSource.id],
+      selectedSectionIds,
+      mode: brief.mode,
+      scopePolicy: 'selected-sections-only',
+    });
+
+    setScopeRecommendation(response.scopeRecommendation || null);
+    setJobId(response.jobId || response.progress?.jobId || null);
+    setProgress(normalizeProgressState(response.progress, {
+      jobId: response.jobId,
+      status: response.status,
+      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
+      message: language === 'vi' ? 'Đã tạo job sinh slide cấp workspace' : 'Workspace slide generation job created',
+    }));
+
+    await loadWorkspace({ silent: true });
+  } catch (err) {
+    console.error(err);
+    setError(language === 'vi' ? 'Không bắt đầu được quá trình sinh slide cấp workspace.' : 'Could not start workspace slide generation.');
+  }
+};
 
   const handleRefreshImages = async () => {
     if (!deck || !selectedSlide) {
@@ -785,8 +1141,21 @@ function FolderStudio() {
   const selectedImage = selectedImageVm?.selectedImage || null;
   const canGenerate = Boolean(selectedSource && selectedSource.status === 3 && selectedSectionIds.length > 0)
     && !(activeProgress && isActiveProgress(activeProgress));
+  const studioProgress = activeProgress?.jobId && (isActiveProgress(activeProgress) || activeProgress.status === 'failed')
+    ? activeProgress
+    : null;
+  const studioProgressCounter = getProgressCounterLabel(studioProgress);
+  const studioProgressEta = formatEta(studioProgress?.estimatedRemainingSeconds);
+  const studioProgressMessage = studioProgress?.detail || studioProgress?.message || studioProgress?.stageLabel || '';
+  const studioGenerationFailure = studioProgress?.status === 'failed'
+    ? (generationError || studioProgress?.error || studioProgress?.detail || t('slides.generationStatus.failedFallback'))
+    : generationError;
   const qualityIssues = selectedSlide?.quality?.issues || [];
   const qualityScore = selectedSlide?.quality?.score;
+  const scopePickerTitle = language === 'vi' ? 'Phạm vi nội dung' : 'Content scope';
+  const scopePickerApplyLabel = language === 'vi' ? 'Áp dụng' : 'Apply';
+  void scopePickerTitle;
+  void scopePickerApplyLabel;
   const topbarMeta = [
     language === 'vi' ? `${sources.length} nguồn` : `${sources.length} sources`,
     language === 'vi' ? `${selectedReadySources.length} source được chọn` : `${selectedReadySources.length} selected sources`,
@@ -935,6 +1304,7 @@ function FolderStudio() {
 
               {filteredSources.map((source) => {
                 const isSelected = source.id === selectedSourceId;
+                const isIncluded = isSourceIncluded(source);
                 const isReady = source.status === 3;
                 const tone = String(source.fileType || '').includes('pdf')
                   ? 'pdf'
@@ -949,17 +1319,35 @@ function FolderStudio() {
                 const showLive = isActiveProgress(progressState);
 
                 return (
-                  <div key={source.id} className={`folder-studio-source-item${isSelected ? ' selected' : ''}`}>
+                  <div
+                    key={source.id}
+                    className={`folder-studio-source-item${isSelected ? ' selected' : ''}`}
+                    onClick={() => handleFocusSource(source)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleFocusSource(source);
+                      }
+                    }}
+                  >
                     <div className={`folder-studio-source-icon tone-${tone}`}>
                       {String(source.fileType || '').slice(0, 3).toUpperCase()}
                     </div>
-                    <div className="folder-studio-source-copy">
+                    <div className="folder-studio-source-body">
+                      <div className="folder-studio-source-copy">
                       <p title={source.fileName}>{source.fileName}</p>
                       <div className="folder-studio-source-meta">
                         <span className={`folder-studio-source-badge tone-${isReady ? 'completed' : showLive ? 'active' : source.status === 4 ? 'failed' : 'uploaded'}`}>
                           {showLive ? `${Math.round(progressState.percent || 0)}%` : normalizeStatusLabel(source.status)}
                         </span>
-                        <span>{isSelected ? (language === 'vi' ? 'Đã chọn cho deck' : 'Selected for deck') : (language === 'vi' ? 'Chưa đưa vào deck' : 'Not in deck yet')}</span>
+                        <span>{isIncluded ? (language === 'vi' ? 'Đã đưa vào deck' : 'Included in deck') : (language === 'vi' ? 'Chưa đưa vào deck' : 'Not in deck yet')}</span>
+                      </div>
+                      <div className="folder-studio-source-focus-copy">
+                        {isSelected
+                          ? (language === 'vi' ? 'Đang focus để xem cấu trúc' : 'Focused for structure view')
+                          : (language === 'vi' ? 'Bấm vào card để xem cấu trúc' : 'Click card to inspect structure')}
                       </div>
                       {showLive && (
                         <div className="folder-studio-source-live">
@@ -967,15 +1355,21 @@ function FolderStudio() {
                           {progressState.estimatedRemainingSeconds ? ` | ${formatEta(progressState.estimatedRemainingSeconds)}` : ''}
                         </div>
                       )}
+                      </div>
+                      <div className="folder-studio-source-actions">
+                        <button
+                          type="button"
+                          className={`folder-studio-pick-btn${isIncluded ? ' active' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleSetSourceIncluded(source, !isIncluded);
+                          }}
+                          disabled={!isReady}
+                        >
+                          {isIncluded ? (language === 'vi' ? 'Bỏ' : 'Remove') : (language === 'vi' ? 'Chọn' : 'Select')}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      className={`folder-studio-pick-btn${isSelected ? ' active' : ''}`}
-                      onClick={() => handleSelectPrimarySource(source)}
-                      disabled={!isReady}
-                    >
-                      {isSelected ? (language === 'vi' ? 'Bỏ' : 'Remove') : (language === 'vi' ? 'Chọn' : 'Select')}
-                    </button>
                   </div>
                 );
               })}
@@ -986,7 +1380,7 @@ function FolderStudio() {
             <div className="folder-studio-scope-card">
               {!selectedSource ? (
                 <div className="folder-studio-empty-sidebar">
-                  {language === 'vi' ? 'Chọn một tài liệu chính để xem cây chương/mục.' : 'Choose one primary source to inspect its chapter/section structure.'}
+                  {language === 'vi' ? 'Chọn một source để xem cây chương/mục.' : 'Choose one source to inspect its chapter/section structure.'}
                 </div>
               ) : (
                 <>
@@ -997,6 +1391,36 @@ function FolderStudio() {
                         ? (language === 'vi' ? `${selectableSections.length} phần khả dụng` : `${selectableSections.length} selectable sections`)
                         : (language === 'vi' ? 'Đang chờ metadata cấu trúc' : 'Waiting for structure metadata')}
                     </span>
+                  </div>
+                  <div className="workspace-source-status-row">
+                    <span className={`folder-studio-source-badge tone-${selectedSource.status === 3 ? 'completed' : selectedSource.status === 4 ? 'failed' : selectedSource.status >= 1 ? 'active' : 'uploaded'}`}>
+                      {getSourceStatusText(selectedSource.status)}
+                    </span>
+                    {!!selectedSectionIds.length && (
+                      <span className="workspace-source-selection-note">
+                        {t('slides.scopePicker.selectedSummary', { count: selectedSectionIds.length })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="workspace-source-action-group">
+                    <button
+                      type="button"
+                      className="source-scope-button"
+                      onClick={() => setIsScopePickerOpen(true)}
+                      disabled={!selectedSource || selectedSource.status !== 3}
+                    >
+                      {selectedSectionIds.length > 0
+                        ? t('slides.scopePicker.selectedButton', { count: selectedSectionIds.length })
+                        : t('slides.scopePicker.chooseScope')}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="source-secondary-button"
+                      onClick={handleAnalyzeStructure}
+                    >
+                      {t('slides.scopePicker.analyzeAgain')}
+                    </button>
                   </div>
                   <div className="folder-studio-inline-actions">
                     <button type="button" className="folder-studio-mini-btn" onClick={handleSelectAllSections} disabled={!selectableSections.length}>
@@ -1020,22 +1444,53 @@ function FolderStudio() {
                     {selectableSections.map((section) => {
                       const scopedId = buildScopedSectionId(selectedSource.id, section.sectionKey);
                       const checked = selectedSectionIds.includes(scopedId);
+                      const isExpanded = expandedSectionIds.includes(scopedId);
+                      const title = getSectionTitle(section);
+                      const detail = getSectionDetail(section);
+                      const hasLongDetail = detail && detail !== title && detail.length > title.length + 20;
                       return (
-                        <label key={scopedId} className={`folder-studio-structure-item${checked ? ' active' : ''}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => handleToggleSection(section.sectionKey)}
-                          />
-                          <div className="folder-studio-structure-copy">
-                            <strong>{section.heading || section.sectionKey}</strong>
-                            <span>
-                              {language === 'vi'
-                                ? `Trang ${section.startPage || '?'}-${section.endPage || '?'} | ${section.chunkCount || section.chunkIds?.length || 0} chunk`
-                                : `Pages ${section.startPage || '?'}-${section.endPage || '?'} | ${section.chunkCount || section.chunkIds?.length || 0} chunks`}
-                            </span>
+                        <div
+                          key={scopedId}
+                          className={`section-scope-card${checked ? ' is-selected' : ''}`}
+                        >
+                          <div className="section-scope-main">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => handleToggleSection(section.sectionKey)}
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={title}
+                            />
+                            <button
+                              type="button"
+                              className="section-scope-summary"
+                              onClick={() => handleToggleSectionDetail(scopedId)}
+                              aria-expanded={hasLongDetail ? isExpanded : false}
+                            >
+                              <span className="section-scope-title">{title}</span>
+                              <span className="section-scope-meta">
+                                {getSectionMetaLabel(section, language)}
+                              </span>
+                            </button>
+                            {hasLongDetail && (
+                              <button
+                                type="button"
+                                className="section-scope-expand"
+                                onClick={() => handleToggleSectionDetail(scopedId)}
+                              >
+                                {isExpanded
+                                  ? (language === 'vi' ? 'Thu gọn' : 'Collapse')
+                                  : (language === 'vi' ? 'Xem' : 'View')}
+                              </button>
+                            )}
                           </div>
-                        </label>
+
+                          {isExpanded && hasLongDetail && (
+                            <div className="section-scope-detail">
+                              {detail}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                     {selectedSource.isStructureReady && !selectableSections.length && (
@@ -1078,6 +1533,112 @@ function FolderStudio() {
               ))}
             </div>
           </aside>
+
+          {isScopePickerOpen && selectedSource && (
+            <div className="scope-picker-backdrop" onClick={() => setIsScopePickerOpen(false)}>
+              <section className="scope-picker-modal" onClick={(event) => event.stopPropagation()}>
+                <header className="scope-picker-header">
+                  <div>
+                    <p className="scope-picker-kicker">{t('slides.scopePicker.kicker')}</p>
+                    <h3>{selectedSource.fileName}</h3>
+                    <span>{t('slides.scopePicker.availableCount', { count: selectableSections.length })}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="scope-picker-close"
+                    onClick={() => setIsScopePickerOpen(false)}
+                    aria-label={t('slides.scopePicker.close')}
+                  >
+                    ×
+                  </button>
+                </header>
+
+                <div className="scope-picker-actions">
+                  <button type="button" onClick={handleSelectAllSections}>
+                    {t('slides.scopePicker.wholeDocument')}
+                  </button>
+
+                  <button type="button" onClick={handleClearSections}>
+                    {t('slides.scopePicker.clear')}
+                  </button>
+                </div>
+
+                <div className="scope-picker-list">
+                  {selectableSections.map((section) => {
+                    const scopedId = buildScopedSectionId(selectedSource.id, section.sectionKey);
+                    const isSelected = selectedSectionIds.includes(scopedId);
+                    const isExpanded = expandedSectionIds.includes(scopedId);
+                    const title = getSectionTitle(section);
+                    const detail = getSectionDetail(section);
+                    const hasLongDetail = detail && detail !== title && detail.length > title.length + 20;
+
+                    return (
+                      <div
+                        key={scopedId}
+                        className={`scope-section-card ${isSelected ? 'is-selected' : ''}`}
+                      >
+                        <div className="scope-section-main">
+                          <label className="scope-section-check">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSection(section.sectionKey)}
+                              aria-label={title}
+                            />
+                            <span />
+                          </label>
+
+                          <button
+                            type="button"
+                            className="scope-section-summary"
+                            onClick={() => handleToggleSection(section.sectionKey)}
+                          >
+                            <strong>{title}</strong>
+                            <small>{getSectionMetaLabel(section, language)}</small>
+                          </button>
+
+                          {hasLongDetail && (
+                            <button
+                              type="button"
+                              className="scope-section-detail-toggle"
+                              onClick={() => handleToggleSectionDetail(scopedId)}
+                            >
+                              {isExpanded ? t('slides.scopePicker.collapse') : t('slides.scopePicker.view')}
+                            </button>
+                          )}
+                        </div>
+
+                        {isExpanded && hasLongDetail && (
+                          <div className="scope-section-detail">
+                            {detail}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {selectedSource.isStructureReady && !selectableSections.length && (
+                    <div className="folder-studio-empty-sidebar">
+                      {t('slides.scopePicker.empty')}
+                    </div>
+                  )}
+                </div>
+
+                <footer className="scope-picker-footer">
+                  <span>{t('slides.scopePicker.selectedSummary', { count: selectedSectionIds.length })}</span>
+
+                  <button
+                    type="button"
+                    className="scope-picker-apply"
+                    onClick={() => setIsScopePickerOpen(false)}
+                  >
+                    {t('slides.scopePicker.apply')}
+                  </button>
+                </footer>
+              </section>
+            </div>
+          )}
 
           <section className="folder-studio-center">
             <div className="folder-studio-toolbar">
@@ -1138,21 +1699,40 @@ function FolderStudio() {
             </div>
 
             <div className="folder-studio-canvas">
-              {!selectedSlide || !selectedDraft ? (
-                <div className="folder-studio-empty">
-                  <h3>{language === 'vi' ? 'Workspace studio sẵn sàng' : 'Workspace studio is ready'}</h3>
-                  <p>
-                    {language === 'vi' ? 'Upload nhiều source vào workspace, chọn các source đã Completed, sau đó sinh deck để bắt đầu chỉnh sửa.' : 'Upload multiple sources, select completed ones, then generate a deck to start editing.'}
-                  </p>
-                  <div className="folder-studio-empty-actions">
-                    <button type="button" className="folder-studio-mini-primary" onClick={handleUploadClick}>
-                      {language === 'vi' ? 'Thêm nguồn' : 'Add source'}
-                    </button>
-                    <button type="button" className="folder-studio-mini-btn" onClick={handleGenerateDeck} disabled={!canGenerate}>
-                      {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
-                    </button>
-                  </div>
+              {studioProgress && isActiveProgress(studioProgress) && (
+                <WorkspaceDeckProgressCard progress={studioProgress} language={language} />
+              )}
+
+              {studioGenerationFailure && !selectedSlide && (
+                <div className="folder-studio-empty folder-studio-empty-error">
+                  <h3>{t('slides.generationStatus.failedTitle')}</h3>
+                  <p>{studioGenerationFailure}</p>
                 </div>
+              )}
+              {!selectedSlide || !selectedDraft ? (
+                !studioProgress || !isActiveProgress(studioProgress) ? (
+                <div className="folder-studio-empty gamma-empty-state-card">
+    <h3>{language === 'vi' ? 'Workspace studio sẵn sàng' : 'Workspace studio is ready'}</h3>
+    <p>
+      {language === 'vi'
+        ? 'Upload nhiều source vào workspace, chọn các source đã Completed, sau đó sinh deck để bắt đầu chỉnh sửa.'
+        : 'Upload sources, select completed sources, then generate a deck to start editing.'}
+    </p>
+    <div className="folder-studio-empty-actions">
+      <button type="button" className="button button-primary" onClick={handleUploadClick}>
+        {language === 'vi' ? 'Thêm nguồn' : 'Add source'}
+      </button>
+      <button
+        type="button"
+        className="button"
+        onClick={handleGenerateDeck}
+        disabled={!canGenerate}
+      >
+        {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
+      </button>
+    </div>
+  </div>
+                ) : null
               ) : (
                 <>
                   <article className="folder-slide-card">
@@ -1164,7 +1744,7 @@ function FolderStudio() {
                             value={selectedDraft.title.text}
                             onFocus={() => setActiveField('title')}
                             onChange={(event) => handleFieldTextChange('title', event.target.value)}
-                            className="folder-slide-title-input"
+                            className={`folder-slide-title-input${animatingSlides[selectedSlide.id] ? ' is-ai-typing' : ''}`}
                             style={applyTextStyle(selectedDraft.title)}
                             placeholder={slideTitlePlaceholder}
                           />
@@ -1176,7 +1756,7 @@ function FolderStudio() {
                             value={selectedDraft.subtitle.text}
                             onFocus={() => setActiveField('subtitle')}
                             onChange={(event) => handleFieldTextChange('subtitle', event.target.value)}
-                            className="folder-slide-subtitle-input"
+                            className={`folder-slide-subtitle-input${animatingSlides[selectedSlide.id] ? ' is-ai-typing' : ''}`}
                             style={applyTextStyle(selectedDraft.subtitle)}
                             placeholder="Subheading / context"
                           />
@@ -1188,7 +1768,7 @@ function FolderStudio() {
                             value={selectedDraft.goal.text}
                             onFocus={() => setActiveField('goal')}
                             onChange={(event) => handleFieldTextChange('goal', event.target.value)}
-                            className="folder-slide-goal-input"
+                            className={`folder-slide-goal-input${animatingSlides[selectedSlide.id] ? ' is-ai-typing' : ''}`}
                             style={applyTextStyle(selectedDraft.goal)}
                             placeholder={slideGoalPlaceholder}
                           />
@@ -1200,7 +1780,7 @@ function FolderStudio() {
                             value={selectedDraft.body.text}
                             onFocus={() => setActiveField('body')}
                             onChange={(event) => handleFieldTextChange('body', event.target.value)}
-                            className="folder-slide-body-input"
+                            className={`folder-slide-body-input${animatingSlides[selectedSlide.id] ? ' is-ai-typing' : ''}`}
                             style={applyTextStyle(selectedDraft.body)}
                             placeholder={bodyPlaceholder}
                           />
@@ -1252,7 +1832,7 @@ function FolderStudio() {
                         value={selectedDraft.notes.text}
                         onFocus={() => setActiveField('notes')}
                         onChange={(event) => handleFieldTextChange('notes', event.target.value)}
-                        className={`folder-slide-notes-input${activeField === 'notes' ? ' active' : ''}`}
+                        className={`folder-slide-notes-input${activeField === 'notes' ? ' active' : ''}${animatingSlides[selectedSlide.id] ? ' is-ai-typing' : ''}`}
                         style={applyTextStyle(selectedDraft.notes)}
                         placeholder={notesPlaceholder}
                       />
@@ -1326,6 +1906,28 @@ function FolderStudio() {
                 </span>
                 <span className="folder-studio-action-badge">AI</span>
               </button>
+              {(studioProgress || studioGenerationFailure) && (
+                <div className={`folder-studio-job-status${studioGenerationFailure ? ' tone-error' : ''}`}>
+                  <div className="folder-studio-job-status-head">
+                    <strong>
+                      {studioGenerationFailure
+                        ? t('slides.generationStatus.failedTitle')
+                        : t('slides.generationStatus.liveTitle')}
+                    </strong>
+                    {studioProgress?.status ? (
+                      <span>{studioProgress.stageLabel || studioProgress.status}</span>
+                    ) : null}
+                  </div>
+                  {studioProgress && !studioGenerationFailure ? (
+                    <p>
+                      {studioProgressMessage || t('slides.generationStatus.runningFallback')}
+                      {studioProgressCounter ? ` | ${studioProgressCounter}` : ''}
+                      {studioProgressEta ? ` | ETA ${studioProgressEta}` : ''}
+                    </p>
+                  ) : null}
+                  {studioGenerationFailure ? <p>{studioGenerationFailure}</p> : null}
+                </div>
+              )}
               <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions'}</strong>
@@ -1354,11 +1956,11 @@ function FolderStudio() {
               <div className="folder-studio-source-live">
                 {selectedSource
                   ? (language === 'vi'
-                    ? `Nguồn chính: ${selectedSource.fileName} | Đã chọn ${selectedSectionIds.length} phần`
-                    : `Primary source: ${selectedSource.fileName} | ${selectedSectionIds.length} sections selected`)
+                    ? `Source đang focus: ${selectedSource.fileName} | Đã chọn ${selectedSectionIds.length} phần`
+                    : `Focused source: ${selectedSource.fileName} | ${selectedSectionIds.length} sections selected`)
                   : (language === 'vi'
-                    ? 'Bước 1-2: chọn tài liệu chính và phạm vi chapter/section trước khi tạo deck.'
-                    : 'Steps 1-2: choose the primary source and chapter/section scope before generating the deck.')}
+                    ? 'Bước 1-2: chọn source đang focus và phạm vi chapter/section trước khi tạo deck.'
+                    : 'Steps 1-2: choose the focused source and chapter/section scope before generating the deck.')}
               </div>
               <label className="folder-studio-form-row">
                 <span>{t('slides.desiredSlides')}</span>
