@@ -9,6 +9,8 @@ import FolderProjects from './components/FolderProjects';
 import FolderStudio from './components/FolderStudio';
 import QuizGame from './components/QuizGame';
 import SlideStudio from './components/SlideStudio';
+import StreakGame from './components/StreakGame';
+import StudyHub from './components/StudyHub';
 import { useLanguage } from './context/LanguageContext';
 
 function App() {
@@ -37,7 +39,7 @@ function AppShell({ user }) {
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const { language, setLanguage, t } = useLanguage();
   const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
-  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/');
+  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/') || location.pathname.startsWith('/study/');
   const isSlideStudioRoute = location.pathname.startsWith('/slides/');
 
   useEffect(() => {
@@ -158,8 +160,11 @@ function AppShell({ user }) {
               <Route path="/workspaces/:workspaceId" element={<FolderStudio />} />
               <Route path="/documents-legacy" element={<DocumentList />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/study/:documentId" element={<StudyHub />} />
+              <Route path="/study/:documentId/:mode" element={<StudyHub />} />
               <Route path="/quiz/:documentId" element={<QuizGame />} />
               <Route path="/flashcards/:documentId" element={<FlashcardGame />} />
+              <Route path="/streak/:documentId" element={<StreakGame />} />
               <Route path="/slides/:documentId" element={<SlideStudio />} />
             </Routes>
           </div>
@@ -248,8 +253,16 @@ function getPageTitle(pathname, t) {
     return t('app.pageTitle.quiz');
   }
 
+  if (pathname.startsWith('/study/')) {
+    return t('app.pageTitle.studyHub');
+  }
+
   if (pathname.startsWith('/flashcards/')) {
     return t('app.pageTitle.flashcards');
+  }
+
+  if (pathname.startsWith('/streak/')) {
+    return t('app.pageTitle.streak');
   }
 
   if (pathname.startsWith('/slides/')) {

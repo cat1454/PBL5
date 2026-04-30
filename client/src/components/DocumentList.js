@@ -885,14 +885,14 @@ function DocumentList() {
           detail={sharedProps.hasQuestions ? 'Bat dau quiz tuong tac voi tai lieu nay.' : 'Sinh bo cau hoi de kich hoat che do hoc tap.'}
           tone={sharedProps.hasQuestions ? 'primary' : 'default'}
           disabled={!sharedProps.documentReady || selectedQuestionRunning}
-          onClick={() => (sharedProps.hasQuestions ? navigate(`/quiz/${selectedDocument.id}`) : handleGenerateQuestions(selectedDocument.id))}
+          onClick={() => (sharedProps.hasQuestions ? navigate(`/study/${selectedDocument.id}/quiz`) : handleGenerateQuestions(selectedDocument.id))}
         />,
         <ActionButton
           key="study-flashcards"
           label="Mo Flashcards"
           detail="On nhanh bang the ghi nho tu bo cau hoi hien co."
           disabled={!sharedProps.hasQuestions}
-          onClick={() => navigate(`/flashcards/${selectedDocument.id}`)}
+          onClick={() => navigate(`/study/${selectedDocument.id}/flashcards`)}
         />,
       );
     }

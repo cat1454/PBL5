@@ -616,7 +616,7 @@ function DocumentListScreen() {
                         </button>
                         <button
                           className="button"
-                          onClick={() => navigate(`/quiz/${doc.id}`)}
+                          onClick={() => navigate(`/study/${doc.id}/quiz`)}
                           disabled={!doc.questionsCount}
                           style={{ opacity: doc.questionsCount ? 1 : 0.5, cursor: doc.questionsCount ? 'pointer' : 'not-allowed' }}
                         >
@@ -624,7 +624,7 @@ function DocumentListScreen() {
                         </button>
                         <button
                           className="button"
-                          onClick={() => navigate(`/flashcards/${doc.id}`)}
+                          onClick={() => navigate(`/study/${doc.id}/flashcards`)}
                           disabled={!doc.questionsCount}
                           style={{ opacity: doc.questionsCount ? 1 : 0.5, cursor: doc.questionsCount ? 'pointer' : 'not-allowed' }}
                         >

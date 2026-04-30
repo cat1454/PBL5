@@ -341,7 +341,7 @@ Nếu build fail, không merge staging lên `main`.
 
 ## 10. Checklist test thủ công trước khi merge
 
-### Backend
+### 10.1 Backend
 
 - [ ] `dotnet build ELearnGamePlatform.sln` pass.
 - [ ] Backend chạy được tại `http://localhost:5000`.
@@ -350,7 +350,7 @@ Nếu build fail, không merge staging lên `main`.
 - [ ] Không lỗi migration khi start app.
 - [ ] Không lỗi Ollama connection nếu dùng chức năng AI.
 
-### Frontend
+### 10.2 Frontend
 
 - [ ] `npm run build` pass.
 - [ ] App mở được tại `http://localhost:3000`.

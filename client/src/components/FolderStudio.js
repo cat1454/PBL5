@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { documentService, slideService, workspaceService } from '../services/api';
+import { documentService, questionService, slideService, workspaceService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import { useLanguage } from '../context/LanguageContext';
@@ -47,6 +47,10 @@ const LANGUAGE_STYLE_OPTIONS = [
 const DECK_LENGTH_OPTIONS = [8, 12, 18];
 const DECK_MODE_OPTIONS = ['lecture', 'summary', 'exam-review', 'timeline'];
 const EXCLUDED_SCOPE_CLASSES = ['FRONT_MATTER', 'TABLE_OF_CONTENTS', 'REFERENCE', 'APPENDIX', 'NOISE'];
+const QUESTION_POLL_INTERVAL_MS = 1200;
+const QUESTION_POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function buildScopedSectionId(sourceId, sectionKey) {
   return `${sourceId}::${sectionKey}`;
@@ -106,6 +110,18 @@ function getSectionMetaLabel(section, language = 'vi') {
 
 function isSourceIncluded(source) {
   return Boolean(source?.includeInWorkspaceSlides ?? source?.includeInFolderSlides);
+}
+
+function resolveSourceDocumentId(source) {
+  if (typeof source?.documentId === 'number' && Number.isFinite(source.documentId)) {
+    return source.documentId;
+  }
+
+  if (typeof source?.DocumentId === 'number' && Number.isFinite(source.DocumentId)) {
+    return source.DocumentId;
+  }
+
+  return typeof source?.id === 'number' && Number.isFinite(source.id) ? source.id : null;
 }
 
 function createFallbackEditorState(item) {
@@ -248,6 +264,42 @@ function WorkspaceDeckProgressCard({ progress, language }) {
   );
 }
 void WorkspaceDeckProgressCard;
+
+function WorkspaceQuestionProgressCard({ progress, language, t }) {
+  if (!progress) {
+    return null;
+  }
+
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const counterLabel = getProgressCounterLabel(progress);
+  const etaLabel = formatEta(progress.estimatedRemainingSeconds);
+
+  return (
+    <div className="folder-study-progress-card">
+      <div className="folder-study-progress-head">
+        <div>
+          <p className="folder-study-progress-kicker">{t('workspace.study.generating')}</p>
+          <strong>{progress.stageLabel || (language === 'vi' ? 'Đang xử lý' : 'Processing')}</strong>
+        </div>
+        <span className="folder-study-progress-percent">{percent}%</span>
+      </div>
+
+      <div className="folder-study-progress-track">
+        <div className="folder-study-progress-fill" style={{ width: `${percent}%` }} />
+      </div>
+
+      <p className="folder-study-progress-message">
+        {progress.message || (language === 'vi' ? 'Hệ thống đang tạo question bank.' : 'The system is generating the question bank.')}
+      </p>
+
+      <div className="folder-study-progress-meta">
+        {counterLabel && <span>{counterLabel}</span>}
+        {etaLabel && <span>ETA: {etaLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
 function FolderStudio() {
   const { t, language } = useLanguage();
   const { workspaceId } = useParams();
@@ -282,6 +334,10 @@ function FolderStudio() {
   const [activeSidebarTab, setActiveSidebarTab] = useState('slides');
   const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
   const [animatingSlides, setAnimatingSlides] = useState({});
+  const [questionJobs, setQuestionJobs] = useState({});
+  const [questionCounts, setQuestionCounts] = useState({});
+  const [questionErrors, setQuestionErrors] = useState({});
+  const [questionLoaded, setQuestionLoaded] = useState({});
   const progressRef = useRef(null);
   const typewriterTimersRef = useRef({});
   const typewriterStateRef = useRef({});
@@ -469,6 +525,29 @@ function FolderStudio() {
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  useEffect(() => {
+    setQuestionCounts((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      sources.forEach((source) => {
+        const documentId = resolveSourceDocumentId(source);
+        if (!documentId) {
+          return;
+        }
+
+        if (typeof source.questionsCount === 'number' && Number.isFinite(source.questionsCount)) {
+          if (source.questionsCount > 0 || typeof next[documentId] === 'undefined') {
+            next[documentId] = source.questionsCount;
+            changed = true;
+          }
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [sources]);
 
   const loadWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
@@ -690,6 +769,10 @@ function FolderStudio() {
     () => sources.find((source) => source.id === selectedSourceId) || null,
     [selectedSourceId, sources]
   );
+  const selectedSourceDocumentId = useMemo(
+    () => resolveSourceDocumentId(selectedSource),
+    [selectedSource]
+  );
   const selectableSections = useMemo(
     () => getSelectableSections(selectedSource),
     [selectedSource]
@@ -728,6 +811,64 @@ function FolderStudio() {
     setIsScopePickerOpen(false);
     setExpandedSectionIds((current) => current.filter((id) => validIds.has(id)));
   }, [selectedSource]);
+
+  const loadQuestionsForSource = useCallback(async (source, { force = false } = {}) => {
+    const documentId = resolveSourceDocumentId(source);
+    if (!documentId || source?.status !== 3) {
+      return 0;
+    }
+
+    if (!force && questionLoaded[documentId]) {
+      return typeof questionCounts[documentId] === 'number' ? questionCounts[documentId] : 0;
+    }
+
+    const questions = await questionService.getQuestionsByDocument(documentId);
+    const count = Array.isArray(questions) ? questions.length : 0;
+
+    setQuestionCounts((current) => ({
+      ...current,
+      [documentId]: count,
+    }));
+    setQuestionLoaded((current) => ({
+      ...current,
+      [documentId]: true,
+    }));
+
+    return count;
+  }, [questionCounts, questionLoaded]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncSelectedSourceQuestions = async () => {
+      if (!selectedSource || selectedSource.status !== 3 || !selectedSourceDocumentId) {
+        return;
+      }
+
+      const sourceCount = typeof selectedSource.questionsCount === 'number' ? selectedSource.questionsCount : null;
+      if (sourceCount && sourceCount > 0) {
+        return;
+      }
+
+      if (questionLoaded[selectedSourceDocumentId]) {
+        return;
+      }
+
+      try {
+        await loadQuestionsForSource(selectedSource);
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+        }
+      }
+    };
+
+    syncSelectedSourceQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadQuestionsForSource, questionLoaded, selectedSource, selectedSourceDocumentId]);
 
   const pushHistory = (slideId, previousDraft) => {
     setHistory((current) => {
@@ -1118,6 +1259,115 @@ function FolderStudio() {
     }
   };
 
+  const handleGenerateQuestions = async (source) => {
+    const documentId = resolveSourceDocumentId(source);
+    if (!documentId || source?.status !== 3 || questionJobs[documentId]?.running) {
+      return;
+    }
+
+    setQuestionErrors((current) => {
+      if (!current[documentId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[documentId];
+      return next;
+    });
+    setQuestionJobs((current) => ({
+      ...current,
+      [documentId]: {
+        running: true,
+        jobId: '',
+        status: 'queued',
+        stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
+        message: language === 'vi' ? 'Đang xếp hàng tạo question bank...' : 'Queueing question bank generation...',
+        percent: 0,
+      },
+    }));
+
+    try {
+      const startResult = await questionService.startGenerateQuestions(documentId, 5);
+      const jobId = startResult?.jobId;
+      const pollStartedAt = Date.now();
+      let completed = false;
+
+      while (!completed) {
+        if (Date.now() - pollStartedAt > QUESTION_POLL_TIMEOUT_MS) {
+          throw new Error('Timeout waiting for question generation progress');
+        }
+
+        const progressState = normalizeProgressState(
+          await questionService.getGenerateProgress(jobId),
+          { documentId, jobId }
+        );
+
+        setQuestionJobs((current) => ({
+          ...current,
+          [documentId]: {
+            ...progressState,
+            jobId,
+            running: progressState.status === 'queued' || progressState.status === 'running',
+          },
+        }));
+
+        if (progressState.status === 'completed') {
+          completed = true;
+          await loadWorkspace({ silent: true });
+          const confirmedCount = await loadQuestionsForSource(source, { force: true });
+
+          setQuestionJobs((current) => ({
+            ...current,
+            [documentId]: {
+              ...progressState,
+              jobId,
+              running: false,
+            },
+          }));
+
+          if (confirmedCount > 0) {
+            setFeedback(t('workspace.study.ready'));
+          } else {
+            setQuestionErrors((current) => ({
+              ...current,
+              [documentId]: language === 'vi'
+                ? 'Question bank đã hoàn tất nhưng chưa có câu hỏi khả dụng.'
+                : 'Question bank generation completed but no questions are available yet.',
+            }));
+          }
+          break;
+        }
+
+        if (progressState.status === 'failed') {
+          throw new Error(progressState.error || progressState.detail || 'Question generation failed');
+        }
+
+        await sleep(QUESTION_POLL_INTERVAL_MS);
+      }
+    } catch (err) {
+      console.error(err);
+      setQuestionErrors((current) => ({
+        ...current,
+        [documentId]: err?.message || t('workspace.study.failed'),
+      }));
+    } finally {
+      setQuestionJobs((current) => {
+        const activeJob = current[documentId];
+        if (!activeJob) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [documentId]: {
+            ...activeJob,
+            running: false,
+          },
+        };
+      });
+    }
+  };
+
   const notifySoon = (label) => {
     setError('');
     setFeedback(language === 'vi' ? `${label} đã được đặt sẵn trong UI, mình sẽ nối backend flow ở phase tiếp theo.` : `${label} is scaffolded in the UI and can be wired to backend flow in the next phase.`);
@@ -1150,6 +1400,13 @@ function FolderStudio() {
   const studioGenerationFailure = studioProgress?.status === 'failed'
     ? (generationError || studioProgress?.error || studioProgress?.detail || t('slides.generationStatus.failedFallback'))
     : generationError;
+  const selectedQuestionJob = selectedSourceDocumentId ? questionJobs[selectedSourceDocumentId] : null;
+  const selectedQuestionError = selectedSourceDocumentId ? questionErrors[selectedSourceDocumentId] : '';
+  const selectedSourceQuestionsCount = selectedSourceDocumentId && typeof questionCounts[selectedSourceDocumentId] === 'number'
+    ? questionCounts[selectedSourceDocumentId]
+    : (typeof selectedSource?.questionsCount === 'number' ? selectedSource.questionsCount : 0);
+  const selectedSourceHasQuestions = selectedSourceQuestionsCount > 0;
+  const selectedSourceQuestionRunning = Boolean(selectedQuestionJob?.running);
   const qualityIssues = selectedSlide?.quality?.issues || [];
   const qualityScore = selectedSlide?.quality?.score;
   const scopePickerTitle = language === 'vi' ? 'Phạm vi nội dung' : 'Content scope';
@@ -1928,27 +2185,111 @@ function FolderStudio() {
                   {studioGenerationFailure ? <p>{studioGenerationFailure}</p> : null}
                 </div>
               )}
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions'}</strong>
-                  <span>{language === 'vi' ? 'Entry point cho flow question generation cấp workspace' : 'Entry point for workspace-level question generation'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Mở Quiz tương tác' : 'Open interactive quiz')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Mở Quiz tương tác' : 'Open interactive quiz'}</strong>
-                  <span>{language === 'vi' ? 'Đặt sẵn để nối workspace deck với game flow sau này' : 'Scaffolded for future workspace-to-game flow'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Mở Flashcards' : 'Open flashcards')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Mở Flashcards' : 'Open flashcards'}</strong>
-                  <span>{language === 'vi' ? 'Cho phép tạo flashcards từ tập source đã chọn trong workspace' : 'Allow flashcards from the selected workspace sources'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
+              <div className="folder-study-panel">
+                <div className="folder-study-panel-head">
+                  <strong>{t('workspace.study.title')}</strong>
+                  <span>{t('workspace.study.subtitle')}</span>
+                </div>
+
+                {!selectedSource ? (
+                  <p className="folder-study-panel-empty">{t('workspace.study.empty')}</p>
+                ) : (
+                  <>
+                    <div className="folder-study-panel-summary">
+                      <strong>{selectedSource.fileName}</strong>
+                      <span>
+                        {selectedSourceHasQuestions
+                          ? `${selectedSourceQuestionsCount} ${language === 'vi' ? 'câu hỏi' : 'questions'}`
+                          : t('workspace.study.empty')}
+                      </span>
+                    </div>
+
+                    {selectedQuestionJob && (selectedSourceQuestionRunning || selectedQuestionJob.status === 'completed') ? (
+                      <WorkspaceQuestionProgressCard progress={selectedQuestionJob} language={language} t={t} />
+                    ) : null}
+
+                    {selectedQuestionError ? (
+                      <div className="folder-study-status folder-study-status-error">
+                        <strong>{t('workspace.study.failed')}</strong>
+                        <p>{selectedQuestionError}</p>
+                      </div>
+                    ) : null}
+
+                    {!selectedSourceQuestionRunning && selectedSource.status !== 3 ? (
+                      <div className="folder-study-status">
+                        <strong>{t('workspace.study.generate')}</strong>
+                        <p>{t('workspace.study.needCompleted')}</p>
+                      </div>
+                    ) : null}
+
+                    {!selectedSourceQuestionRunning && selectedSource.status === 3 && !selectedSourceHasQuestions ? (
+                      <div className="folder-study-status">
+                        <strong>{t('workspace.study.openStreak')}</strong>
+                        <p>{t('workspace.study.needQuestionsForStreak')}</p>
+                      </div>
+                    ) : null}
+
+                    {!selectedSourceQuestionRunning && selectedSource.status === 3 && !selectedSourceHasQuestions && !selectedQuestionError ? (
+                      <button
+                        type="button"
+                        className="folder-studio-action"
+                        onClick={() => handleGenerateQuestions(selectedSource)}
+                      >
+                        <span className="folder-studio-action-copy">
+                          <strong>{t('workspace.study.generate')}</strong>
+                          <span>{t('workspace.study.empty')}</span>
+                        </span>
+                        <span className="folder-studio-action-badge">AI</span>
+                      </button>
+                    ) : null}
+
+                    {selectedSourceQuestionRunning ? (
+                      <button type="button" className="folder-studio-action" disabled>
+                        <span className="folder-studio-action-copy">
+                          <strong>{t('workspace.study.generating')}</strong>
+                          <span>{selectedQuestionJob?.message || t('workspace.study.subtitle')}</span>
+                        </span>
+                        <span className="folder-studio-action-badge">...</span>
+                      </button>
+                    ) : null}
+
+                    {!selectedSourceQuestionRunning && selectedSourceHasQuestions ? (
+                      <>
+                        <div className="folder-study-status folder-study-status-success">
+                          <strong>{t('workspace.study.ready')}</strong>
+                          <p>{selectedSourceQuestionsCount} {language === 'vi' ? 'câu hỏi đã sẵn sàng cho Study Hub.' : 'questions are ready for Study Hub.'}</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="folder-studio-action tone-primary"
+                          onClick={() => navigate(`/study/${selectedSourceDocumentId}/quiz`)}
+                        >
+                          <span className="folder-studio-action-copy">
+                            <strong>{language === 'vi' ? 'M? Study Hub' : 'Open Study Hub'}</strong>
+                            <span>{language === 'vi' ? 'V�o m?t khu h?c t?p chung d? chuy?n gi?a Quiz, Flashcards v� Streak.' : 'Enter one shared study area and switch between Quiz, Flashcards, and Streak.'}</span>
+                          </span>
+                          <span className="folder-studio-action-badge">Hub</span>
+                        </button>
+                      </>
+                    ) : null}
+
+                    {!!selectedQuestionError && !selectedSourceQuestionRunning && selectedSource.status === 3 ? (
+                      <button
+                        type="button"
+                        className="folder-studio-action"
+                        onClick={() => handleGenerateQuestions(selectedSource)}
+                      >
+                        <span className="folder-studio-action-copy">
+                          <strong>{t('workspace.study.retry')}</strong>
+                          <span>{t('workspace.study.failed')}</span>
+                        </span>
+                        <span className="folder-studio-action-badge">Retry</span>
+                      </button>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
 
             <div className="folder-studio-action-section">
@@ -2120,3 +2461,4 @@ function FolderStudio() {
 }
 
 export default FolderStudio;
+
