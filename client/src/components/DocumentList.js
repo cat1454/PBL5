@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './common/ToastProvider';
 import { documentService, questionService, slideService } from '../services/api';
+import { isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -91,6 +93,7 @@ function ActionButton({ label, detail, onClick, disabled = false, tone = 'defaul
 }
 
 function DocumentList() {
+  const { showToast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -101,7 +104,6 @@ function DocumentList() {
   const [showAnalysis, setShowAnalysis] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [feedback, setFeedback] = useState(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState(null);
   const [studioView, setStudioView] = useState('overview');
   const [filterValue, setFilterValue] = useState('');
@@ -216,11 +218,15 @@ function DocumentList() {
         running: true,
         percent: 0,
         stage: 'queued',
-        stageLabel: 'Cho xu ly',
-        message: 'Dang xep hang tao bo cau hoi...',
+        stageLabel: 'Chờ xử lý',
+        message: 'Đang xếp hàng tạo bộ câu hỏi...',
       },
     }));
-    setFeedback({ type: 'info', text: 'Dang tao bo cau hoi moi theo tien trinh realtime.' });
+    showToast({
+      type: 'info',
+      message: 'Đã bắt đầu tạo bộ câu hỏi.',
+      description: 'Tiến trình sẽ hiển thị trong progress card của tài liệu.',
+    });
 
     try {
       const startResult = await questionService.startGenerateQuestions(documentId, 5);
@@ -258,9 +264,9 @@ function DocumentList() {
 
         if (progressState.status === 'completed') {
           completed = true;
-          setFeedback({
+          showToast({
             type: 'success',
-            text: `Da tao xong bo cau hoi moi (${progressState.questionsGenerated || 0} cau).`,
+            message: `Đã tạo xong bộ câu hỏi mới (${progressState.questionsGenerated || 0} câu).`,
           });
           await loadDocuments({ silent: true });
           break;
@@ -273,7 +279,11 @@ function DocumentList() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({ type: 'error', text: 'Khong tao duoc cau hoi. Vui long thu lai.' });
+      showToast({
+        type: 'error',
+        message: 'Không tạo được câu hỏi.',
+        description: 'Vui lòng thử lại.',
+      });
       console.error(err);
     } finally {
       setGenerating((current) => {
@@ -291,15 +301,19 @@ function DocumentList() {
         running: true,
         percent: 0,
         stage: 'queued',
-        stageLabel: 'Cho xu ly',
-        message: 'Dang xep hang tao slide deck...',
+        stageLabel: 'Chờ xử lý',
+        message: 'Đang xếp hàng tạo slide deck...',
       },
     }));
     setSlideDeckAvailability((current) => ({
       ...current,
       [documentId]: true,
     }));
-    setFeedback({ type: 'info', text: 'Dang tao slide deck tu noi dung tai lieu.' });
+    showToast({
+      type: 'info',
+      message: 'Đã bắt đầu tạo slide deck.',
+      description: 'Tiến trình sẽ hiển thị trong progress card của tài liệu.',
+    });
 
     try {
       const startResult = await slideService.startGenerateSlides(documentId, 8);
@@ -356,7 +370,10 @@ function DocumentList() {
 
         if (progressState.status === 'completed') {
           completed = true;
-          setFeedback({ type: 'success', text: 'Da tao xong slide deck va san sang mo Studio.' });
+          showToast({
+            type: 'success',
+            message: 'Đã tạo xong slide deck và sẵn sàng mở Studio.',
+          });
           await loadDocuments({ silent: true });
           break;
         }
@@ -368,7 +385,11 @@ function DocumentList() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({ type: 'error', text: 'Khong tao duoc slide deck. Vui long kiem tra log backend.' });
+      showToast({
+        type: 'error',
+        message: 'Không tạo được slide deck.',
+        description: 'Vui lòng kiểm tra log backend rồi thử lại.',
+      });
       console.error(err);
     } finally {
       setSlideGenerating((current) => {
@@ -385,7 +406,10 @@ function DocumentList() {
         await documentService.deleteDocument(documentId);
         await loadDocuments();
       } catch (err) {
-        alert('Error deleting document');
+        showToast({
+          type: 'error',
+          message: 'Could not delete the document.',
+        });
         console.error(err);
       }
     }
@@ -441,8 +465,10 @@ function DocumentList() {
   const selectedSlideDeck = selectedDocument ? slideDecks[selectedDocument.id] : null;
   const selectedActiveSlideProgress = selectedSlideState || selectedSlideDeck?.generationProgress;
   const selectedSlidesRunning = ['queued', 'running'].includes(String(selectedActiveSlideProgress?.status || '').toLowerCase());
-  const selectedProcessingState = selectedDocument?.processingProgress;
-  const selectedProcessingRunning = !!selectedProcessingState && (selectedProcessingState.status === 'queued' || selectedProcessingState.status === 'running');
+  const selectedProcessingState = selectedDocument?.processingProgress
+    ? normalizeProgressState(selectedDocument.processingProgress, { documentId: selectedDocument.id })
+    : null;
+  const selectedProcessingRunning = isActiveProgress(selectedProcessingState);
   const selectedQuestionsReady = Boolean(selectedDocument?.questionsCount && selectedDocument.questionsCount > 0);
   const selectedSlideCount = selectedSlideDeck?.items?.length || selectedSlideDeck?.outline?.slides?.length || 0;
 
@@ -461,13 +487,13 @@ function DocumentList() {
 
     const diffMs = Date.now() - new Date(value).getTime();
     if (diffMs < 60_000) {
-      return 'vua cap nhat';
+      return 'vừa cập nhật';
     }
     if (diffMs < 3_600_000) {
-      return `${Math.max(1, Math.floor(diffMs / 60_000))} phut truoc`;
+      return `${Math.max(1, Math.floor(diffMs / 60_000))} phút trước`;
     }
     if (diffMs < 86_400_000) {
-      return `${Math.max(1, Math.floor(diffMs / 3_600_000))} gio truoc`;
+      return `${Math.max(1, Math.floor(diffMs / 3_600_000))} giờ trước`;
     }
 
     return formatDateTime(value);
@@ -516,7 +542,7 @@ function DocumentList() {
 
   const getStatusHint = (doc) => {
     if (generating[doc.id]?.running) {
-      return 'AI dang doc toan bo noi dung va tao bo cau hoi moi.';
+      return 'AI đang đọc toàn bộ nội dùng và tạo bộ câu hỏi mới.';
     }
 
     if (doc.processingProgress?.status === 'running' && doc.processingProgress?.message) {
@@ -525,36 +551,36 @@ function DocumentList() {
 
     switch (doc.status) {
       case 0:
-        return 'Tai lieu da upload xong va dang cho trich xuat noi dung.';
+        return 'Tài liệu đã upload xong và đang chờ trích xuất nội dùng.';
       case 1:
-        return 'He thong dang trich xuat text va OCR neu file la anh hoac PDF scan.';
+        return 'Hệ thống đang trích xuất text và OCR nếu file là ảnh hoặc PDF scan.';
       case 2:
-        return 'AI dang phan tich noi dung, chia topic va tom tat tai lieu.';
+        return 'AI đang phân tích nội dùng, chia topic và tóm tắt tài liệu.';
       case 3:
         return doc.questionsCount > 0
-          ? 'Da san sang hoc bang quiz hoac flashcards.'
-          : 'Tai lieu da xu ly xong va san sang tao output moi.';
+          ? 'Đã sẵn sàng học bằng quiz hoặc flashcards.'
+          : 'Tài liệu đã xử lý xong và sẵn sàng tạo đầu ra mới.';
       case 4:
-        return 'Xu ly that bai. Thu upload lai hoac kiem tra file dau vao.';
+        return 'Xử lý thất bại. Hãy thử upload lại hoặc kiểm tra file đầu vào.';
       default:
-        return 'Dang cap nhat trang thai tai lieu.';
+        return 'Đang cập nhật trạng thái tài liệu.';
     }
   };
 
   const getGenerationEta = (generationState) => {
-    if (!generationState?.running) {
+    if (!isActiveProgress(generationState)) {
       return null;
     }
 
     if (typeof generationState.estimatedRemainingSeconds !== 'number') {
-      return 'Dang tinh thoi gian con lai...';
+      return 'Đang ước tính...';
     }
 
     if (generationState.estimatedRemainingSeconds <= 0) {
-      return 'Sap xong...';
+      return 'Sắp xong...';
     }
 
-    return `Uoc tinh con ${formatDuration(generationState.estimatedRemainingSeconds * 1000)}`;
+    return `Ước tính còn ${formatDuration(generationState.estimatedRemainingSeconds * 1000)}`;
   };
 
   const getSubProgress = (state) => {
@@ -578,12 +604,12 @@ function DocumentList() {
       return null;
     }
 
-    const unit = state.unitLabel || 'muc';
+    const unit = state.unitLabel || 'mục';
     const prefix = state.stage?.includes('ocr')
       ? 'OCR'
       : state.stage?.includes('analyzing')
-        ? 'Phan tich'
-        : 'Tien trinh';
+        ? 'Phân tích'
+        : 'Tiến trình';
 
     return `${prefix} ${unit}: ${state.current}/${state.total}`;
   };
@@ -596,7 +622,7 @@ function DocumentList() {
       return {
         tone: 'active',
         label: `${doc.processingProgress.percent || 0}%`,
-        detail: doc.processingProgress.stageLabel || 'Dang phan tich',
+        detail: doc.processingProgress.stageLabel || 'Đang phân tích',
       };
     }
 
@@ -604,7 +630,7 @@ function DocumentList() {
       return {
         tone: 'active',
         label: `${activeSlideState.percent || 0}%`,
-        detail: 'Dang tao slides',
+        detail: 'Đang tạo slide',
       };
     }
 
@@ -612,16 +638,16 @@ function DocumentList() {
       return {
         tone: 'active',
         label: `${activeQuestionState.percent || 0}%`,
-        detail: 'Dang tao cau hoi',
+        detail: 'Đang tạo câu hỏi',
       };
     }
 
     if (doc.status === 3) {
-      return { tone: 'completed', label: 'Ready', detail: `${doc.questionsCount || 0} cau hoi` };
+      return { tone: 'completed', label: 'Ready', detail: `${doc.questionsCount || 0} câu hỏi` };
     }
 
     if (doc.status === 4) {
-      return { tone: 'failed', label: 'Fail', detail: 'Can xem lai du lieu' };
+      return { tone: 'failed', label: 'Fail', detail: 'Cần xem lại dữ liệu' };
     }
 
     return { tone: 'uploaded', label: getStatusText(doc.status), detail: getStatusHint(doc) };
@@ -629,47 +655,47 @@ function DocumentList() {
 
   const selectedTopbarState = (() => {
     if (!selectedDocument) {
-      return 'Chua chon tai lieu';
+      return 'Chưa chọn tài liệu';
     }
 
     if (selectedProcessingRunning) {
-      return `Dang phan tich ${selectedProcessingState.percent || 0}%`;
+      return `Đang phân tích ${selectedProcessingState.percent || 0}%`;
     }
 
     if (selectedSlidesRunning) {
-      return `Dang tao slide ${selectedActiveSlideProgress?.percent || 0}%`;
+      return `Đang tạo slide ${selectedActiveSlideProgress?.percent || 0}%`;
     }
 
     if (selectedQuestionRunning) {
-      return `Dang tao cau hoi ${selectedGenerationState?.percent || 0}%`;
+      return `Đang tạo câu hỏi ${selectedGenerationState?.percent || 0}%`;
     }
 
-    return 'San sang cho workflow tiep theo';
+    return 'Sẵn sàng cho workflow tiếp theo';
   })();
 
   const analysisTopics = selectedDocument?.mainTopics?.slice(0, 4) || [];
   const analysisPoints = selectedDocument?.keyPoints?.slice(0, 3) || [];
   const slideOutline = selectedSlideDeck?.outline?.slides?.slice(0, 3) || [];
   const selectedHint = selectedProcessingRunning
-    ? 'AI dang doc va tong hop noi dung tu tai lieu. Ban co the theo doi tien trinh ngay trong workspace nay.'
+    ? 'AI đang đọc và tổng hợp nội dùng từ tài liệu. Bạn có thể theo dõi tiến trình ngay trong workspace này.'
     : selectedSlidesRunning
-      ? 'Deck slide dang duoc tao. Ngay khi co slide dau tien, ban co the mo Studio de tinh chinh.'
+      ? 'Deck slide đang được tạo. Ngay khi có slide đầu tiên, bạn có thể mở Studio để tinh chỉnh.'
       : selectedQuestionRunning
-        ? 'Question bank dang duoc tao. Quiz va Flashcards se san sang ngay sau khi pipeline hoan tat.'
+        ? 'Question bank đang được tạo. Quiz và Flashcards sẽ sẵn sàng ngay sau khi pipeline hoàn tất.'
         : selectedSlideDeck
-          ? 'Deck slide da san sang. Ban co the tiep tuc mo Studio, export HTML/PDF hoac noi cac luong xuat ban sau nay.'
+          ? 'Deck slide đã sẵn sàng. Bạn có thể tiếp tục mở Studio, export HTML/PDF hoặc nối các luồng xuất bản sau này.'
           : selectedQuestionsReady
-            ? 'Question bank da san sang. Day la luc thuan loi de noi tiep luong quiz, flashcards va danh gia nhanh.'
-            : 'Co the bat dau bang cach tao slide deck, tao bo cau hoi hoac mo bang phan tich chi tiet.';
+            ? 'Question bank đã sẵn sàng. Đây là lúc thuận lợi để nối tiếp luồng quiz, flashcards và đánh giá nhanh.'
+            : 'Co the bat dau bang cach tạo slide deck, tạo bộ câu hỏi hoac mo bang phân tích chi tiet.';
 
   const renderCanvasBody = () => {
     if (!selectedDocument) {
       return (
         <div className="documents-canvas-empty">
-          <h3>Chua co tai lieu nao</h3>
-          <p>Them tai lieu moi de khoi tao workspace, phan tich noi dung va noi tiep cac workflow hoc tap.</p>
+          <h3>Chưa có tài liệu nào</h3>
+          <p>Thêm tài liệu mới để khởi tạo workspace, phân tích nội dùng và nối tiếp các workflow học tập.</p>
           <button type="button" className="documents-mini-primary" onClick={() => navigate('/')}>
-            Them nguon
+            Thêm nguồn
           </button>
         </div>
       );
@@ -678,33 +704,33 @@ function DocumentList() {
     const kind = getDocumentKind(selectedDocument.fileName);
 
     const previewTitle = studioView === 'analysis'
-      ? `Bang phan tich: ${selectedDocument.fileName}`
+      ? `Bảng phân tích: ${selectedDocument.fileName}`
       : studioView === 'slides'
         ? `Slide deck: ${selectedSlideDeck?.title || selectedDocument.fileName}`
         : studioView === 'study'
-          ? `Hoc tap tu tai lieu: ${selectedDocument.fileName}`
-          : `Tong quan tai lieu: ${selectedDocument.fileName}`;
+          ? `Học tập từ tài liệu: ${selectedDocument.fileName}`
+          : `Tổng quan tài liệu: ${selectedDocument.fileName}`;
 
     const previewRows = studioView === 'analysis'
       ? (analysisPoints.length > 0
         ? analysisPoints
         : analysisTopics.length > 0
           ? analysisTopics
-          : ['Dang cho AI tong hop y chinh tu tai lieu.'])
+          : ['Đang chờ AI tổng hợp ý chính từ tài liệu.'])
       : studioView === 'slides'
         ? (slideOutline.length > 0
           ? slideOutline.map((slide) => slide.heading || `Slide ${slide.slideIndex}`)
-          : [selectedSlideDeck ? 'Deck da san sang nhung chua co outline chi tiet.' : 'Chua co slide deck cho tai lieu nay.'])
+          : [selectedSlideDeck ? 'Deck đã sẵn sàng nhưng chưa có outline chi tiết.' : 'Chưa có slide deck cho tài liệu này.'])
         : studioView === 'study'
           ? [
-              selectedQuestionsReady ? `${selectedDocument.questionsCount || 0} cau hoi da duoc tao.` : 'Chua co question bank.',
-              selectedQuestionsReady ? 'Quiz tuong tac da co the mo.' : 'Quiz se san sang sau khi tao bo cau hoi.',
-              selectedQuestionsReady ? 'Flashcards da co the mo.' : 'Flashcards se noi tiep tu question bank.',
+              selectedQuestionsReady ? `${selectedDocument.questionsCount || 0} câu hỏi đã được tạo.` : 'Chưa có question bank.',
+              selectedQuestionsReady ? 'Quiz tương tác đã có thể mở.' : 'Quiz se san sang sau khi tạo bộ câu hỏi.',
+              selectedQuestionsReady ? 'Flashcards đã có thể mở.' : 'Flashcards sẽ nối tiếp từ question bank.',
             ]
           : [
-              `Trang thai hien tai: ${getStatusText(selectedDocument.status)}`,
-              selectedSlideDeck ? `Slide deck: ${selectedSlideCount} slide san sang.` : 'Slide deck: chua tao.',
-              selectedQuestionsReady ? `Study kit: ${selectedDocument.questionsCount || 0} cau hoi san sang.` : 'Study kit: chua tao.',
+              `Trạng thái hiện tại: ${getStatusText(selectedDocument.status)}`,
+              selectedSlideDeck ? `Slide deck: ${selectedSlideCount} slide sẵn sàng.` : 'Slide deck: chua tao.',
+              selectedQuestionsReady ? `Study kit: ${selectedDocument.questionsCount || 0} câu hỏi san sang.` : 'Study kit: chưa tạo.',
             ];
 
     return (
@@ -746,8 +772,8 @@ function DocumentList() {
               <ProgressPanel
                 tone="processing"
                 kicker="Pipeline"
-                title="Dang phan tich tai lieu"
-                summary={selectedProcessingState?.message || 'He thong dang OCR va trich xuat noi dung.'}
+                title="Đang phân tích tài liệu"
+                summary={selectedProcessingState?.message || 'Hệ thống đang OCR và trích xuất nội dùng.'}
                 metaLines={[
                   selectedProcessingState?.stageLabel || null,
                   getGenerationEta(selectedProcessingState),
@@ -763,13 +789,13 @@ function DocumentList() {
               <ProgressPanel
                 tone="questions"
                 kicker="Question bank"
-                title="Dang tao bo cau hoi"
-                summary={selectedGenerationState?.message || 'AI dang tong hop bo cau hoi moi.'}
+                title="Đang tạo bộ câu hỏi"
+                summary={selectedGenerationState?.message || 'AI dang tổng hợp bo câu hỏi moi.'}
                 metaLines={[
                   selectedGenerationState?.stageLabel || null,
                   getGenerationEta(selectedGenerationState),
                   typeof selectedGenerationState?.current === 'number' && typeof selectedGenerationState?.total === 'number'
-                    ? `${selectedGenerationState.current}/${selectedGenerationState.total} ${selectedGenerationState.unitLabel || 'muc'}`
+                    ? `${selectedGenerationState.current}/${selectedGenerationState.total} ${selectedGenerationState.unitLabel || 'mục'}`
                     : null,
                 ].filter(Boolean)}
                 percent={selectedGenerationState?.percent || 0}
@@ -781,8 +807,8 @@ function DocumentList() {
               <ProgressPanel
                 tone="slides"
                 kicker="Slide deck"
-                title="Dang tao slides"
-                summary={selectedActiveSlideProgress?.message || 'Dang tao deck tu tai lieu duoc chon.'}
+                title="Đang tạo slide"
+                summary={selectedActiveSlideProgress?.message || 'Đang tạo deck từ tài liệu được chọn.'}
                 metaLines={[
                   selectedActiveSlideProgress?.stageLabel || null,
                   getGenerationEta(selectedActiveSlideProgress),
@@ -817,23 +843,23 @@ function DocumentList() {
       actions.push(
         <ActionButton
           key="overview-slides"
-          label={sharedProps.hasDeck ? 'Mo slide deck' : 'Tao slide deck'}
-          detail={sharedProps.hasDeck ? `${selectedSlideCount} slide da san sang.` : 'Khoi tao bo slide tu noi dung tai lieu.'}
+          label={sharedProps.hasDeck ? 'Mở slide deck' : 'Tạo slide deck'}
+          detail={sharedProps.hasDeck ? `${selectedSlideCount} slide đã sẵn sàng.` : 'Khởi tạo bộ slide từ nội dùng tài liệu.'}
           tone="primary"
           disabled={!sharedProps.documentReady || selectedSlidesRunning}
           onClick={() => (sharedProps.hasDeck ? navigate(`/slides/${selectedDocument.id}`) : handleGenerateSlides(selectedDocument.id))}
         />,
         <ActionButton
           key="overview-study"
-          label={sharedProps.hasQuestions ? 'Mo bo hoc tap' : 'Tao question bank'}
-          detail={sharedProps.hasQuestions ? `${selectedDocument.questionsCount || 0} cau hoi da san sang.` : 'Sinh quiz va flashcards tu tai lieu.'}
+          label={sharedProps.hasQuestions ? 'Mở bộ học tập' : 'Tạo question bank'}
+          detail={sharedProps.hasQuestions ? `${selectedDocument.questionsCount || 0} câu hỏi đã sẵn sàng.` : 'Sinh quiz và flashcards từ tài liệu.'}
           disabled={!sharedProps.documentReady || selectedQuestionRunning}
           onClick={() => (sharedProps.hasQuestions ? setStudioView('study') : handleGenerateQuestions(selectedDocument.id))}
         />,
         <ActionButton
           key="overview-analysis"
-          label="Xem phan tich"
-          detail="Mo tom tat, topic va y chinh trong modal."
+          label="Xem phân tích"
+          detail="Mở tóm tắt, topic và ý chính trong modal."
           onClick={() => setShowAnalysis(selectedDocument)}
         />,
       );
@@ -843,14 +869,14 @@ function DocumentList() {
       actions.push(
         <ActionButton
           key="analysis-modal"
-          label="Mo ban phan tich day du"
-          detail="Xem tom tat, topic, key points va van ban trich xuat."
+          label="Mở bản phân tích đầy đủ"
+          detail="Xem tóm tắt, topic, key points và văn bản trích xuất."
           onClick={() => setShowAnalysis(selectedDocument)}
         />,
         <ActionButton
           key="analysis-study"
-          label={sharedProps.hasQuestions ? 'Chuyen sang hoc tap' : 'Tao question bank'}
-          detail={sharedProps.hasQuestions ? 'Mo nhanh quiz va flashcards tu tai lieu nay.' : 'Dung y chinh hien tai de tao bo cau hoi.'}
+          label={sharedProps.hasQuestions ? 'Chuyển sang học tập' : 'Tạo question bank'}
+          detail={sharedProps.hasQuestions ? 'Mở nhanh quiz và flashcards từ tài liệu này.' : 'Dùng ý chính hiện tại để tạo bộ câu hỏi.'}
           disabled={!sharedProps.documentReady || selectedQuestionRunning}
           onClick={() => (sharedProps.hasQuestions ? setStudioView('study') : handleGenerateQuestions(selectedDocument.id))}
         />,
@@ -861,16 +887,16 @@ function DocumentList() {
       actions.push(
         <ActionButton
           key="slides-main"
-          label={sharedProps.hasDeck ? 'Mo Slide Studio' : 'Tao slide deck'}
-          detail={sharedProps.hasDeck ? 'Chinh sua va xem deck o route hien co.' : 'Khoi dong luong tao slide tu tai lieu.'}
+          label={sharedProps.hasDeck ? 'Mở Slide Studio' : 'Tạo slide deck'}
+          detail={sharedProps.hasDeck ? 'Chỉnh sửa và xem deck ở route hiện có.' : 'Khởi động luồng tạo slide từ tài liệu.'}
           tone="primary"
           disabled={!sharedProps.documentReady || selectedSlidesRunning}
           onClick={() => (sharedProps.hasDeck ? navigate(`/slides/${selectedDocument.id}`) : handleGenerateSlides(selectedDocument.id))}
         />,
         <ActionButton
           key="slides-export"
-          label="Xuat HTML / PDF"
-          detail="Mo ban export dang co cua slide deck."
+          label="Xuất HTML / PDF"
+          detail="Mở bản export hiện có của slide deck."
           disabled={!sharedProps.hasDeck}
           onClick={() => window.open(slideService.getDeckHtmlUrl(selectedDocument.id), '_blank', 'noopener,noreferrer')}
         />,
@@ -881,16 +907,16 @@ function DocumentList() {
       actions.push(
         <ActionButton
           key="study-quiz"
-          label={sharedProps.hasQuestions ? 'Mo Quiz' : 'Tao question bank'}
-          detail={sharedProps.hasQuestions ? 'Bat dau quiz tuong tac voi tai lieu nay.' : 'Sinh bo cau hoi de kich hoat che do hoc tap.'}
+          label={sharedProps.hasQuestions ? 'Mở Quiz' : 'Tạo question bank'}
+          detail={sharedProps.hasQuestions ? 'Bắt đầu quiz tương tác với tài liệu này.' : 'Sinh bo câu hỏi de kich hoat che do học tập.'}
           tone={sharedProps.hasQuestions ? 'primary' : 'default'}
           disabled={!sharedProps.documentReady || selectedQuestionRunning}
           onClick={() => (sharedProps.hasQuestions ? navigate(`/study/${selectedDocument.id}/quiz`) : handleGenerateQuestions(selectedDocument.id))}
         />,
         <ActionButton
           key="study-flashcards"
-          label="Mo Flashcards"
-          detail="On nhanh bang the ghi nho tu bo cau hoi hien co."
+          label="Mở Flashcards"
+          detail="Ôn nhanh bằng thẻ ghi nhớ từ bộ câu hỏi hiện có."
           disabled={!sharedProps.hasQuestions}
           onClick={() => navigate(`/study/${selectedDocument.id}/flashcards`)}
         />,
@@ -900,8 +926,8 @@ function DocumentList() {
     actions.push(
       <ActionButton
         key="manage-delete"
-        label="Xoa tai lieu"
-        detail="Xoa tai lieu dang chon khoi he thong."
+        label="Xóa tài liệu"
+        detail="Xóa tài liệu đang chọn khoi he thong."
         tone="danger"
         onClick={() => handleDelete(selectedDocument.id)}
       />,
@@ -938,10 +964,10 @@ function DocumentList() {
           <div className="documents-topbar-copy">
             <strong>{selectedDocument ? selectedDocument.fileName : 'My Documents'}</strong>
             <div className="documents-topbar-meta">
-              <span>{documents.length} tai lieu</span>
-              <span>{selectedDocument?.questionsCount || 0} cau hoi</span>
+              <span>{documents.length} tài liệu</span>
+              <span>{selectedDocument?.questionsCount || 0} câu hỏi</span>
               <span>{selectedSlideCount} slide</span>
-              <span>Cap nhat: {formatRelativeTime(lastUpdated)}</span>
+              <span>Cập nhật: {formatRelativeTime(lastUpdated)}</span>
               <span className="documents-live-inline">{selectedTopbarState}</span>
             </div>
           </div>
@@ -954,7 +980,7 @@ function DocumentList() {
               onClick={() => loadDocuments()}
               disabled={refreshing}
             >
-              {refreshing ? 'Dang dong bo' : 'Dong bo'}
+              {refreshing ? 'Đang đồng bộ' : 'Đồng bộ'}
             </button>
             <button
               type="button"
@@ -962,20 +988,14 @@ function DocumentList() {
               onClick={() => selectedDocument && navigate(`/slides/${selectedDocument.id}`)}
               disabled={!selectedDocument || selectedDocument.status !== 3}
             >
-              Mo Studio
+              Mở Studio
             </button>
           </div>
         </div>
 
-        {feedback && (
-          <div className={`alert ${feedback.type === 'success' ? 'alert-success' : feedback.type === 'error' ? 'alert-error' : 'alert-info'}`}>
-            {feedback.text}
-          </div>
-        )}
-
         <div className="documents-studio-main documents-studio-main-compact">
           <aside className="documents-studio-sidebar">
-            <div className="documents-panel-title">Nguon / Documents</div>
+            <div className="documents-panel-title">Nguồn / Documents</div>
 
             <div className="documents-filter-row">
               <input
@@ -991,7 +1011,7 @@ function DocumentList() {
 
             <div className="documents-sidebar-cta">
               <button type="button" className="documents-side-button" onClick={() => navigate('/')}>
-                + Them nguon
+                + Thêm nguồn
               </button>
             </div>
 
@@ -1005,7 +1025,7 @@ function DocumentList() {
                   onClick={() => setSelectedDocumentId(doc.id)}
                 />
               )) : (
-                <div className="documents-sidebar-empty">Khong tim thay tai lieu phu hop bo loc.</div>
+                <div className="documents-sidebar-empty">Không tìm thấy tài liệu phù hợp bộ lọc.</div>
               )}
             </div>
 
@@ -1014,16 +1034,16 @@ function DocumentList() {
           <div className="documents-studio-center">
             <div className="documents-studio-toolbar">
               <button type="button" className={`documents-toolbar-btn${studioView === 'overview' ? ' active' : ''}`} onClick={() => setStudioView('overview')}>
-                Tong quan
+                Tổng quan
               </button>
               <button type="button" className={`documents-toolbar-btn${studioView === 'analysis' ? ' active' : ''}`} onClick={() => setStudioView('analysis')}>
-                Phan tich
+                Phân tích
               </button>
               <button type="button" className={`documents-toolbar-btn${studioView === 'slides' ? ' active' : ''}`} onClick={() => setStudioView('slides')}>
                 Slides
               </button>
               <button type="button" className={`documents-toolbar-btn${studioView === 'study' ? ' active' : ''}`} onClick={() => setStudioView('study')}>
-                Hoc tap
+                Học tập
               </button>
             </div>
 
@@ -1033,21 +1053,21 @@ function DocumentList() {
                 <div className="documents-preview-card documents-quick-actions-card">
                   <div className="documents-preview-layout documents-quick-actions-layout">
                     <div className="documents-preview-copy">
-                      <h2 className="documents-quick-actions-title">Tac vu nhanh</h2>
+                      <h2 className="documents-quick-actions-title">Tác vụ nhanh</h2>
                       <p className="documents-preview-summary documents-quick-actions-summary">
                         {studioView === 'overview'
-                          ? 'Chi hien cac thao tac can thiet nhat cho tai lieu dang chon.'
+                          ? 'Chỉ hiển thị các thao tác cần thiết nhất cho tài liệu đang chọn.'
                           : studioView === 'analysis'
-                            ? 'Tap trung vao xem nhanh insight va mo tiep bo hoc tap.'
+                            ? 'Tập trung vào xem nhanh insight và mở tiếp bộ học tập.'
                             : studioView === 'slides'
-                              ? 'Deck slide va export duoc dat chung trong mot cum thao tac.'
-                              : 'Quiz va flashcards duoc gom vao cung mot khu hoc tap.'}
+                              ? 'Deck slide và export được đặt chung trong một cụm thao tác.'
+                              : 'Quiz và flashcards được gom vào cùng một khu học tập.'}
                       </p>
                     </div>
                     <div className="documents-preview-sidecard">
                       <span>Workspace</span>
                       <strong>{selectedTopbarState}</strong>
-                      <small>Cap nhat {formatRelativeTime(lastUpdated)}</small>
+                      <small>Cập nhật {formatRelativeTime(lastUpdated)}</small>
                     </div>
                   </div>
                   <div className="documents-quick-actions-body">
@@ -1064,13 +1084,13 @@ function DocumentList() {
         <div className="modal-overlay" onClick={closeAnalysisModal}>
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Phan tich noi dung: {showAnalysis.fileName}</h2>
+              <h2>Phân tích nội dùng: {showAnalysis.fileName}</h2>
               <button className="close-btn" onClick={closeAnalysisModal}>x</button>
             </div>
             <div className="modal-body">
               {showAnalysis.mainTopics && showAnalysis.mainTopics.length > 0 && (
                 <div className="analysis-section">
-                  <h3>Chu de chinh</h3>
+                  <h3>Chủ đề chính</h3>
                   <div className="topics-list">
                     {showAnalysis.mainTopics.map((topic, index) => (
                       <span key={index} className="topic-tag">{topic}</span>
@@ -1081,7 +1101,7 @@ function DocumentList() {
 
               {showAnalysis.keyPoints && showAnalysis.keyPoints.length > 0 && (
                 <div className="analysis-section">
-                  <h3>Y chinh</h3>
+                  <h3>Ý chính</h3>
                   <ul className="key-points-list">
                     {showAnalysis.keyPoints.map((point, index) => (
                       <li key={index}>{point}</li>
@@ -1092,21 +1112,21 @@ function DocumentList() {
 
               {showAnalysis.summary && (
                 <div className="analysis-section">
-                  <h3>Tom tat</h3>
+                  <h3>Tóm tắt</h3>
                   <p className="summary-text">{showAnalysis.summary}</p>
                 </div>
               )}
 
               {showAnalysis.language && (
                 <div className="analysis-section">
-                  <h3>Ngon ngu</h3>
+                  <h3>Ngôn ngữ</h3>
                   <p><strong>{showAnalysis.language}</strong></p>
                 </div>
               )}
 
               {showAnalysis.extractedText && (
                 <div className="analysis-section">
-                  <h3>Van ban da trich xuat</h3>
+                  <h3>Văn bản đã trích xuất</h3>
                   <div className="extracted-text-preview">
                     {showAnalysis.extractedText.substring(0, 1000)}
                     {showAnalysis.extractedText.length > 1000 && '...'}

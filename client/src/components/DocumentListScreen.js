@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ProgressCard from './ProgressCard';
+import { useToast } from './common/ToastProvider';
 import { documentService, questionService, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 
@@ -36,6 +37,7 @@ const getDocumentReadyHint = (doc) => {
 };
 
 function DocumentListScreen() {
+  const { showToast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [documentProgress, setDocumentProgress] = useState({});
   const [questionProgress, setQuestionProgress] = useState({});
@@ -47,7 +49,6 @@ function DocumentListScreen() {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [feedback, setFeedback] = useState(null);
   const navigate = useNavigate();
 
   const loadDocuments = useCallback(async ({ silent = false } = {}) => {
@@ -208,7 +209,11 @@ function DocumentListScreen() {
         percent: 0,
       }, { documentId }),
     }));
-    setFeedback({ type: 'info', text: 'Dang theo doi tien trinh sinh cau hoi theo payload backend.' });
+    showToast({
+      type: 'info',
+      message: 'Đã bắt đầu tạo bộ câu hỏi.',
+      description: 'Tiến trình sẽ tiếp tục hiển thị trong card tài liệu.',
+    });
 
     try {
       const startResult = await questionService.startGenerateQuestions(documentId, 5);
@@ -227,9 +232,9 @@ function DocumentListScreen() {
         }));
 
         if (progressState.status === 'completed') {
-          setFeedback({
+          showToast({
             type: 'success',
-            text: `Da tao xong bo cau hoi (${progressState.questionsGenerated || 0} cau).`,
+            message: `Đã tạo xong bộ câu hỏi (${progressState.questionsGenerated || 0} câu).`,
           });
           await loadDocuments({ silent: true });
           break;
@@ -242,9 +247,10 @@ function DocumentListScreen() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({
+      showToast({
         type: 'error',
-        text: `Khong tao duoc cau hoi. ${err.message || 'Kiem tra progress va backend log.'}`,
+        message: 'Không tạo được câu hỏi.',
+        description: err.message || 'Kiểm tra progress và backend log.',
       });
       console.error(err);
     } finally {
@@ -273,7 +279,11 @@ function DocumentListScreen() {
       ...current,
       [documentId]: true,
     }));
-    setFeedback({ type: 'info', text: 'Dang theo doi tien trinh sinh slide deck va cap nhat card tai lieu.' });
+    showToast({
+      type: 'info',
+      message: 'Đã bắt đầu tạo slide deck.',
+      description: 'Tiến trình sẽ tiếp tục hiển thị trong card tài liệu.',
+    });
 
     try {
       const startResult = await slideService.startGenerateSlides(documentId, 8);
@@ -311,9 +321,9 @@ function DocumentListScreen() {
         }
 
         if (progressState.status === 'completed') {
-          setFeedback({
+          showToast({
             type: 'success',
-            text: `Da tao xong slide deck (${progressState.slidesGenerated || 0} slide da hoan tat).`,
+            message: `Đã tạo xong slide deck (${progressState.slidesGenerated || 0} slide đã hoàn tất).`,
           });
           await loadDocuments({ silent: true });
           break;
@@ -326,9 +336,10 @@ function DocumentListScreen() {
         await sleep(1200);
       }
     } catch (err) {
-      setFeedback({
+      showToast({
         type: 'error',
-        text: `Khong tao duoc slide deck. ${err.message || 'Kiem tra progress va backend log.'}`,
+        message: 'Không tạo được slide deck.',
+        description: err.message || 'Kiểm tra progress và backend log.',
       });
       console.error(err);
     } finally {
@@ -351,7 +362,10 @@ function DocumentListScreen() {
       await documentService.deleteDocument(documentId);
       await loadDocuments();
     } catch (err) {
-      alert('Error deleting document');
+      showToast({
+        type: 'error',
+        message: 'Could not delete the document.',
+      });
       console.error(err);
     }
   };
@@ -415,12 +429,6 @@ function DocumentListScreen() {
         </div>
 
         {lastUpdated && <p className="timestamp-note">Cap nhat lan cuoi: {formatDateTime(lastUpdated)}</p>}
-
-        {feedback && (
-          <div className={`alert ${feedback.type === 'success' ? 'alert-success' : feedback.type === 'error' ? 'alert-error' : 'alert-info'}`}>
-            {feedback.text}
-          </div>
-        )}
 
         {documents.length === 0 ? (
           <div className="empty-state">

@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { workspaceService } from '../services/api';
+import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
 const DEMO_USER = 'demo-user';
 
 function FolderProjects() {
   const { t } = useLanguage();
+  const { showToast } = useToast();
   const [folders, setFolders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [formError, setFormError] = useState('');
   const [creating, setCreating] = useState(false);
-  const [feedback, setFeedback] = useState('');
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -76,24 +79,28 @@ function FolderProjects() {
     event.preventDefault();
 
     if (!form.name.trim()) {
-      setFeedback(t('workspaces.errors.nameRequired'));
+      setFormError(t('workspaces.errors.nameRequired'));
       return;
     }
 
     try {
       setCreating(true);
-      setFeedback('');
+      setFormError('');
+      setActionError('');
       await workspaceService.create({
         name: form.name.trim(),
         description: form.description.trim(),
         userId: DEMO_USER,
       });
       setForm({ name: '', description: '' });
-      setFeedback(t('workspaces.feedback.created'));
+      showToast({
+        type: 'success',
+        message: t('workspaces.feedback.created'),
+      });
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setFeedback(t('workspaces.errors.createFailed'));
+      setActionError(t('workspaces.errors.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -105,12 +112,16 @@ function FolderProjects() {
     }
 
     try {
+      setActionError('');
       await workspaceService.remove(folderId);
-      setFeedback(t('workspaces.feedback.deleted'));
+      showToast({
+        type: 'success',
+        message: t('workspaces.feedback.deleted'),
+      });
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setFeedback(t('workspaces.errors.deleteFailed'));
+      setActionError(t('workspaces.errors.deleteFailed'));
     }
   };
 
@@ -137,15 +148,22 @@ function FolderProjects() {
           <input
             type="text"
             value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            onChange={(event) => {
+              setFormError('');
+              setForm((current) => ({ ...current, name: event.target.value }));
+            }}
             placeholder={t('workspaces.createNamePlaceholder')}
           />
           <textarea
             rows={3}
             value={form.description}
-            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            onChange={(event) => {
+              setFormError('');
+              setForm((current) => ({ ...current, description: event.target.value }));
+            }}
             placeholder={t('workspaces.createDescriptionPlaceholder')}
           />
+          {formError && <div className="alert alert-error">{formError}</div>}
           <button type="submit" className="button" disabled={creating}>
             {creating ? t('workspaces.creating') : t('workspaces.createButton')}
           </button>
@@ -153,7 +171,7 @@ function FolderProjects() {
       </section>
 
       {error && <div className="alert alert-error">{error}</div>}
-      {feedback && <div className="alert alert-info">{feedback}</div>}
+      {actionError && <div className="alert alert-error">{actionError}</div>}
 
       <section className="folders-grid">
         {folders.length === 0 && (

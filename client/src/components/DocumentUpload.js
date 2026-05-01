@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService } from '../services/api';
+import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
 function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { showToast } = useToast();
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const isMinimalDark = variant === 'minimal-dark';
 
@@ -29,7 +30,6 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     if (allowedTypes.includes(selectedFile.type)) {
       setFile(selectedFile);
       setError('');
-      setMessage('');
       return;
     }
 
@@ -47,7 +47,6 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
 
     setUploading(true);
     setUploadProgress(0);
-    setMessage('');
     setError('');
 
     try {
@@ -62,15 +61,14 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
         onUploadSuccess(result);
       }
 
-      setMessage(t('upload.success'));
+      showToast({
+        type: 'success',
+        message: t('upload.success'),
+      });
       setFile(null);
       event.target.reset();
-
-      setTimeout(() => {
-        setMessage('');
-        setUploadProgress(0);
-        setUploading(false);
-      }, 2000);
+      setUploadProgress(0);
+      setUploading(false);
     } catch (err) {
       setError(err.response?.data?.message || t('upload.errors.uploadFailed'));
       setUploading(false);
@@ -95,8 +93,6 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
       <p className="section-subtitle document-upload-subtitle">
         {t('upload.subtitle')}
       </p>
-
-      {message && <div className="alert alert-success">{message}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
       <form onSubmit={handleUpload}>

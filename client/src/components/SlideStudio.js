@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
+import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
 function SlideStudio({ documentId: propDocumentId }) {
   const { t, language } = useLanguage();
+  const { showToast } = useToast();
   const params = useParams();
   const documentId = propDocumentId || params.documentId;
   const navigate = useNavigate();
@@ -17,7 +19,6 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [generationError, setGenerationError] = useState('');
-  const [feedback, setFeedback] = useState('');
   const [desiredSlideCount, setDesiredSlideCount] = useState(8);
   const [editingSlideId, setEditingSlideId] = useState(null);
   const [drafts, setDrafts] = useState({});
@@ -133,7 +134,6 @@ function SlideStudio({ documentId: propDocumentId }) {
     const bootstrap = async () => {
       setLoading(true);
       setError('');
-      setFeedback('');
       setBriefDirty(false);
       await loadDocument();
       if (!cancelled) {
@@ -199,6 +199,11 @@ function SlideStudio({ documentId: propDocumentId }) {
         percent: 0,
         stageLabel: 'Queued',
         message: t('slides.feedback.jobCreated'),
+      });
+      showToast({
+        type: 'info',
+        message: t('slides.feedback.jobCreated'),
+        description: t('slides.feedback.generating'),
       });
       await loadDeck({ silent: true });
     } catch (err) {
@@ -267,7 +272,10 @@ function SlideStudio({ documentId: propDocumentId }) {
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
       setEditingSlideId(null);
-      setFeedback(t('slides.feedback.saved'));
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.saved'),
+      });
     } catch (err) {
       console.error(err);
       setError(t('slides.errors.save'));
@@ -286,7 +294,10 @@ function SlideStudio({ documentId: propDocumentId }) {
         ...current,
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
-      setFeedback(t('slides.feedback.refreshed', { index: item.slideIndex }));
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.refreshed', { index: item.slideIndex }),
+      });
     } catch (err) {
       console.error(err);
       setError(t('slides.errors.refreshImages'));
@@ -307,7 +318,10 @@ function SlideStudio({ documentId: propDocumentId }) {
         ...current,
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
-      setFeedback(t('slides.feedback.selectedImage', { index: item.slideIndex }));
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.selectedImage', { index: item.slideIndex }),
+      });
     } catch (err) {
       console.error(err);
       setError(t('slides.errors.selectImage'));
@@ -540,7 +554,6 @@ function SlideStudio({ documentId: propDocumentId }) {
       )}
 
       {error && <div className="alert alert-error">{error}</div>}
-      {feedback && !isGenerating && <div className="alert alert-info">{feedback}</div>}
 
       <div className={`studio-workspace${isInspectorOpen ? ' inspector-open' : ' inspector-closed'}`}>
         <aside className="studio-left-panel">

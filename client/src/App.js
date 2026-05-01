@@ -11,6 +11,7 @@ import QuizGame from './components/QuizGame';
 import SlideStudio from './components/SlideStudio';
 import StreakGame from './components/StreakGame';
 import StudyHub from './components/StudyHub';
+import { ToastProvider } from './components/common/ToastProvider';
 import { useLanguage } from './context/LanguageContext';
 
 function App() {
@@ -28,7 +29,9 @@ function App() {
 
   return (
     <Router>
-      <AppShell user={localizedUser} />
+      <ToastProvider>
+        <AppShell user={localizedUser} />
+      </ToastProvider>
     </Router>
   );
 }

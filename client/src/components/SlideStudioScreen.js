@@ -1,48 +1,50 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ProgressCard from './ProgressCard';
+import { useToast } from './common/ToastProvider';
 import { documentService, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const THEME_OPTIONS = [
-  { key: 'editorial-sunrise', label: 'Editorial Sunrise', blurb: 'Am, premium, de doc va hop voi bai giang tong quan.' },
-  { key: 'paper-mint', label: 'Paper Mint', blurb: 'Nhe, sach, hop voi deck giang giai va note hoc tap.' },
-  { key: 'cobalt-grid', label: 'Cobalt Grid', blurb: 'Cung cap, ky thuat, hop voi noi dung he thong va quy trinh.' },
-  { key: 'midnight-signal', label: 'Midnight Signal', blurb: 'Tuong phan manh, hop voi deck chien luoc hoac executive.' },
+  { key: 'editorial-sunrise', label: 'Editorial Sunrise', blurb: 'Ấm, cao cấp, dễ đọc và hợp với bài giảng tổng quan.' },
+  { key: 'paper-mint', label: 'Paper Mint', blurb: 'Nhẹ, sạch, hợp với deck giảng giải và ghi chú học tập.' },
+  { key: 'cobalt-grid', label: 'Cobalt Grid', blurb: 'Cứng cáp, kỹ thuật, hợp với nội dung hệ thống và quy trình.' },
+  { key: 'midnight-signal', label: 'Midnight Signal', blurb: 'Tương phản mạnh, hợp với deck chiến lược hoặc executive.' },
 ];
 
 const TONE_OPTIONS = [
-  'Ro rang, hien dai, de nho',
-  'Hoc thuat nhung de tiep thu',
-  'Tu tin, co nhan manh',
-  'Kich thich tri to mo',
+  'Rõ ràng, hiện đại, dễ nhớ',
+  'Học thuật nhưng dễ tiếp thu',
+  'Tự tin, có nhấn mạnh',
+  'Khơi gợi trí tò mò',
 ];
 
 const AUDIENCE_OPTIONS = [
-  'Sinh vien va nguoi hoc',
-  'Giao vien / nguoi thuyet trinh',
-  'Quan ly / lanh dao',
-  'Nguoi moi bat dau',
+  'Sinh viên và người học',
+  'Giáo viên / người thuyết trình',
+  'Quản lý / lãnh đạo',
+  'Người mới bắt đầu',
 ];
 
 const LANGUAGE_STYLE_OPTIONS = [
-  'Tieng Viet ngan gon, chuyen nghiep',
-  'Tieng Viet than thien, de doc tren web',
-  'Tieng Viet hoc thuat, co cau truc',
-  'Tieng Viet thuyet trinh, nhan y manh',
+  'Tiếng Việt ngắn gọn, chuyên nghiệp',
+  'Tiếng Việt thân thiện, dễ đọc trên web',
+  'Tiếng Việt học thuật, có cấu trúc',
+  'Tiếng Việt thuyết trình, nhấn ý mạnh',
 ];
 
 const DEFAULT_BRIEF = {
   themeKey: 'editorial-sunrise',
-  audience: 'Sinh vien va nguoi hoc',
-  tone: 'Ro rang, hien dai, de nho',
-  narrativeGoal: 'Giup nguoi doc nam duoc cau truc va cac y chinh cua tai lieu trong mot lan xem',
-  languageStyle: 'Tieng Viet ngan gon, chuyen nghiep',
+  audience: 'Sinh viên và người học',
+  tone: 'Rõ ràng, hiện đại, dễ nhớ',
+  narrativeGoal: 'Giúp người đọc nắm được cấu trúc và các ý chính của tài liệu trong một lần xem',
+  languageStyle: 'Tiếng Việt ngắn gọn, chuyên nghiệp',
 };
 
 function SlideStudioScreen() {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [documentMeta, setDocumentMeta] = useState(null);
   const [documentProgress, setDocumentProgress] = useState(null);
   const [deck, setDeck] = useState(null);
@@ -50,7 +52,6 @@ function SlideStudioScreen() {
   const [jobId, setJobId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [feedback, setFeedback] = useState('');
   const [readingMode, setReadingMode] = useState(false);
   const [desiredSlideCount, setDesiredSlideCount] = useState(8);
   const [editingSlideId, setEditingSlideId] = useState(null);
@@ -78,7 +79,7 @@ function SlideStudioScreen() {
       }));
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc thong tin tai lieu.');
+      setError('Không tải được thông tin tài liệu.');
     }
   }, [briefDirty, documentId]);
 
@@ -111,7 +112,7 @@ function SlideStudioScreen() {
       }
     } catch (err) {
       console.error(err);
-      setError('Khong tai duoc slide deck hien tai.');
+      setError('Không tải được slide deck hiện tại.');
     } finally {
       if (!silent) {
         setLoading(false);
@@ -125,7 +126,6 @@ function SlideStudioScreen() {
     const bootstrap = async () => {
       setLoading(true);
       setError('');
-      setFeedback('');
       await loadDocument();
       if (!cancelled) {
         await loadDeck({ silent: true });
@@ -194,7 +194,6 @@ function SlideStudioScreen() {
   const handleGenerate = async () => {
     try {
       setError('');
-      setFeedback('Dang tao outline va sinh deck theo brief moi...');
       const response = await slideService.startGenerateSlides(documentId, {
         desiredSlideCount,
         ...deckBrief,
@@ -202,10 +201,15 @@ function SlideStudioScreen() {
       const nextProgress = normalizeProgressState(response.progress || response, { documentId: Number(documentId), jobId: response.jobId });
       setJobId(response.jobId);
       setProgress(nextProgress);
+      showToast({
+        type: 'info',
+        message: 'Đã bắt đầu tạo slide deck.',
+        description: 'Tiến trình sẽ tiếp tục hiển thị trong progress card.',
+      });
       await loadDeck({ silent: true });
     } catch (err) {
       console.error(err);
-      setError('Khong bat dau duoc qua trinh sinh slide.');
+      setError('Không bắt đầu được quá trình sinh slide.');
     }
   };
 
@@ -263,10 +267,13 @@ function SlideStudioScreen() {
         items: current.items.map((slide) => (slide.id === item.id ? updated : slide)),
       }));
       setEditingSlideId(null);
-      setFeedback('Da luu chinh sua slide.');
+      showToast({
+        type: 'success',
+        message: 'Đã lưu chỉnh sửa slide.',
+      });
     } catch (err) {
       console.error(err);
-      setError('Khong luu duoc thay doi cho slide nay.');
+      setError('Không lưu được thay đổi cho slide này.');
     }
   };
 
@@ -323,7 +330,7 @@ function SlideStudioScreen() {
     return (
       <div className="loading">
         <div className="spinner"></div>
-        <p>Dang tai Slide Studio...</p>
+        <p>Đang tải Slide Studio...</p>
       </div>
     );
   }
@@ -344,18 +351,18 @@ function SlideStudioScreen() {
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
       <section className="card gamma-hero-card">
         <div className="gamma-hero-copy">
-          <button className="button button-secondary" onClick={() => navigate('/workspaces')}>Quay lai Workspaces</button>
+          <button className="button button-secondary" onClick={() => navigate('/workspaces')}>Quay lại Workspaces</button>
           <span className="gamma-eyebrow">AI slide studio</span>
           <h2>{deck?.title || documentMeta?.fileName || 'Create a new gamma-style deck'}</h2>
           <p className="section-subtitle">
-            Sinh outline truoc, sinh tung slide dan dan, va chinh layout/noi dung ngay trong mot workspace.
+            Sinh outline trước, sinh từng slide dần dần, và chỉnh layout/nội dung ngay trong một workspace.
           </p>
         </div>
 
         <div className="gamma-hero-meta">
           <div className="gamma-mini-stat">
-            <span>Tai lieu</span>
-            <strong>{documentMeta?.fileName || 'Khong co du lieu'}</strong>
+            <span>Tài liệu</span>
+            <strong>{documentMeta?.fileName || 'Không có dữ liệu'}</strong>
           </div>
           <div className="gamma-mini-stat">
             <span>Theme</span>
@@ -366,7 +373,7 @@ function SlideStudioScreen() {
             <strong>{completedSlides}/{previewItems.length || desiredSlideCount}</strong>
           </div>
           <div className="gamma-mini-stat">
-            <span>Trang thai</span>
+            <span>Trạng thái</span>
             <strong>{getProgressStageLabel(activeProgress)}</strong>
           </div>
         </div>
@@ -375,7 +382,7 @@ function SlideStudioScreen() {
       {!canGenerate && (
         <>
           <div className="alert alert-info">
-            Tai lieu can xu ly xong truoc khi tao slide. Trang thai hien tai: {documentStage}.
+            Tài liệu cần xử lý xong trước khi tạo slide. Trạng thái hiện tại: {documentStage}.
           </div>
           {documentProgress && (
             <ProgressCard
@@ -389,7 +396,6 @@ function SlideStudioScreen() {
       )}
 
       {error && <div className="alert alert-error">{error}</div>}
-      {feedback && <div className="alert alert-info">{feedback}</div>}
 
       <div className="gamma-workspace">
         <aside className="gamma-sidebar">
@@ -397,14 +403,14 @@ function SlideStudioScreen() {
             <div className="gamma-panel-head">
               <div>
                 <span className="gamma-panel-kicker">Deck brief</span>
-                <h3>Mo ta deck truoc khi sinh</h3>
+                <h3>Mô tả deck trước khi sinh</h3>
               </div>
               <span className="gamma-theme-pill">{themeMeta.label}</span>
             </div>
 
             <div className="gamma-brief-grid">
               <label className="gamma-field">
-                <span>So slide</span>
+                <span>Số slide</span>
                 <input
                   type="number"
                   min="5"
@@ -443,12 +449,12 @@ function SlideStudioScreen() {
             </div>
 
             <label className="gamma-field">
-              <span>Muc tieu deck</span>
+              <span>Mục tiêu deck</span>
               <textarea
                 rows={4}
                 value={deckBrief.narrativeGoal}
                 onChange={(event) => handleBriefChange('narrativeGoal', event.target.value)}
-                placeholder="Deck nay can giup nguoi doc hieu dieu gi sau 2-3 phut?"
+                placeholder="Deck này cần giúp người đọc hiểu điều gì sau 2-3 phút?"
               />
             </label>
 
@@ -468,13 +474,13 @@ function SlideStudioScreen() {
 
             <div className="gamma-action-row">
               <button className="button" onClick={handleGenerate} disabled={!canGenerate || isActiveProgress(activeProgress)}>
-                {isActiveProgress(activeProgress) ? `Dang tao... ${activeProgress.percent || 0}%` : deck ? 'Tao lai deck' : 'Tao deck bang AI'}
+                {isActiveProgress(activeProgress) ? `Đang tạo... ${activeProgress.percent || 0}%` : deck ? 'Tạo lại deck' : 'Tạo deck bằng AI'}
               </button>
               <button className="button button-secondary" onClick={() => setReadingMode((current) => !current)}>
-                {readingMode ? 'Tat reading mode' : 'Bat reading mode'}
+                {readingMode ? 'Tắt reading mode' : 'Bật reading mode'}
               </button>
               <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
-                {hideLowConfidence ? 'Hien tat ca slide' : 'An slide diem thap'}
+                {hideLowConfidence ? 'Hiện tất cả slide' : 'Ẩn slide điểm thấp'}
               </button>
               {deck && (
                 <button className="button button-secondary" onClick={() => window.open(slideService.getDeckHtmlUrl(documentId), '_blank', 'noopener,noreferrer')}>
@@ -497,7 +503,7 @@ function SlideStudioScreen() {
             <div className="gamma-panel-head">
               <div>
                 <span className="gamma-panel-kicker">Live outline</span>
-                <h3>Cau truc deck</h3>
+                <h3>Cấu trúc deck</h3>
               </div>
               <span className="gamma-outline-count">{outlineSlides.length || desiredSlideCount} slides</span>
             </div>
@@ -517,7 +523,7 @@ function SlideStudioScreen() {
               </div>
             ) : (
               <div className="gamma-outline-empty">
-                <p>Outline se xuat hien tai day ngay sau khi AI lap xong nhung slide dau tien.</p>
+                <p>Outline sẽ xuất hiện tại đây ngay sau khi AI lập xong những slide đầu tiên.</p>
               </div>
             )}
           </section>
@@ -539,7 +545,7 @@ function SlideStudioScreen() {
 
           {typeof lowConfidenceCount === 'number' && lowConfidenceCount > 0 && (
             <div className="alert alert-info">
-              Dang co {lowConfidenceCount} slide can review do verifier score thap.
+              Đang có {lowConfidenceCount} slide cần rà soát do verifier score thấp.
             </div>
           )}
 
@@ -551,12 +557,12 @@ function SlideStudioScreen() {
                   <div className="gamma-empty-mockup-card"></div>
                   <div className="gamma-empty-mockup-card"></div>
                 </div>
-                <h3>{allPreviewItems.length > 0 ? 'Tat ca slide hien dang bi an' : 'Chua co deck'}</h3>
+                <h3>{allPreviewItems.length > 0 ? 'Tất cả slide hiện đang bị ẩn' : 'Chưa có deck'}</h3>
                 <p>
                   {allPreviewItems.length > 0
-                    ? 'Tat bo loc an low-confidence de xem lai toan bo slide.'
-                    : <>Chon theme, audience, tone, roi bam <strong>Tao deck bang AI</strong>. He thong se sinh outline truoc,
-                      sau do tung slide se hien dan o canvas nay.</>}
+                    ? 'Tắt bộ lọc ẩn low-confidence để xem lại toàn bộ slide.'
+                    : <>Chọn theme, audience, tone, rồi bấm <strong>Tạo deck bằng AI</strong>. Hệ thống sẽ sinh outline trước,
+                      sau đó từng slide sẽ hiện dần ở canvas này.</>}
                 </p>
               </div>
             )}
@@ -589,8 +595,8 @@ function SlideStudioScreen() {
                       <textarea value={draft.speakerNotes} onChange={(event) => handleDraftChange(item.id, 'speakerNotes', event.target.value)} rows={4} />
                       <input value={draft.accentTone} onChange={(event) => handleDraftChange(item.id, 'accentTone', event.target.value)} placeholder="Accent tone" />
                       <div className="slide-edit-actions">
-                        <button className="button" onClick={() => handleSave(item)}>Luu slide</button>
-                        <button className="button button-secondary" onClick={() => setEditingSlideId(null)}>Huy</button>
+                        <button className="button" onClick={() => handleSave(item)}>Lưu slide</button>
+                        <button className="button button-secondary" onClick={() => setEditingSlideId(null)}>Hủy</button>
                       </div>
                     </div>
                   ) : (
@@ -617,7 +623,7 @@ function SlideStudioScreen() {
 
                       {(item.quality?.isLowConfidence || item.quality?.isUnknown) && (
                         <div className="quality-warning compact">
-                          <strong>{item.quality?.isLowConfidence ? 'Can review' : 'Chua co verifier score'}</strong>
+                          <strong>{item.quality?.isLowConfidence ? 'Cần rà soát' : 'Chưa có verifier score'}</strong>
                           {Array.isArray(item.quality?.issues) && item.quality.issues.length > 0 && (
                             <ul className="quality-issues">
                               {item.quality.issues.slice(0, 2).map((issue) => (
@@ -630,9 +636,9 @@ function SlideStudioScreen() {
 
                       <div className="slide-preview-actions">
                         {item.status === 'Completed' || hasContent ? (
-                          <button className="button button-secondary" onClick={() => handleEdit(item)}>Sua slide</button>
+                          <button className="button button-secondary" onClick={() => handleEdit(item)}>Sửa slide</button>
                         ) : (
-                          <button className="button button-secondary" disabled>Dang cho noi dung</button>
+                          <button className="button button-secondary" disabled>Đang chờ nội dung</button>
                         )}
                         <span className={`slide-status slide-status-${String(item.status || '').toLowerCase()}`}>{item.status}</span>
                       </div>

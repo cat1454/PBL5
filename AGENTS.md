@@ -42,6 +42,15 @@ This repo is a .NET + React MVP for document ingestion, OCR, AI analysis, quiz/f
 - Keep comments sparse and high-signal.
 - Follow the bilingual UI rule in `BILINGUAL_UI_REQUIREMENTS.md` for any user-facing frontend change.
 
+## Frontend Encoding Rule
+
+- All frontend files must be read and written as UTF-8.
+- Never save frontend files as ANSI, Windows-1252, Latin-1, or any unspecified default encoding.
+- Do not leave mojibake text such as `Ã`, `Ä`, `áº`, `á»`, `Æ`, `Â`, or `ï¿½` in `client/src`.
+- If a frontend file is already mojibake, repair the Vietnamese text back to correct Unicode before changing any logic.
+- Preserve Vietnamese UI strings exactly; for example, never turn `Đăng xuất` into `ÄÄƒng xuáº¥t` or `Không gian dạy học` into `KhÃ´ng gian dáº¡y há»c`.
+- After frontend text edits, run a mojibake search over `client/src` and fix any remaining broken strings before considering the task complete.
+
 ## Task Decomposition
 
 - For backend-only tasks, inspect controller -> service -> persistence/config flow before editing.
