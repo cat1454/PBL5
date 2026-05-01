@@ -1,66 +1,42 @@
-# ELearn Game Platform — Staging
+# ELearn Game Platform
 
-ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI, sinh câu hỏi để học bằng quiz/flashcards và tạo slide để preview/chỉnh sửa trên web.
+ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI local, sinh câu hỏi để học bằng quiz/flashcards/streak và tạo slide deck để preview/chỉnh sửa trên web.
 
-README này dành cho nhánh staging/test trước khi hợp vào nhánh chính. Mục tiêu của nhánh staging là gom các thay đổi đã tương đối ổn định, chạy build/test nhanh, kiểm tra luồng demo chính và phát hiện lỗi trước khi merge lên `main`.
-
-> Lưu ý hiện tại: GitHub repo đang có nhánh dạng `staging/document-ingestion-slide-quality`, nên không thể tạo đồng thời nhánh tên đúng là `staging`. Trong lúc chờ dọn ref cũ, nhánh test staging đang dùng là `staging-test`.
+Repo hiện ở mức **MVP+**: đã có đủ luồng chính để demo và phát triển tiếp, nhưng chưa phải bản production-ready.
 
 ---
 
-## 1. Trạng thái sản phẩm
-
-Repo hiện ở mức `MVP+`:
-
-- Đã có luồng chính để demo.
-- Chưa phải bản production-ready.
-- Một số thành phần vẫn dùng dữ liệu/dev user tạm thời.
-- Chất lượng AI phụ thuộc model local, RAM/CPU/GPU và chất lượng tài liệu đầu vào.
-
-Các điểm chính đã có:
+## 1. Tính năng chính
 
 - Upload tài liệu: `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`.
 - Trích xuất text từ PDF text-based.
 - OCR cho ảnh và PDF scan.
-- AI phân tích nội dung: summary, main topics, key points, language.
+- Phân tích nội dung bằng AI:
+  - tóm tắt nội dung;
+  - chủ đề chính;
+  - ý chính;
+  - ngôn ngữ;
+  - metadata/coverage map phục vụ sinh slide.
 - Sinh câu hỏi tự động kèm progress polling.
-- Quiz game.
-- Flashcard game.
-- Sinh slide từ tài liệu.
+- Học bằng nhiều chế độ:
+  - Quiz;
+  - Flashcards;
+  - Streak Mode.
+- Tạo slide deck từ tài liệu hoặc workspace/folder.
 - Preview HTML cho slide deck.
-- Chỉnh sửa slide item trong Slide Studio.
-- Workspace/Folder Studio để gom nhiều nguồn tài liệu và sinh deck theo phạm vi chọn.
+- Chỉnh sửa từng slide item trong Slide Studio.
+- Tìm/chọn media cho slide theo image pipeline.
+- Workspace/Folder Studio để gom nhiều nguồn tài liệu và chọn phạm vi nội dung trước khi sinh slide.
 
 ---
 
-## 2. Nhánh staging dùng để test gì?
-
-Trước khi merge staging lên `main`, cần kiểm tra tối thiểu các luồng sau:
-
-1. Frontend build được.
-2. Backend build được.
-3. App chạy được trên local.
-4. Upload tài liệu không lỗi.
-5. Tài liệu chuyển được sang trạng thái `Completed`.
-6. Xem analysis được.
-7. Sinh câu hỏi được.
-8. Chơi quiz/flashcards được.
-9. Mở Slide Studio được.
-10. Sinh slide deck được.
-11. Mở Workspace/Folder Studio được.
-12. Chọn scope nội dung trong Workspace/Folder Studio không vỡ giao diện.
-13. Frontend không bị trắng trang ở các route chính.
-
----
-
-## 3. Công nghệ đang dùng
+## 2. Công nghệ sử dụng
 
 ### Backend
 
 - ASP.NET Core 8 Web API
 - Entity Framework Core 8
-- PostgreSQL
-- Npgsql
+- PostgreSQL + Npgsql
 - Tesseract OCR
 - ImageSharp
 - PdfPig
@@ -70,25 +46,31 @@ Trước khi merge staging lên `main`, cần kiểm tra tối thiểu các lu�
 ### Frontend
 
 - React 18
-- React Router
+- React Router DOM 6
 - Axios
 - React Scripts
+- React Icons
+
+### Database
+
+- PostgreSQL 14+
+- EF Core migrations tự động chạy khi backend start.
 
 ---
 
-## 4. Cấu trúc repo
+## 3. Cấu trúc repo
 
 ```text
 src/
-  ELearnGamePlatform.API/             Web API, controllers, startup, appsettings, tessdata
-  ELearnGamePlatform.Core/            Entities, enums, interfaces, shared utilities
+  ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, tessdata
+  ELearnGamePlatform.Core/            Entities, enums, interfaces, extensions
   ELearnGamePlatform.Infrastructure/  EF Core, repositories, migrations, external integrations
   ELearnGamePlatform.Services/        OCR, document processing, AI services
 
 client/                               React frontend
 
 docs/
-  guides/                             Tài liệu hướng dẫn và tham chiếu chính
+  guides/                             Tài liệu hướng dẫn/chính thức
   working-notes/                      Ghi chú thiết kế, checklist, research tạm thời
 
 poppler-25.12.0/                      Poppler bundled cho OCR PDF scan
@@ -99,7 +81,7 @@ PLANS.md
 
 ---
 
-## 5. Yêu cầu môi trường
+## 4. Yêu cầu môi trường
 
 Cần cài trước:
 
@@ -128,26 +110,75 @@ Khuyến nghị thêm nếu xử lý tài liệu tiếng Việt:
 vie.traineddata
 ```
 
-Nếu thiếu `vie.traineddata`, OCR có thể fallback sang tiếng Anh và chất lượng đọc tiếng Việt sẽ giảm.
+Với PDF scan, hệ thống ưu tiên Poppler bundled trong repo. Nếu không có, hệ thống fallback sang `pdftoppm` trong `PATH`.
 
 ---
 
-## 6. Model Ollama khuyến nghị
+## 5. Cấu hình chính
 
-Cấu hình hiện tại dùng hướng multi-model:
+File cấu hình backend:
 
 ```text
-AnalysisModel     = qwen2.5-edu-json:latest
-GenerationModel   = qwen3:14b
-VerificationModel = qwen2.5-edu-json:latest
+src/ELearnGamePlatform.API/appsettings.json
 ```
 
-Chuẩn bị model:
+Mẫu cấu hình local nên dùng:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_PASSWORD;SslMode=disable"
+  },
+  "OllamaSettings": {
+    "BaseUrl": "http://localhost:11434",
+    "Model": "qwen2.5:7b",
+    "AnalysisModel": "qwen2.5:7b",
+    "GenerationModel": "qwen2.5:7b",
+    "VerificationModel": "qwen2.5:7b",
+    "TimeoutSeconds": 300,
+    "KeepAlive": "30m",
+    "EnableTimingLogs": true,
+    "Temperature": 0.4,
+    "AnalysisTemperature": 0.2,
+    "GenerationTemperature": 0.5,
+    "VerificationTemperature": 0.1
+  },
+  "FileUpload": {
+    "MaxFileSizeInMB": 50,
+    "AllowedExtensions": [".pdf", ".docx", ".png", ".jpg", ".jpeg"]
+  }
+}
+```
+
+Frontend proxy hiện trỏ về backend local:
+
+```text
+http://127.0.0.1:5000
+```
+
+Không commit mật khẩu thật, API key thật hoặc cấu hình cá nhân lên repo.
+
+---
+
+## 6. Chuẩn bị Ollama model
+
+Model mặc định đang dùng trong cấu hình local:
+
+```text
+qwen2.5:7b
+```
+
+Pull model:
 
 ```powershell
-ollama pull qwen3:14b
-ollama create qwen2.5-edu-json:latest -f qwen2.5-edu-json.modelfile
+ollama pull qwen2.5:7b
 ollama list
+```
+
+Nếu dùng image review trong slide image pipeline, có thể cần thêm model vision theo cấu hình:
+
+```powershell
+ollama pull qwen2.5-vl:3b
 ```
 
 Nếu máy yếu, có thể đổi model trong:
@@ -158,71 +189,18 @@ src/ELearnGamePlatform.API/appsettings.json
 
 ---
 
-## 7. Cấu hình chính
+## 7. Chạy nhanh trên local
 
-File cấu hình backend:
-
-```text
-src/ELearnGamePlatform.API/appsettings.json
-```
-
-Mẫu cấu hình local:
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_PASSWORD;SslMode=disable"
-  },
-  "OllamaSettings": {
-    "BaseUrl": "http://localhost:11434",
-    "Model": "qwen3:14b",
-    "AnalysisModel": "qwen2.5-edu-json:latest",
-    "GenerationModel": "qwen3:14b",
-    "VerificationModel": "qwen2.5-edu-json:latest",
-    "TimeoutSeconds": 120,
-    "KeepAlive": "15m",
-    "EnableTimingLogs": true,
-    "Temperature": 0.3,
-    "AnalysisTemperature": 0.15,
-    "GenerationTemperature": 0.35,
-    "VerificationTemperature": 0.05
-  },
-  "FileUpload": {
-    "MaxFileSizeInMB": 50,
-    "AllowedExtensions": [".pdf", ".docx", ".png", ".jpg", ".jpeg"]
-  }
-}
-```
-
-Frontend proxy hiện trỏ backend local:
-
-```text
-http://127.0.0.1:5000
-```
-
----
-
-## 8. Chạy nhanh trên local
-
-### Bước 1: checkout nhánh staging/test
-
-Nếu đã có nhánh `staging-test`:
+### Bước 1: clone và checkout main
 
 ```powershell
-git fetch origin
-git checkout staging-test
-git pull
+git clone https://github.com/cat1454/PBL5.git
+cd PBL5
+git checkout main
+git pull origin main
 ```
 
-Nếu sau này đã dọn được ref và có nhánh `staging` đúng tên:
-
-```powershell
-git fetch origin
-git checkout staging
-git pull
-```
-
-### Bước 2: chạy PostgreSQL
+### Bước 2: chuẩn bị PostgreSQL
 
 Đảm bảo PostgreSQL đang chạy tại:
 
@@ -230,35 +208,44 @@ git pull
 localhost:5432
 ```
 
-Database local:
-
-```text
-ELearnGameDB
-```
-
-Nếu chưa có database:
+Tạo database nếu chưa có:
 
 ```sql
 CREATE DATABASE "ELearnGameDB";
 ```
 
-### Bước 3: chạy Ollama
+Kiểm tra lại connection string trong:
+
+```text
+src/ELearnGamePlatform.API/appsettings.json
+```
+
+### Bước 3: chuẩn bị Ollama
 
 ```powershell
+ollama pull qwen2.5:7b
 ollama list
 ```
 
-Nếu chưa có model:
+### Bước 4: kiểm tra OCR assets
 
-```powershell
-ollama pull qwen3:14b
-ollama create qwen2.5-edu-json:latest -f qwen2.5-edu-json.modelfile
+Đặt file tessdata vào:
+
+```text
+src/ELearnGamePlatform.API/tessdata
 ```
 
-### Bước 4: chạy backend
+Nên có:
+
+```text
+eng.traineddata
+vie.traineddata
+```
+
+### Bước 5: chạy backend
 
 ```powershell
-cd H:\pbl5\src\ELearnGamePlatform.API
+cd src\ELearnGamePlatform.API
 dotnet restore
 dotnet run
 ```
@@ -269,7 +256,7 @@ Backend mặc định:
 http://localhost:5000
 ```
 
-Swagger nếu bật development:
+Swagger:
 
 ```text
 http://localhost:5000/swagger
@@ -278,23 +265,21 @@ http://localhost:5000/swagger
 Nếu máy bị thiếu dung lượng ổ `C:` khi build/run, có thể dùng script:
 
 ```powershell
-cd H:\pbl5\src\ELearnGamePlatform.API
 .\run-h.ps1
 ```
 
 Clear cache cũ rồi chạy lại:
 
 ```powershell
-cd H:\pbl5\src\ELearnGamePlatform.API
 .\run-h.ps1 -ClearOldCaches
 ```
 
-### Bước 5: chạy frontend
+### Bước 6: chạy frontend
 
 Mở terminal khác:
 
 ```powershell
-cd H:\pbl5\client
+cd client
 npm install
 npm start
 ```
@@ -307,108 +292,61 @@ http://localhost:3000
 
 ---
 
-## 9. Lệnh test staging bắt buộc
+## 8. Luồng demo đề xuất
 
-Chạy từ root repo:
-
-```powershell
-git status
-```
-
-Backend build:
-
-```powershell
-dotnet build ELearnGamePlatform.sln
-```
-
-Frontend build:
-
-```powershell
-cd client
-npm install
-npm run build
-```
-
-Nếu muốn chạy test frontend:
-
-```powershell
-npm test
-```
-
-Nếu build fail, không merge staging lên `main`.
+1. Mở frontend tại `http://localhost:3000`.
+2. Upload một tài liệu PDF/DOCX/ảnh.
+3. Đợi tài liệu xử lý xong và chuyển sang trạng thái `Completed`.
+4. Xem phần analysis.
+5. Sinh câu hỏi.
+6. Chơi Quiz, Flashcards hoặc Streak Mode.
+7. Mở Slide Studio.
+8. Sinh slide deck.
+9. Preview/chỉnh sửa slide.
+10. Tạo workspace/folder, upload nhiều nguồn và sinh slide theo phạm vi chọn.
 
 ---
 
-## 10. Checklist test thủ công trước khi merge
-
-### 10.1 Backend
-
-- [ ] `dotnet build ELearnGamePlatform.sln` pass.
-- [ ] Backend chạy được tại `http://localhost:5000`.
-- [ ] Swagger mở được nếu đang ở Development.
-- [ ] Không lỗi connection string PostgreSQL.
-- [ ] Không lỗi migration khi start app.
-- [ ] Không lỗi Ollama connection nếu dùng chức năng AI.
-
-### 10.2 Frontend
-
-- [ ] `npm run build` pass.
-- [ ] App mở được tại `http://localhost:3000`.
-- [ ] Không trắng trang.
-- [ ] Không lỗi console nghiêm trọng ở dashboard.
-- [ ] Route `/workspaces` mở được.
-- [ ] Route Workspace Studio mở được.
-- [ ] Route Slide Studio mở được.
-
-### Luồng demo
-
-- [ ] Upload được PDF/DOCX/ảnh.
-- [ ] Tài liệu xử lý đến `Completed`.
-- [ ] Xem analysis được.
-- [ ] Generate questions chạy được.
-- [ ] Quiz chạy được.
-- [ ] Flashcards chạy được.
-- [ ] Generate slide deck chạy được.
-- [ ] Preview slide deck không vỡ layout.
-- [ ] Chọn scope trong Workspace/Folder Studio không vỡ layout.
-
----
-
-## 11. Pipeline chính
+## 9. Pipeline chính
 
 ### Document pipeline
 
 1. Upload tài liệu.
-2. Lưu metadata và file.
-3. Trích xuất text:
-   - PDF text-based -> direct extraction.
-   - DOCX -> OpenXML.
-   - Image/PDF scan -> Tesseract OCR.
-4. Cleanup text sau OCR.
-5. AI phân tích nội dung theo chunk.
-6. Hợp nhất kết quả thành `ProcessedContent`.
+2. Validate file, size, extension và `userId`.
+3. Lưu metadata/file vào hệ thống.
+4. Trích xuất text:
+   - PDF text-based -> PdfPig/direct extraction;
+   - DOCX -> OpenXML;
+   - image/PDF scan -> Tesseract OCR.
+5. Cleanup text sau OCR.
+6. AI phân tích nội dung theo chunk.
+7. Lưu summary, topics, key points, language và coverage metadata vào PostgreSQL.
 
 ### Question pipeline
 
-1. Lập plan câu hỏi theo coverage.
-2. Sinh question theo batch.
-3. Polish output.
-4. Verifier local + verifier AI.
-5. Auto-repair 1 vòng nếu chất lượng chưa đạt.
-6. Lưu xuống PostgreSQL.
+1. Frontend gọi API start generation.
+2. Backend tạo job state trong memory.
+3. Background task sinh câu hỏi bằng Ollama.
+4. Chạy kiểm tra chất lượng/verifier.
+5. Auto-repair 1 vòng nếu output yếu.
+6. Lưu câu hỏi xuống PostgreSQL.
+7. Frontend poll progress và lấy câu hỏi theo document.
 
 ### Slide pipeline
 
-1. Tạo outline từ tài liệu/workspace.
-2. Sinh nội dung từng slide.
-3. Verifier local + verifier AI.
-4. Auto-repair 1 vòng nếu cần.
-5. Lưu `SlideDeck` + `SlideItem`.
-6. Render HTML để preview.
+1. Chọn tài liệu hoặc workspace/folder.
+2. Chọn số slide, theme, audience, tone và scope nội dung.
+3. Sinh outline.
+4. Sinh từng slide item.
+5. Verifier local + AI verifier.
+6. Auto-repair nếu cần.
+7. Tìm/chọn media cho slide nếu image pipeline bật.
+8. Lưu `SlideDeck` + `SlideItem`.
+9. Render HTML để preview.
 
 ---
 
-## 12. API chính
+## 10. API chính
 
 ### Documents
 
@@ -416,7 +354,20 @@ Nếu build fail, không merge staging lên `main`.
 POST   /api/documents/upload
 GET    /api/documents/{id}
 GET    /api/documents/user/{userId}
+GET    /api/documents/{id}/progress
 DELETE /api/documents/{id}
+```
+
+### Folders / Workspaces
+
+```text
+POST   /api/folders
+GET    /api/folders/user/{userId}
+GET    /api/folders/{id}
+DELETE /api/folders/{id}
+POST   /api/folders/{id}/sources/upload
+GET    /api/folders/{id}/sources
+PUT    /api/folders/{id}/sources/{sourceId}/slide-selection
 ```
 
 ### Questions
@@ -434,143 +385,136 @@ DELETE /api/questions/{id}
 ### Games
 
 ```text
-POST /api/games/sessions
-GET  /api/games/sessions/{sessionId}
-POST /api/games/sessions/{sessionId}/start
-POST /api/games/sessions/{sessionId}/submit
-GET  /api/games/quiz/{documentId}
-GET  /api/games/flashcards/{documentId}
-GET  /api/games/user/{userId}
+POST   /api/games/sessions
+GET    /api/games/sessions/{sessionId}
+POST   /api/games/sessions/{sessionId}/start
+POST   /api/games/sessions/{sessionId}/submit
+GET    /api/games/quiz/{documentId}
+GET    /api/games/flashcards/{documentId}
+GET    /api/games/user/{userId}
 ```
 
 ### Slides
 
 ```text
-POST /api/slides/generate/start
-GET  /api/slides/generate/progress/{jobId}
-GET  /api/slides/document/{documentId}
-GET  /api/slides/document/{documentId}/html
-PUT  /api/slides/{deckId}/items/{itemId}
+POST   /api/slides/generate/start
+GET    /api/slides/generate/progress/{jobId}
+GET    /api/slides/document/{documentId}
+GET    /api/slides/document/{documentId}/html
+GET    /api/slides/folders/{folderId}
+GET    /api/slides/folders/{folderId}/html
+PUT    /api/slides/{deckId}/items/{itemId}
+POST   /api/slides/{deckId}/items/{itemId}/images/refresh
+POST   /api/slides/{deckId}/items/{itemId}/images/select
 ```
 
 ---
 
-## 13. Lỗi thường gặp
+## 11. Lệnh kiểm tra trước khi merge/push
 
-### Không tạo được nhánh `staging`
-
-Lỗi:
-
-```text
-fatal: cannot lock ref 'refs/heads/staging': 'refs/heads/staging/document-ingestion-slide-quality' exists; cannot create 'refs/heads/staging'
-```
-
-Nguyên nhân: đang tồn tại nhánh dạng `staging/...`, nên Git không cho tạo nhánh cha tên `staging`.
-
-Cách xử lý local:
-
-```powershell
-git branch -D staging/document-ingestion-slide-quality
-```
-
-Nếu remote cũng còn nhánh đó và đã thống nhất xóa:
-
-```powershell
-git push origin --delete staging/document-ingestion-slide-quality
-```
-
-Sau đó tạo lại:
-
-```powershell
-git checkout staging-test
-git checkout -b staging
-git push -u origin staging
-```
-
-### Đang có cherry-pick dở
-
-Kiểm tra:
+Chạy từ root repo:
 
 ```powershell
 git status
+dotnet build ELearnGamePlatform.sln
 ```
 
-Hủy cherry-pick dở nếu cần:
+Frontend:
 
 ```powershell
-git cherry-pick --abort
+cd client
+npm install
+npm run build
+```
+
+Nếu cần chạy test frontend:
+
+```powershell
+npm test
+```
+
+Không merge/push nếu backend hoặc frontend build fail.
+
+---
+
+## 12. Lỗi thường gặp
+
+### Backend không kết nối được PostgreSQL
+
+- Kiểm tra PostgreSQL đang chạy.
+- Kiểm tra database `ELearnGameDB` đã tồn tại.
+- Kiểm tra username/password trong connection string.
+
+```powershell
+psql -U postgres -d ELearnGameDB
+```
+
+### Migration lỗi khi start backend
+
+Backend tự chạy EF Core migrations khi start. Nếu schema lệch, kiểm tra migration và database hiện tại:
+
+```powershell
+cd src\ELearnGamePlatform.API
+dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
 ```
 
 ### Frontend không gọi được backend
 
-Kiểm tra backend đang chạy:
+- Kiểm tra backend chạy tại `http://localhost:5000`.
+- Kiểm tra proxy trong `client/package.json`.
+- Kiểm tra CORS trong `Program.cs`.
 
 ```powershell
-curl http://localhost:5000
-```
-
-Kiểm tra proxy trong:
-
-```text
-client/package.json
+curl http://localhost:5000/swagger
 ```
 
 ### OCR tiếng Việt xấu
 
-- Kiểm tra `vie.traineddata` đã có trong `src/ELearnGamePlatform.API/tessdata`.
-- Dùng file scan rõ nét hơn.
+- Thêm `vie.traineddata` vào `src/ELearnGamePlatform.API/tessdata`.
+- Dùng file scan rõ hơn.
 - Với PDF scan, kiểm tra Poppler hoặc `pdftoppm`.
 
 ### Generate question/slide lỗi hoặc ra fallback
 
 - Kiểm tra Ollama đang chạy.
-- Kiểm tra model đã pull/create đúng.
-- Kiểm tra document đã ở trạng thái `Completed`.
-- Kiểm tra log backend.
-
----
-
-## 14. Quy tắc merge staging
-
-Chỉ merge staging lên `main` khi đạt tối thiểu:
-
-- [ ] Không còn cherry-pick/rebase dở.
-- [ ] Working tree sạch.
-- [ ] Backend build pass.
-- [ ] Frontend build pass.
-- [ ] Luồng demo chính chạy được.
-- [ ] Không có file cấu hình chứa secret thật.
-- [ ] Không commit `node_modules`, `bin`, `obj`, file upload runtime hoặc cache cá nhân.
-
-Lệnh kiểm tra nhanh:
+- Kiểm tra model đã pull đúng.
+- Kiểm tra document đã xử lý xong.
+- Xem log backend để biết lỗi ở OCR, analysis, generation hay verifier.
 
 ```powershell
-git status
-git log --oneline --decorate -5
-```
-
-Merge sau khi test xong:
-
-```powershell
-git checkout main
-git pull origin main
-git merge staging
-```
-
-Nếu đang dùng `staging-test` thay cho `staging`:
-
-```powershell
-git checkout main
-git pull origin main
-git merge staging-test
+ollama list
+curl http://localhost:11434/api/tags
 ```
 
 ---
 
-## 15. Tài liệu liên quan
+## 13. Giới hạn hiện tại
+
+- Chưa có authentication/authorization thật sự.
+- Frontend vẫn đang dùng user demo/hardcoded ở một số luồng.
+- Job progress store vẫn là in-memory, restart backend có thể mất progress job đang chạy.
+- Background job hiện dùng `Task.Run`, chưa phải hàng đợi bền vững.
+- Chưa có test tự động đầy đủ cho toàn bộ core flows.
+- Chất lượng AI phụ thuộc model local, tài nguyên máy và chất lượng tài liệu đầu vào.
+- Không nên xem `local-store` hoặc dữ liệu mẫu là runtime source chính.
+
+---
+
+## 14. Tài liệu liên quan
 
 - [Docs Index](./docs/README.md)
 - [Architecture](./docs/guides/ARCHITECTURE.md)
 - [Run Guide](./docs/guides/RUN_GUIDE.md)
 - [Frontend Handoff](./docs/guides/FRONTEND_HANDOFF.md)
 - [Roadmap](./docs/guides/ROADMAP.md)
+
+---
+
+## 15. Trạng thái project
+
+Nên xem repo hiện tại như:
+
+- bản MVP+ để demo PBL;
+- nền tảng để tiếp tục polish UI/UX;
+- nền tảng để mở rộng game mode, slide templates, benchmark AI/OCR, auth và persistent jobs.
