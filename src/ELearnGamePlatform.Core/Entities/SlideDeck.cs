@@ -84,8 +84,15 @@ public class SlideItem
     [Column("goal")]
     public string? Goal { get; set; }
 
+    [MaxLength(400)]
+    [Column("key_message")]
+    public string? KeyMessage { get; set; }
+
     [Column("body")]
     public string? BodyJson { get; set; }
+
+    [Column("evidence_from_text")]
+    public string? EvidenceFromText { get; set; }
 
     [Column("editor_state")]
     public string? EditorStateJson { get; set; }
@@ -108,6 +115,9 @@ public class SlideItem
 
     [Column("image_candidates")]
     public string? ImageCandidatesJson { get; set; }
+
+    [Column("evidence_debug")]
+    public string? EvidenceDebugJson { get; set; }
 
     [MaxLength(160)]
     [Column("selected_image_key")]
@@ -137,7 +147,8 @@ public enum SlideItemStatus
     Pending,
     Generating,
     Completed,
-    Failed
+    Failed,
+    NeedsReview
 }
 
 public enum SlideItemType

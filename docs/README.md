@@ -7,6 +7,7 @@ Tai lieu trong repo da duoc gom lai theo 2 nhom:
 
 ## Guides
 
+- [AI_AGENT_WORKFLOW.md](./guides/AI_AGENT_WORKFLOW.md)
 - [ARCHITECTURE.md](./guides/ARCHITECTURE.md)
 - [DEVELOPMENT.md](./guides/DEVELOPMENT.md)
 - [FRONTEND_HANDOFF.md](./guides/FRONTEND_HANDOFF.md)

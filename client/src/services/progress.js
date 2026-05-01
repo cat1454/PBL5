@@ -62,7 +62,7 @@ export const formatEta = (seconds) => {
   }
 
   if (seconds <= 0) {
-    return 'Sap xong...';
+    return 'Sắp xong...';
   }
 
   if (seconds < 60) {
@@ -87,10 +87,10 @@ export const getProgressCounterLabel = (progress) => {
     return null;
   }
 
-  return `${progress.current}/${progress.total} ${progress.unitLabel || 'muc'}`;
+  return `${progress.current}/${progress.total} ${progress.unitLabel || 'mục'}`;
 };
 
 export const getProgressStageLabel = (progress) => (
-  progress?.stageLabel || progress?.stage || progress?.status || 'queued'
+  progress?.stageLabel || progress?.stage || progress?.status || 'Đang chờ'
 );
 

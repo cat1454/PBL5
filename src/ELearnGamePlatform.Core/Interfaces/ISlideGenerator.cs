@@ -27,14 +27,13 @@ public class SlideDeckBrief
 {
     public string ThemeKey { get; set; } = "editorial-sunrise";
     public string Audience { get; set; } = "Sinh vien va nguoi hoc";
-    public string Tone { get; set; } = "Rõ ràng, hiện đại, dễ nhớ";
+    public string Tone { get; set; } = "Ro rang, hien dai, de nho";
     public string NarrativeGoal { get; set; } = "Giup nguoi doc hieu nhanh va ghi nho cac y chinh";
     public string LanguageStyle { get; set; } = "Tieng Viet don gian, chuyen nghiep";
-
-    public SlideDeckBrief()
-    {
-        Tone = "Ro rang, hien dai, de nho";
-    }
+    public string Mode { get; set; } = "lecture";
+    public string ScopePolicy { get; set; } = "selected-sections-only";
+    public List<string> SelectedSectionIds { get; set; } = new();
+    public List<string> SelectedSectionHeadings { get; set; } = new();
 }
 
 public class SlideOutlineResult
@@ -53,6 +52,7 @@ public class SlideOutlineSlide
     public string Heading { get; set; } = string.Empty;
     public string? Subheading { get; set; }
     public string Goal { get; set; } = string.Empty;
+    public string? KeyMessage { get; set; }
     public List<string> PreferredChunkIds { get; set; } = new();
 }
 
@@ -61,9 +61,14 @@ public class SlideContentResult
     public string? Heading { get; set; }
     public string? Subheading { get; set; }
     public string? Goal { get; set; }
+    public string? KeyMessage { get; set; }
     public List<string> BodyBlocks { get; set; } = new();
+    public string? EvidenceFromText { get; set; }
     public string? SpeakerNotes { get; set; }
     public string? AccentTone { get; set; }
     public int? VerifierScore { get; set; }
     public List<string> VerifierIssues { get; set; } = new();
+    public SlideEvidenceDebugMetadata? EvidenceDebug { get; set; }
+    public SlideItemStatus SuggestedStatus { get; set; } = SlideItemStatus.Completed;
+    public bool UsedFallback { get; set; }
 }

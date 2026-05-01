@@ -190,6 +190,15 @@ public class DocumentIngestionService : IDocumentIngestionService
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
             document.SetCoverageMap(processedContent.CoverageMap);
+            document.SetProcessingMetadata(new DocumentProcessingMetadata
+            {
+                DocumentType = processedContent.DocumentType,
+                Language = processedContent.Language,
+                Title = processedContent.Title,
+                MainContentStartPage = processedContent.MainContentStartPage,
+                Structure = processedContent.Structure,
+                ExcludedContent = processedContent.ExcludedContent
+            });
             document.Summary = processedContent.Summary;
             document.Language = processedContent.Language;
 
@@ -200,7 +209,7 @@ public class DocumentIngestionService : IDocumentIngestionService
                 state.Stage = "saving";
                 state.StageLabel = "Luu ket qua";
                 state.Message = "Dang luu ket qua phan tich vao he thong";
-                state.Detail = $"Co {processedContent.MainTopics.Count} topic, {processedContent.KeyPoints.Count} key point, {processedContent.CoverageMap.Count} coverage chunk";
+                state.Detail = $"Type={processedContent.DocumentType}, cleanChunk={processedContent.CoverageMap.Count}, excluded={processedContent.ExcludedContent.Count}";
                 state.StageIndex = 6;
                 state.StageCount = 6;
                 state.EstimatedRemainingSeconds = 1;

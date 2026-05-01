@@ -20,7 +20,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = ResolveContentRoot()
 });
-builder.WebHost.UseUrls("http://localhost:5001");
+builder.WebHost.UseUrls("http://localhost:5000");
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -67,6 +67,7 @@ builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
+builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");
@@ -77,23 +78,16 @@ builder.Services.AddSingleton<IQuestionGenerationJobStore, QuestionGenerationJob
 builder.Services.AddSingleton<ISlideGenerationJobStore, SlideGenerationJobStore>();
 
 // Configure CORS
+// Configure CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReactApp",
-        builder => builder
+    options.AddPolicy("AllowReactApp", policy =>
+    {
+        policy
             .WithOrigins("http://localhost:3000", "http://localhost:5173")
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .AllowCredentials());
-});
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+            .AllowCredentials();
     });
 });
 var app = builder.Build();
@@ -133,7 +127,6 @@ using (var scope = app.Services.CreateScope())
 
 //app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
-app.UseCors("AllowAll");
 var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
 if (!Directory.Exists(uploadsPath))
 {
@@ -146,7 +139,6 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/uploads"
 });
 app.UseAuthorization();
-app.UseCors("AllowAll");
 app.MapControllers();
 
 app.Run();
@@ -163,10 +155,21 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
 
     try
     {
-        EnsureColumnExists(connection, "questions", "verifier_score");
-        EnsureColumnExists(connection, "questions", "verifier_issues");
-      //  EnsureColumnExists(connection, "slide_items", "verifier_score");
-       // EnsureColumnExists(connection, "slide_items", "verifier_issues");
+    EnsureColumnExists(connection, "questions", "verifier_score");
+    EnsureColumnExists(connection, "questions", "verifier_issues");
+
+    EnsureColumnExists(connection, "documents", "processed_metadata");
+
+    EnsureColumnExists(connection, "slide_items", "verifier_score");
+    EnsureColumnExists(connection, "slide_items", "verifier_issues");
+    EnsureColumnExists(connection, "slide_items", "key_message");
+    EnsureColumnExists(connection, "slide_items", "evidence_from_text");
+    EnsureColumnExists(connection, "slide_items", "evidence_debug");
+
+    EnsureColumnExists(connection, "slide_items", "image_candidates");
+    EnsureColumnExists(connection, "slide_items", "image_plan");
+    EnsureColumnExists(connection, "slide_items", "editor_state");
+    EnsureColumnExists(connection, "slide_items", "selected_image_key");
     }
     finally
     {

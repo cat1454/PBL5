@@ -15,6 +15,7 @@ public class FoldersController : ControllerBase
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
+    private readonly IWorkspaceService _workspaceService;
     private readonly ILogger<FoldersController> _logger;
 
     public FoldersController(
@@ -22,12 +23,14 @@ public class FoldersController : ControllerBase
         IDocumentRepository documentRepository,
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
+        IWorkspaceService workspaceService,
         ILogger<FoldersController> logger)
     {
         _folderProjectRepository = folderProjectRepository;
         _documentRepository = documentRepository;
         _documentJobStore = documentJobStore;
         _documentIngestionService = documentIngestionService;
+        _workspaceService = workspaceService;
         _logger = logger;
     }
 
@@ -58,6 +61,9 @@ public class FoldersController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserFolders(string userId)
     {
+        var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
+        await _workspaceService.AttachOrphanDocumentsAsync(userId, defaultWorkspace.Id);
+
         var folders = await _folderProjectRepository.GetByUserAsync(userId);
         var payload = folders.Select(folder =>
         {

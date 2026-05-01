@@ -330,12 +330,18 @@ public class QuestionsController : ControllerBase
 
     private static ProcessedContent BuildProcessedContentFromDocument(Document document)
     {
+        var metadata = document.GetProcessingMetadata();
         return new ProcessedContent
         {
             MainTopics = document.GetMainTopics(),
             KeyPoints = document.GetKeyPoints(),
             Summary = document.Summary,
             Language = document.Language,
+            DocumentType = metadata.DocumentType,
+            Title = metadata.Title,
+            MainContentStartPage = metadata.MainContentStartPage,
+            Structure = metadata.Structure,
+            ExcludedContent = metadata.ExcludedContent,
             CoverageMap = document.GetCoverageMap()
         };
     }

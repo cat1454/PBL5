@@ -31,6 +31,16 @@ export const documentService = {
     return response.data;
   },
 
+  getStructure: async (id) => {
+    const response = await axios.get(`${API_BASE_URL}/documents/${id}/structure`);
+    return response.data;
+  },
+
+  analyzeStructure: async (id) => {
+    const response = await axios.post(`${API_BASE_URL}/documents/${id}/analyze-structure`);
+    return response.data;
+  },
+
   getUserDocuments: async (userId) => {
     const response = await axios.get(`${API_BASE_URL}/documents/user/${userId}`);
     return response.data;
@@ -92,6 +102,68 @@ export const folderService = {
   updateSourceSelection: async (folderId, sourceId, includeInFolderSlides) => {
     const response = await axios.put(`${API_BASE_URL}/folders/${folderId}/sources/${sourceId}/slide-selection`, {
       includeInFolderSlides,
+    });
+    return response.data;
+  },
+};
+
+export const workspaceService = {
+  create: async ({ name, description, userId }) => {
+    const response = await axios.post(`${API_BASE_URL}/workspaces`, {
+      name,
+      description,
+      userId,
+    });
+    return response.data;
+  },
+
+  list: async (userId) => {
+    const response = await axios.get(`${API_BASE_URL}/workspaces/user/${userId}`);
+    return response.data;
+  },
+
+  get: async (workspaceId) => {
+    const response = await axios.get(`${API_BASE_URL}/workspaces/${workspaceId}`);
+    return response.data;
+  },
+
+  getDefault: async (userId) => {
+    const response = await axios.get(`${API_BASE_URL}/workspaces/default/user/${userId}`);
+    return response.data;
+  },
+
+  remove: async (workspaceId) => {
+    await axios.delete(`${API_BASE_URL}/workspaces/${workspaceId}`);
+  },
+
+  uploadSource: async (workspaceId, file, userId, onProgress) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('userId', userId);
+
+    const response = await axios.post(`${API_BASE_URL}/workspaces/${workspaceId}/sources/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (onProgress) {
+          onProgress(percentCompleted);
+        }
+      },
+    });
+
+    return response.data;
+  },
+
+  listSources: async (workspaceId) => {
+    const response = await axios.get(`${API_BASE_URL}/workspaces/${workspaceId}/sources`);
+    return response.data;
+  },
+
+  updateSourceSelection: async (workspaceId, sourceId, includeInWorkspaceSlides) => {
+    const response = await axios.put(`${API_BASE_URL}/workspaces/${workspaceId}/sources/${sourceId}/slide-selection`, {
+      includeInWorkspaceSlides,
     });
     return response.data;
   },
@@ -187,6 +259,10 @@ export const slideService = {
       tone: payload?.tone,
       narrativeGoal: payload?.narrativeGoal,
       languageStyle: payload?.languageStyle,
+      sourceIds: payload?.sourceIds,
+      selectedSectionIds: payload?.selectedSectionIds,
+      mode: payload?.mode,
+      scopePolicy: payload?.scopePolicy,
     });
     return response.data;
   },
@@ -208,6 +284,10 @@ export const slideService = {
       tone: payload?.tone,
       narrativeGoal: payload?.narrativeGoal,
       languageStyle: payload?.languageStyle,
+      sourceIds: payload?.sourceIds,
+      selectedSectionIds: payload?.selectedSectionIds,
+      mode: payload?.mode,
+      scopePolicy: payload?.scopePolicy,
     });
     return response.data;
   },

@@ -63,5 +63,6 @@ public class ImageWebSourceSettings
     public bool Enabled { get; set; } = true;
     public int MaxResultsPerQuery { get; set; } = 20;
     public int MaxDownloadsPerSlide { get; set; } = 8;
+    public double MinAcceptableScore { get; set; } = 0.85;
     public List<string> AllowedDomains { get; set; } = new();
 }

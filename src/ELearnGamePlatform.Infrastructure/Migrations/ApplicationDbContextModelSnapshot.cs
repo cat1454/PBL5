@@ -89,6 +89,10 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("main_topics");
 
+                    b.Property<string>("ProcessedMetadataJson")
+                        .HasColumnType("text")
+                        .HasColumnName("processed_metadata");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
@@ -386,6 +390,14 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("editor_state");
 
+                    b.Property<string>("EvidenceDebugJson")
+                        .HasColumnType("text")
+                        .HasColumnName("evidence_debug");
+
+                    b.Property<string>("EvidenceFromText")
+                        .HasColumnType("text")
+                        .HasColumnName("evidence_from_text");
+
                     b.Property<string>("Goal")
                         .HasMaxLength(400)
                         .HasColumnType("character varying(400)")
@@ -403,6 +415,11 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Property<string>("ImagePlanJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("image_plan");
+
+                    b.Property<string>("KeyMessage")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("key_message");
 
                     b.Property<string>("SelectedImageKey")
                         .HasMaxLength(160)
