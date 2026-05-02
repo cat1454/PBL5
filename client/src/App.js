@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter as Router, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import './App.css';
+import AdminPage from './components/AdminPage';
 import DocumentList from './components/DocumentList';
 import DocumentUpload from './components/DocumentUpload';
 import FlashcardGame from './components/FlashcardGame';
@@ -10,45 +11,73 @@ import QuizGame from './components/QuizGame';
 import SlideStudio from './components/SlideStudio';
 import StreakGame from './components/StreakGame';
 import StudyHub from './components/StudyHub';
+import AdminRoute from './components/auth/AdminRoute';
+import LoginPage from './components/auth/LoginPage';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import RegisterPage from './components/auth/RegisterPage';
 import { ToastProvider } from './components/common/ToastProvider';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import { workspaceService } from './services/api';
 
-const DEMO_USER = 'demo-user';
 const MAX_RECENT_SOURCES = 4;
 const GUIDE_CHIPS = ['howToUse', 'createQuestions', 'createSlides', 'whatNext'];
 const PIPELINE_STEPS = ['upload', 'ocr', 'analysis', 'questions', 'slides'];
 const CHECKLIST_STEPS = ['upload', 'analysis', 'questions', 'study', 'deck', 'preview'];
 
 function App() {
-  const { t } = useLanguage();
-  const [currentUser] = useState({
-    name: 'Tran Hong Thao',
-    role: t('app.userRole'),
-    avatar: null,
-  });
-
-  const localizedUser = useMemo(() => ({
-    ...currentUser,
-    role: t('app.userRole'),
-  }), [currentUser, t]);
-
   return (
     <Router>
       <ToastProvider>
-        <AppShell user={localizedUser} />
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
       </ToastProvider>
     </Router>
   );
 }
 
-function AppShell({ user }) {
+function AppRouter() {
+  const { currentUser, isAuthenticated, logout } = useAuth();
+  const { t } = useLanguage();
+
+  const localizedUser = useMemo(() => {
+    if (!currentUser) {
+      return null;
+    }
+
+    return {
+      ...currentUser,
+      name: currentUser.fullName,
+      roleLabel: t(`app.roles.${currentUser.role}`),
+      avatar: null,
+    };
+  }, [currentUser, t]);
+
+  return (
+    <Routes>
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <RegisterPage />} />
+      <Route
+        path="/*"
+        element={(
+          <ProtectedRoute>
+            <AppShell user={localizedUser} onLogout={logout} />
+          </ProtectedRoute>
+        )}
+      />
+    </Routes>
+  );
+}
+
+function AppShell({ user, onLogout }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [isMainMenuOpen, setIsMainMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
   const { language, setLanguage, t } = useLanguage();
+  const { currentUser } = useAuth();
   const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
   const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/') || location.pathname.startsWith('/study/');
   const isSlideStudioRoute = location.pathname.startsWith('/slides/');
@@ -83,6 +112,12 @@ function AppShell({ user }) {
     setIsAccountMenuOpen(false);
   }, []);
 
+  const handleLogout = useCallback(() => {
+    setIsAccountMenuOpen(false);
+    onLogout();
+    navigate('/login', { replace: true });
+  }, [navigate, onLogout]);
+
   return (
     <div className={`App app-shell${isHybridRoute ? ' app-shell-documents' : ''}${isSlideStudioRoute ? ' app-shell-slide-route' : ''}${isMainMenuOpen ? ' is-menu-open' : ''}`}>
       <header className="App-header app-shell-header app-topbar">
@@ -114,6 +149,11 @@ function AppShell({ user }) {
               <NavLink to="/workspaces" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
                 {t('app.nav.workspaces')}
               </NavLink>
+              {currentUser?.role === 'ADMIN' && (
+                <NavLink to="/admin" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                  {t('app.nav.admin')}
+                </NavLink>
+              )}
               <button type="button" className="app-topbar-link app-topbar-link-placeholder">
                 {t('app.nav.templates')}
                 <span>{t('app.comingSoonShort')}</span>
@@ -155,7 +195,7 @@ function AppShell({ user }) {
                 </div>
                 <div className="app-shell-user-meta">
                   <span className="user-name">{user.name}</span>
-                  <span>{user.role}</span>
+                  <span>{user.roleLabel}</span>
                 </div>
                 <span className="app-shell-account-chevron" aria-hidden="true">▾</span>
               </button>
@@ -168,7 +208,7 @@ function AppShell({ user }) {
                     </div>
                     <div>
                       <strong>{user.name}</strong>
-                      <p>{t('app.account.demoRole')}</p>
+                      <p>{user.roleLabel}</p>
                     </div>
                   </div>
 
@@ -184,7 +224,7 @@ function AppShell({ user }) {
                     <span>{t('app.account.helpGuide')}</span>
                     <small>{t('app.account.helpHint')}</small>
                   </button>
-                  <button type="button" className="app-account-item app-account-item-danger" onClick={handlePlaceholderClick}>
+                  <button type="button" className="app-account-item app-account-item-danger" onClick={handleLogout}>
                     <span>{t('app.account.logout')}</span>
                     <small>{t('app.account.logoutHint')}</small>
                   </button>
@@ -228,6 +268,11 @@ function AppShell({ user }) {
               <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
                 {t('app.nav.settings')}
               </NavLink>
+              {currentUser?.role === 'ADMIN' && (
+                <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
+                  {t('app.nav.admin')}
+                </NavLink>
+              )}
               <button type="button" className="app-menu-placeholder" onClick={handleHelpClick}>
                 {t('app.nav.help')}
               </button>
@@ -254,6 +299,7 @@ function AppShell({ user }) {
               <Route path="/workspaces/:workspaceId" element={<FolderStudio />} />
               <Route path="/documents-legacy" element={<DocumentList />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
               <Route path="/study/:documentId" element={<StudyHub />} />
               <Route path="/study/:documentId/:mode" element={<StudyHub />} />
               <Route path="/quiz/:documentId" element={<QuizGame />} />
@@ -269,6 +315,7 @@ function AppShell({ user }) {
 }
 
 function DashboardPage() {
+  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { language, t } = useLanguage();
@@ -370,14 +417,17 @@ function DashboardPage() {
     () => getNextBestAction(dashboardVm, t),
     [dashboardVm, t],
   );
+  const dashboardRole = currentUser?.role || 'LEARNER';
+  const dashboardTitle = t(`app.dashboard.titleByRole.${dashboardRole}`);
+  const dashboardSubtitle = t(`app.dashboard.subtitleByRole.${dashboardRole}`);
 
   return (
     <div className="workspace-dashboard">
       <section className="workspace-dashboard-header card">
         <div className="workspace-dashboard-header-copy">
           <span className="workspace-dashboard-kicker">{t('app.dashboard.kicker')}</span>
-          <h2>{t('app.dashboard.title')}</h2>
-          <p>{t('app.dashboard.subtitle')}</p>
+          <h2>{dashboardTitle}</h2>
+          <p>{dashboardSubtitle}</p>
         </div>
 
         <div className="workspace-dashboard-stats">
@@ -710,6 +760,7 @@ function LegacyWorkspaceRedirect() {
 }
 
 function useWorkspaceHomeData() {
+  const { currentUser } = useAuth();
   const { t } = useLanguage();
   const [defaultWorkspace, setDefaultWorkspace] = useState(null);
   const [sources, setSources] = useState([]);
@@ -717,11 +768,18 @@ function useWorkspaceHomeData() {
   const [error, setError] = useState('');
 
   const loadData = useCallback(async () => {
+    if (!currentUser?.id) {
+      setDefaultWorkspace(null);
+      setSources([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
-      const workspace = await workspaceService.getDefault(DEMO_USER);
+      const workspace = await workspaceService.getDefault(String(currentUser?.id || ''));
       const workspaceSources = workspace?.id
         ? await workspaceService.listSources(workspace.id)
         : [];
@@ -736,7 +794,7 @@ function useWorkspaceHomeData() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [currentUser?.id, t]);
 
   useEffect(() => {
     loadData();

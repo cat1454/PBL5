@@ -1,13 +1,78 @@
 import axios from 'axios';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '/api').replace(/\/$/, '');
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+});
+
+let authToken = '';
+let onUnauthorized = null;
+
+export function setApiAuthToken(token) {
+  authToken = token || '';
+}
+
+export function setApiUnauthorizedHandler(handler) {
+  onUnauthorized = typeof handler === 'function' ? handler : null;
+}
+
+apiClient.interceptors.request.use((config) => {
+  if (authToken) {
+    config.headers = {
+      ...config.headers,
+      Authorization: `Bearer ${authToken}`,
+    };
+  }
+
+  return config;
+});
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const requestUrl = error?.config?.url || '';
+    const isAuthRequest = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
+
+    if (error?.response?.status === 401 && !isAuthRequest && onUnauthorized) {
+      onUnauthorized();
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export const authService = {
+  register: async (payload) => {
+    const response = await apiClient.post('/auth/register', payload);
+    return response.data;
+  },
+
+  login: async (payload) => {
+    const response = await apiClient.post('/auth/login', payload);
+    return response.data;
+  },
+
+  me: async () => {
+    const response = await apiClient.get('/auth/me');
+    return response.data;
+  },
+};
+
+export const adminService = {
+  getOverview: async () => {
+    const response = await apiClient.get('/admin/overview');
+    return response.data;
+  },
+};
+
 export const documentService = {
   uploadDocument: async (file, userId, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId);
+    formData.append('userId', userId || '');
 
-    const response = await axios.post(`${API_BASE_URL}/documents/upload`, formData, {
+    const response = await apiClient.post('/documents/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -22,38 +87,38 @@ export const documentService = {
   },
 
   getDocument: async (id) => {
-    const response = await axios.get(`${API_BASE_URL}/documents/${id}`);
+    const response = await apiClient.get(`/documents/${id}`);
     return response.data;
   },
 
   getDocumentProgress: async (id) => {
-    const response = await axios.get(`${API_BASE_URL}/documents/${id}/progress`);
+    const response = await apiClient.get(`/documents/${id}/progress`);
     return response.data;
   },
 
   getStructure: async (id) => {
-    const response = await axios.get(`${API_BASE_URL}/documents/${id}/structure`);
+    const response = await apiClient.get(`/documents/${id}/structure`);
     return response.data;
   },
 
   analyzeStructure: async (id) => {
-    const response = await axios.post(`${API_BASE_URL}/documents/${id}/analyze-structure`);
+    const response = await apiClient.post(`/documents/${id}/analyze-structure`);
     return response.data;
   },
 
   getUserDocuments: async (userId) => {
-    const response = await axios.get(`${API_BASE_URL}/documents/user/${userId}`);
+    const response = await apiClient.get(`/documents/user/${userId}`);
     return response.data;
   },
 
   deleteDocument: async (id) => {
-    await axios.delete(`${API_BASE_URL}/documents/${id}`);
+    await apiClient.delete(`/documents/${id}`);
   },
 };
 
 export const folderService = {
   createFolder: async ({ name, description, userId }) => {
-    const response = await axios.post(`${API_BASE_URL}/folders`, {
+    const response = await apiClient.post('/folders', {
       name,
       description,
       userId,
@@ -62,25 +127,25 @@ export const folderService = {
   },
 
   getUserFolders: async (userId) => {
-    const response = await axios.get(`${API_BASE_URL}/folders/user/${userId}`);
+    const response = await apiClient.get(`/folders/user/${userId}`);
     return response.data;
   },
 
   getFolder: async (id) => {
-    const response = await axios.get(`${API_BASE_URL}/folders/${id}`);
+    const response = await apiClient.get(`/folders/${id}`);
     return response.data;
   },
 
   deleteFolder: async (id) => {
-    await axios.delete(`${API_BASE_URL}/folders/${id}`);
+    await apiClient.delete(`/folders/${id}`);
   },
 
   uploadSource: async (folderId, file, userId, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId);
+    formData.append('userId', userId || '');
 
-    const response = await axios.post(`${API_BASE_URL}/folders/${folderId}/sources/upload`, formData, {
+    const response = await apiClient.post(`/folders/${folderId}/sources/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -95,12 +160,12 @@ export const folderService = {
   },
 
   getSources: async (folderId) => {
-    const response = await axios.get(`${API_BASE_URL}/folders/${folderId}/sources`);
+    const response = await apiClient.get(`/folders/${folderId}/sources`);
     return response.data;
   },
 
   updateSourceSelection: async (folderId, sourceId, includeInFolderSlides) => {
-    const response = await axios.put(`${API_BASE_URL}/folders/${folderId}/sources/${sourceId}/slide-selection`, {
+    const response = await apiClient.put(`/folders/${folderId}/sources/${sourceId}/slide-selection`, {
       includeInFolderSlides,
     });
     return response.data;
@@ -109,7 +174,7 @@ export const folderService = {
 
 export const workspaceService = {
   create: async ({ name, description, userId }) => {
-    const response = await axios.post(`${API_BASE_URL}/workspaces`, {
+    const response = await apiClient.post('/workspaces', {
       name,
       description,
       userId,
@@ -118,30 +183,30 @@ export const workspaceService = {
   },
 
   list: async (userId) => {
-    const response = await axios.get(`${API_BASE_URL}/workspaces/user/${userId}`);
+    const response = await apiClient.get(`/workspaces/user/${userId}`);
     return response.data;
   },
 
   get: async (workspaceId) => {
-    const response = await axios.get(`${API_BASE_URL}/workspaces/${workspaceId}`);
+    const response = await apiClient.get(`/workspaces/${workspaceId}`);
     return response.data;
   },
 
   getDefault: async (userId) => {
-    const response = await axios.get(`${API_BASE_URL}/workspaces/default/user/${userId}`);
+    const response = await apiClient.get(`/workspaces/default/user/${userId}`);
     return response.data;
   },
 
   remove: async (workspaceId) => {
-    await axios.delete(`${API_BASE_URL}/workspaces/${workspaceId}`);
+    await apiClient.delete(`/workspaces/${workspaceId}`);
   },
 
   uploadSource: async (workspaceId, file, userId, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId);
+    formData.append('userId', userId || '');
 
-    const response = await axios.post(`${API_BASE_URL}/workspaces/${workspaceId}/sources/upload`, formData, {
+    const response = await apiClient.post(`/workspaces/${workspaceId}/sources/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -157,12 +222,12 @@ export const workspaceService = {
   },
 
   listSources: async (workspaceId) => {
-    const response = await axios.get(`${API_BASE_URL}/workspaces/${workspaceId}/sources`);
+    const response = await apiClient.get(`/workspaces/${workspaceId}/sources`);
     return response.data;
   },
 
   updateSourceSelection: async (workspaceId, sourceId, includeInWorkspaceSlides) => {
-    const response = await axios.put(`${API_BASE_URL}/workspaces/${workspaceId}/sources/${sourceId}/slide-selection`, {
+    const response = await apiClient.put(`/workspaces/${workspaceId}/sources/${sourceId}/slide-selection`, {
       includeInWorkspaceSlides,
     });
     return response.data;
@@ -171,7 +236,7 @@ export const workspaceService = {
 
 export const questionService = {
   generateQuestions: async (documentId, count = 5, questionType = null) => {
-    const response = await axios.post(`${API_BASE_URL}/questions/generate`, {
+    const response = await apiClient.post('/questions/generate', {
       documentId,
       count,
       questionType,
@@ -182,7 +247,7 @@ export const questionService = {
   },
 
   startGenerateQuestions: async (documentId, count = 5, questionType = null) => {
-    const response = await axios.post(`${API_BASE_URL}/questions/generate/start`, {
+    const response = await apiClient.post('/questions/generate/start', {
       documentId,
       count,
       questionType,
@@ -191,19 +256,19 @@ export const questionService = {
   },
 
   getGenerateProgress: async (jobId) => {
-    const response = await axios.get(`${API_BASE_URL}/questions/generate/progress/${jobId}`);
+    const response = await apiClient.get(`/questions/generate/progress/${jobId}`);
     return response.data;
   },
 
   getQuestionsByDocument: async (documentId) => {
-    const response = await axios.get(`${API_BASE_URL}/questions/document/${documentId}`);
+    const response = await apiClient.get(`/questions/document/${documentId}`);
     return response.data;
   },
 };
 
 export const gameService = {
   createGameSession: async (documentId, userId, gameType, questionCount = 10) => {
-    const response = await axios.post(`${API_BASE_URL}/games/sessions`, {
+    const response = await apiClient.post('/games/sessions', {
       documentId,
       userId,
       gameType,
@@ -213,34 +278,34 @@ export const gameService = {
   },
 
   getGameSession: async (sessionId) => {
-    const response = await axios.get(`${API_BASE_URL}/games/sessions/${sessionId}`);
+    const response = await apiClient.get(`/games/sessions/${sessionId}`);
     return response.data;
   },
 
   startGameSession: async (sessionId) => {
-    const response = await axios.post(`${API_BASE_URL}/games/sessions/${sessionId}/start`);
+    const response = await apiClient.post(`/games/sessions/${sessionId}/start`);
     return response.data;
   },
 
   submitGameSession: async (sessionId, answers) => {
-    const response = await axios.post(`${API_BASE_URL}/games/sessions/${sessionId}/submit`, {
+    const response = await apiClient.post(`/games/sessions/${sessionId}/submit`, {
       answers,
     });
     return response.data;
   },
 
   getQuizGame: async (documentId, count = 10) => {
-    const response = await axios.get(`${API_BASE_URL}/games/quiz/${documentId}?count=${count}`);
+    const response = await apiClient.get(`/games/quiz/${documentId}?count=${count}`);
     return response.data;
   },
 
   getFlashcards: async (documentId) => {
-    const response = await axios.get(`${API_BASE_URL}/games/flashcards/${documentId}`);
+    const response = await apiClient.get(`/games/flashcards/${documentId}`);
     return response.data;
   },
 
   getUserGameSessions: async (userId) => {
-    const response = await axios.get(`${API_BASE_URL}/games/user/${userId}`);
+    const response = await apiClient.get(`/games/user/${userId}`);
     return response.data;
   },
 };
@@ -251,7 +316,7 @@ export const slideService = {
       ? { desiredSlideCount: options }
       : options;
 
-    const response = await axios.post(`${API_BASE_URL}/slides/generate/start`, {
+    const response = await apiClient.post('/slides/generate/start', {
       documentId,
       desiredSlideCount: payload?.desiredSlideCount || 8,
       themeKey: payload?.themeKey,
@@ -268,7 +333,7 @@ export const slideService = {
   },
 
   getGenerateProgress: async (jobId) => {
-    const response = await axios.get(`${API_BASE_URL}/slides/generate/progress/${jobId}`);
+    const response = await apiClient.get(`/slides/generate/progress/${jobId}`);
     return response.data;
   },
 
@@ -277,7 +342,7 @@ export const slideService = {
       ? { desiredSlideCount: options }
       : options;
 
-    const response = await axios.post(`${API_BASE_URL}/slides/folders/${folderId}/generate/start`, {
+    const response = await apiClient.post(`/slides/folders/${folderId}/generate/start`, {
       desiredSlideCount: payload?.desiredSlideCount || 8,
       themeKey: payload?.themeKey,
       audience: payload?.audience,
@@ -293,27 +358,27 @@ export const slideService = {
   },
 
   getDeckByDocument: async (documentId) => {
-    const response = await axios.get(`${API_BASE_URL}/slides/document/${documentId}`);
+    const response = await apiClient.get(`/slides/document/${documentId}`);
     return response.status === 204 ? null : response.data;
   },
 
   getDeckByFolder: async (folderId) => {
-    const response = await axios.get(`${API_BASE_URL}/slides/folders/${folderId}`);
+    const response = await apiClient.get(`/slides/folders/${folderId}`);
     return response.status === 204 ? null : response.data;
   },
 
   updateSlideItem: async (deckId, itemId, payload) => {
-    const response = await axios.put(`${API_BASE_URL}/slides/${deckId}/items/${itemId}`, payload);
+    const response = await apiClient.put(`/slides/${deckId}/items/${itemId}`, payload);
     return response.data;
   },
 
   refreshSlideItemImages: async (deckId, itemId) => {
-    const response = await axios.post(`${API_BASE_URL}/slides/${deckId}/items/${itemId}/images/refresh`);
+    const response = await apiClient.post(`/slides/${deckId}/items/${itemId}/images/refresh`);
     return response.data;
   },
 
   selectSlideItemImage: async (deckId, itemId, candidateKey) => {
-    const response = await axios.post(`${API_BASE_URL}/slides/${deckId}/items/${itemId}/images/select`, {
+    const response = await apiClient.post(`/slides/${deckId}/items/${itemId}/images/select`, {
       candidateKey,
     });
     return response.data;
@@ -322,3 +387,5 @@ export const slideService = {
   getDeckHtmlUrl: (documentId) => `${API_BASE_URL}/slides/document/${documentId}/html`,
   getFolderDeckHtmlUrl: (folderId) => `${API_BASE_URL}/slides/folders/${folderId}/html`,
 };
+
+export { API_BASE_URL, apiClient };

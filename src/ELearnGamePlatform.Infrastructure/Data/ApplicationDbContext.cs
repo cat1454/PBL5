@@ -11,6 +11,7 @@ public class ApplicationDbContext : DbContext
     {
     }
 
+    public DbSet<AppUser> AppUsers { get; set; }
     public DbSet<Document> Documents { get; set; }
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
@@ -21,6 +22,15 @@ public class ApplicationDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<AppUser>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.Role);
+            entity.HasIndex(e => e.IsActive);
+            entity.HasIndex(e => e.CreatedAt);
+        });
 
         modelBuilder.Entity<FolderProject>(entity =>
         {

@@ -4,6 +4,7 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 
@@ -11,7 +12,8 @@ namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class SlidesController : ControllerBase
+[Authorize]
+public class SlidesController : AuthenticatedControllerBase
 {
     private const int SlideLowConfidenceThreshold = 85;
     private static readonly HashSet<string> ExplicitlyExcludedScopeClassifications = new(StringComparer.OrdinalIgnoreCase)
@@ -24,6 +26,7 @@ public class SlidesController : ControllerBase
     };
 
     private readonly IDocumentRepository _documentRepository;
+    private readonly IFolderProjectRepository _folderProjectRepository;
     private readonly ISlideDeckRepository _slideDeckRepository;
     private readonly ISlideGenerator _slideGenerator;
     private readonly ISlideImageService _slideImageService;
@@ -33,6 +36,7 @@ public class SlidesController : ControllerBase
 
     public SlidesController(
         IDocumentRepository documentRepository,
+        IFolderProjectRepository folderProjectRepository,
         ISlideDeckRepository slideDeckRepository,
         ISlideGenerator slideGenerator,
         ISlideImageService slideImageService,
@@ -41,6 +45,7 @@ public class SlidesController : ControllerBase
         ILogger<SlidesController> logger)
     {
         _documentRepository = documentRepository;
+        _folderProjectRepository = folderProjectRepository;
         _slideDeckRepository = slideDeckRepository;
         _slideGenerator = slideGenerator;
         _slideImageService = slideImageService;
@@ -55,6 +60,18 @@ public class SlidesController : ControllerBase
         if (!IsValidSlideCount(request.DesiredSlideCount))
         {
             return BadRequest("DesiredSlideCount must be between 5 and 18");
+        }
+
+        var document = await _documentRepository.GetByIdAsync(request.DocumentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         try
@@ -107,6 +124,18 @@ public class SlidesController : ControllerBase
     [HttpGet("document/{documentId}")]
     public async Task<IActionResult> GetDeckByDocument(int documentId)
     {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         try
         {
             var deck = await _slideDeckRepository.GetLatestByDocumentIdAsync(documentId);
@@ -127,6 +156,18 @@ public class SlidesController : ControllerBase
     [HttpGet("document/{documentId}/html")]
     public async Task<IActionResult> GetDeckHtml(int documentId)
     {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         try
         {
             var deck = await _slideDeckRepository.GetLatestByDocumentIdAsync(documentId);
@@ -147,6 +188,12 @@ public class SlidesController : ControllerBase
     [HttpPut("{deckId}/items/{itemId}")]
     public async Task<IActionResult> UpdateSlideItem(int deckId, int itemId, [FromBody] UpdateSlideItemRequest request)
     {
+        var deckAccess = await EnsureDeckAccessAsync(deckId);
+        if (deckAccess != null)
+        {
+            return deckAccess;
+        }
+
         try
         {
             var item = await _slideDeckRepository.GetItemAsync(deckId, itemId);
@@ -195,6 +242,12 @@ public class SlidesController : ControllerBase
     [HttpPost("{deckId}/items/{itemId}/images/refresh")]
     public async Task<IActionResult> RefreshSlideItemImages(int deckId, int itemId)
     {
+        var deckAccess = await EnsureDeckAccessAsync(deckId);
+        if (deckAccess != null)
+        {
+            return deckAccess;
+        }
+
         try
         {
             var item = await _slideImageService.RefreshImagesAsync(deckId, itemId, HttpContext.RequestAborted);
@@ -214,6 +267,18 @@ public class SlidesController : ControllerBase
     [HttpGet("folders/{folderId}")]
     public async Task<IActionResult> GetDeckByFolder(int folderId)
     {
+        var folder = await GetFolderAsync(folderId);
+        if (folder == null)
+        {
+            return NotFound("Folder project not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         try
         {
             var deck = await _slideDeckRepository.GetLatestByFolderIdAsync(folderId);
@@ -235,6 +300,18 @@ public class SlidesController : ControllerBase
     [HttpGet("folders/{folderId}/html")]
     public async Task<IActionResult> GetFolderDeckHtml(int folderId)
     {
+        var folder = await GetFolderAsync(folderId);
+        if (folder == null)
+        {
+            return NotFound("Folder project not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         try
         {
             var deck = await _slideDeckRepository.GetLatestByFolderIdAsync(folderId);
@@ -258,6 +335,12 @@ public class SlidesController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.CandidateKey))
         {
             return BadRequest("CandidateKey is required");
+        }
+
+        var deckAccess = await EnsureDeckAccessAsync(deckId);
+        if (deckAccess != null)
+        {
+            return deckAccess;
         }
 
         try
@@ -1272,6 +1355,18 @@ public class SlidesController : ControllerBase
             return BadRequest("DesiredSlideCount must be between 5 and 18");
         }
 
+        var folder = await GetFolderAsync(folderId);
+        if (folder == null)
+        {
+            return NotFound("Folder project not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         if (request.SourceIds?.Count > 1)
         {
             return BadRequest("V1 supports one primary source document per deck run.");
@@ -1591,6 +1686,21 @@ public class SlidesController : ControllerBase
 
         return normalized[..maxLength].Trim();
     }
+
+    private async Task<IActionResult?> EnsureDeckAccessAsync(int deckId)
+    {
+        var deck = await _slideDeckRepository.GetByIdAsync(deckId);
+        if (deck == null)
+        {
+            return NotFound("Slide deck not found");
+        }
+
+        var ownerUserId = deck.Document?.UploadedBy ?? deck.FolderProject?.UploadedBy;
+        return EnsureOwnerOrAdmin(ownerUserId);
+    }
+
+    private Task<FolderProject?> GetFolderAsync(int folderId)
+        => _folderProjectRepository.GetByIdAsync(folderId);
 }
 
 public class GenerateSlidesRequest

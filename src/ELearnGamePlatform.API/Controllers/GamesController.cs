@@ -1,6 +1,7 @@
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.RegularExpressions;
 
@@ -8,7 +9,8 @@ namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class GamesController : ControllerBase
+[Authorize]
+public class GamesController : AuthenticatedControllerBase
 {
     private readonly IGameSessionRepository _gameSessionRepository;
     private readonly IQuestionRepository _questionRepository;
@@ -39,6 +41,12 @@ public class GamesController : ControllerBase
                 return NotFound("Document not found");
             }
 
+            var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+            if (authResult != null)
+            {
+                return authResult;
+            }
+
             // Get questions for the document
             var questions = await _questionRepository.GetByDocumentIdAsync(request.DocumentId);
             var questionsList = questions.ToList();
@@ -60,7 +68,7 @@ public class GamesController : ControllerBase
             {
                 DocumentId = request.DocumentId,
                 GameType = request.GameType,
-                UserId = request.UserId,
+                UserId = CurrentUserIdAsString,
                 TotalQuestions = selectedQuestions.Count,
                 Status = GameStatus.NotStarted
             };
@@ -93,6 +101,12 @@ public class GamesController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         // Get questions for the session
         var questions = new List<Question>();
         var questionIds = session.GetQuestionIds();
@@ -122,6 +136,12 @@ public class GamesController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         session.Status = GameStatus.InProgress;
         session.StartedAt = DateTime.UtcNow;
         await _gameSessionRepository.UpdateAsync(sessionId, session);
@@ -137,6 +157,12 @@ public class GamesController : ControllerBase
         if (session == null)
         {
             return NotFound();
+        }
+
+        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         // Calculate score
@@ -185,6 +211,18 @@ public class GamesController : ControllerBase
     [HttpGet("quiz/{documentId}")]
     public async Task<IActionResult> GetQuizGame(int documentId, [FromQuery] int count = 10)
     {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var questions = await _questionRepository.GetByDocumentIdAndTypeAsync(documentId, QuestionType.MultipleChoice);
         var questionsList = questions.Take(count).Select(q => new
         {
@@ -215,6 +253,18 @@ public class GamesController : ControllerBase
     [HttpGet("flashcards/{documentId}")]
     public async Task<IActionResult> GetFlashcards(int documentId)
     {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var questions = await _questionRepository.GetByDocumentIdAsync(documentId);
         
         var flashcards = questions.Select(q => new
@@ -324,7 +374,13 @@ public class GamesController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserGameSessions(string userId)
     {
-        var sessions = await _gameSessionRepository.GetByUserIdAsync(userId);
+        var authResult = EnsureCurrentUserMatches(userId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var sessions = await _gameSessionRepository.GetByUserIdAsync(CurrentUserIdAsString);
         return Ok(sessions);
     }
 }

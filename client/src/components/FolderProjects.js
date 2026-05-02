@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { workspaceService } from '../services/api';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
-const DEMO_USER = 'demo-user';
-
 function FolderProjects() {
+  const { currentUser } = useAuth();
   const { t } = useLanguage();
   const { showToast } = useToast();
   const [folders, setFolders] = useState([]);
@@ -61,7 +61,7 @@ function FolderProjects() {
   const loadFolders = useCallback(async () => {
     try {
       setError('');
-      const data = await workspaceService.list(DEMO_USER);
+      const data = await workspaceService.list(String(currentUser?.id || ''));
       setFolders(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
@@ -69,7 +69,7 @@ function FolderProjects() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [currentUser?.id, t]);
 
   useEffect(() => {
     loadFolders();
@@ -90,7 +90,7 @@ function FolderProjects() {
       await workspaceService.create({
         name: form.name.trim(),
         description: form.description.trim(),
-        userId: DEMO_USER,
+        userId: String(currentUser?.id || ''),
       });
       setForm({ name: '', description: '' });
       showToast({
