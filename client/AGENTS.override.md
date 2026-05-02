@@ -6,7 +6,7 @@ Use this file for tasks primarily inside `client/`.
 
 - This project is a React 18 frontend built with `react-scripts`.
 - Frontend API traffic is funneled through `src/services/api.js`.
-- Dev proxy currently targets `http://127.0.0.1:5001` in `package.json`, so keep frontend/backend contract changes aligned.
+- Dev proxy currently targets `http://127.0.0.1:5000` in `package.json`, so keep frontend/backend contract changes aligned.
 
 ## Key Files
 

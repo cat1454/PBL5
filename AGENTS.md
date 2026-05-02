@@ -14,8 +14,8 @@ This repo is a .NET + React MVP for document ingestion, OCR, AI analysis, quiz/f
 ## Source Of Truth
 
 - Prefer runtime source over older docs when they disagree.
-- Backend URL is `http://localhost:5001` in `src/ELearnGamePlatform.API/Program.cs`.
-- Frontend dev proxy also targets `http://127.0.0.1:5001` in `client/package.json`.
+- Backend URL is `http://localhost:5000` in `src/ELearnGamePlatform.API/Program.cs`.
+- Frontend dev proxy also targets `http://127.0.0.1:5000` in `client/package.json`.
 - `global.json` currently pins .NET SDK `9.0.306`; some docs still mention .NET 8, so do not assume docs are fully current.
 - Database is PostgreSQL via EF Core, not MongoDB. Ignore stale MongoDB guidance in older docs.
 
@@ -84,6 +84,14 @@ This repo is a .NET + React MVP for document ingestion, OCR, AI analysis, quiz/f
 - If adopting outside agent patterns or hooks, prefer copying the smallest proven practice into local docs or overrides instead of syncing full external configs.
 - Do not duplicate hooks, MCP definitions, or plugin settings without first comparing them to `.codex/config.toml` and existing repo guidance.
 - Keep Codex-related changes additive and reviewable so the current local workflow remains understandable to contributors who do not use the same tooling stack.
+
+## Local Agent Rules
+
+- Apply `.local-agent-rules/*.md` as the default repo-local operating rules for agent work across the whole project.
+- Use `AGENTS.md` plus runtime source code as higher-priority truth if a local rule is stale, ambiguous, or conflicts with current code reality.
+- Expect agent execution to follow the local rule set for prompt structure, execution order, debugging, controlled refactor, review style, done checks, prompt correction, and changelog logging.
+- After each meaningful task, append a new entry to `.local-agent-rules/CHANGELOG.md` and keep it local-only.
+- Preserve `.git/info/exclude` entry for `.local-agent-rules/CHANGELOG.md`; do not promote that file to tracked project history unless explicitly requested.
 
 ## Bilingual UI Rule
 
