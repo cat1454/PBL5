@@ -1034,8 +1034,6 @@ translations.en.slides = {
         failedFallback: 'Document processing failed. Check the source status and backend logs.',
         emptyTitle: 'Document is being processed',
         emptyBody: 'This workspace already has sources, but they are still being processed before a deck can be generated.',
-        selectedLabel: 'Selected for deck',
-        unselectedLabel: 'Not in deck yet',
       },
       slideRail: 'Slide rail',
   zoomLabel: 'Canvas zoom',
@@ -1232,8 +1230,6 @@ translations.vi.slides.sourceProcessing = {
   failedFallback: 'Xử lý tài liệu thất bại. Hãy kiểm tra trạng thái source và log backend.',
   emptyTitle: 'Tài liệu đang được xử lý',
   emptyBody: 'Workspace này đã có source, nhưng hệ thống vẫn đang xử lý trước khi có thể tạo deck.',
-  selectedLabel: 'Đã chọn cho deck',
-  unselectedLabel: 'Chưa đưa vào deck',
 };
 
 export default translations;
