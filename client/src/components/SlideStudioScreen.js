@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ProgressCard from './ProgressCard';
 import { useToast } from './common/ToastProvider';
-import { documentService, slideService } from '../services/api';
+import { documentService, isApiNotFound, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const THEME_OPTIONS = [
@@ -153,6 +153,10 @@ function SlideStudioScreen() {
         setDocumentMeta(meta);
       } catch (err) {
         console.error(err);
+        if (isApiNotFound(err)) {
+          await loadDeck({ silent: true });
+          setJobId(null);
+        }
       }
     }, 3000);
 

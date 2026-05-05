@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { documentService } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { documentService, getApiErrorMessage } from '../services/api';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
 function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
   const { t } = useLanguage();
   const { showToast } = useToast();
   const [file, setFile] = useState(null);
@@ -52,7 +50,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     setError('');
 
     try {
-      const result = await documentService.uploadDocument(file, String(currentUser?.id || ''), (progressValue) => {
+      const result = await documentService.uploadDocument(file, (progressValue) => {
         setUploadProgress(progressValue);
       });
 
@@ -71,7 +69,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
       setUploadProgress(0);
       setUploading(false);
     } catch (err) {
-      setError(err.response?.data?.message || t('upload.errors.uploadFailed'));
+      setError(getApiErrorMessage(err, t('upload.errors.uploadFailed')));
       setUploading(false);
     }
   };

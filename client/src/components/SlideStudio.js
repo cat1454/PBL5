@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { documentService, slideService } from '../services/api';
+import { documentService, isApiNotFound, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
@@ -178,7 +178,13 @@ function SlideStudio({ documentId: propDocumentId }) {
         await loadDeck({ silent: true });
       } catch (err) {
         console.error(err);
-        setGenerationError(t('slides.generationStatus.pollFailed'));
+        if (isApiNotFound(err)) {
+          await loadDeck({ silent: true });
+          setJobId(null);
+          setGenerationError('');
+        } else {
+          setGenerationError(t('slides.generationStatus.pollFailed'));
+        }
       }
     }, 1500);
 

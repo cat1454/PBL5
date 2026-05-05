@@ -115,7 +115,7 @@ public class SlidesController : AuthenticatedControllerBase
     {
         if (!_jobStore.TryGetJob(jobId, out var state) || state == null)
         {
-            return NotFound("Job not found");
+            return ApiNotFound("job_not_found", "Job not found");
         }
 
         return Ok(JobProgressPayloadFactory.BuildSlide(state));
