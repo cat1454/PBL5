@@ -26,7 +26,15 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                ALTER TABLE public.slide_items
+                DROP COLUMN IF EXISTS evidence_from_text;
+            """);
 
+            migrationBuilder.Sql("""
+                ALTER TABLE public.slide_items
+                DROP COLUMN IF EXISTS key_message;
+            """);
         }
     }
 }

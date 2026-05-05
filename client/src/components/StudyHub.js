@@ -213,9 +213,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       setMetaError('');
 
       try {
-        const [documentData, questionData] = await Promise.all([
+        const [documentData, summaryData] = await Promise.all([
           documentService.getDocument(documentId),
-          questionService.getQuestionsByDocument(documentId).catch(() => []),
+          learningService.getDocumentSummary(documentId).catch(() => null),
         ]);
 
         if (cancelled) {
@@ -224,13 +224,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
 
         setDocumentName(documentData?.fileName || documentData?.name || `${copy.sourceFallback} #${documentId}`);
 
-        if (Array.isArray(questionData)) {
-          setQuestionCount(questionData.length);
-        } else if (Array.isArray(questionData?.questions)) {
-          setQuestionCount(questionData.questions.length);
-        } else {
-          setQuestionCount(0);
-        }
+        setQuestionCount(Number(summaryData?.totalQuestions || 0));
       } catch (error) {
         if (cancelled) {
           return;
@@ -521,6 +515,7 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
         copy={copy}
         refreshToken={refreshToken}
         showShell={showShell}
+        onAttemptRecorded={onAttemptRecorded}
       />
     );
   }
@@ -570,7 +565,9 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     const loadQuiz = async () => {
       setLoading(true);
       try {
-        const data = await gameService.getQuizGame(documentId, DEFAULT_QUESTION_COUNT);
+        const data = await gameService.getQuizGame(documentId, DEFAULT_QUESTION_COUNT, {
+          includeAnswers: !isTestMode,
+        });
         setAllQuestions(Array.isArray(data?.questions) ? data.questions : []);
       } catch (error) {
         alert(t('quiz.loadError'));
@@ -582,7 +579,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     };
 
     loadQuiz();
-  }, [documentId, navigate, refreshToken, t]);
+  }, [documentId, isTestMode, navigate, refreshToken, t]);
 
   useEffect(() => () => {
     if (bumpTimerRef.current) {
@@ -692,7 +689,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         testType: LEARNING_TEST_TYPE_VALUES.practiceTest,
         startedAt: testStartedAt?.toISOString(),
         durationMs: testStartedAt ? Math.max(0, Date.now() - testStartedAt.getTime()) : null,
-        attemptsAlreadyRecorded: true,
+        attemptsAlreadyRecorded: false,
         answers: nextAnswers.map((answer) => ({
           questionId: answer.questionId,
           selectedAnswer: answer.selectedAnswer,
@@ -721,6 +718,29 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
     const responseTimeMs = getResponseTimeMs();
 
+    if (isAssessmentTest) {
+      const nextAnswers = [
+        ...answers,
+        {
+          questionId: currentQuestion.id,
+          selectedAnswer,
+          isCorrect: false,
+          responseTimeMs,
+        },
+      ];
+      setAnswers(nextAnswers);
+
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex((current) => current + 1);
+        setSelectedAnswer(null);
+        setShowResult(false);
+        return;
+      }
+
+      await submitTestWithAnswers(nextAnswers);
+      return;
+    }
+
     if (!await recordCurrentAttempt(isCorrect)) {
       return;
     }
@@ -735,18 +755,6 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       },
     ];
     setAnswers(nextAnswers);
-
-    if (isAssessmentTest) {
-      if (currentQuestionIndex < questions.length - 1) {
-        setCurrentQuestionIndex((current) => current + 1);
-        setSelectedAnswer(null);
-        setShowResult(false);
-        return;
-      }
-
-      await submitTestWithAnswers(nextAnswers);
-      return;
-    }
 
     if (isStreakMode) {
       const nextStreak = isCorrect ? currentStreak + 1 : 0;
@@ -1033,13 +1041,15 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   );
 }
 
-function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell }) {
+function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [allFlashcards, setAllFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
+  const [assessing, setAssessing] = useState(false);
+  const cardStartTimeRef = useRef(Date.now());
 
   useEffect(() => {
     const loadFlashcards = async () => {
@@ -1062,7 +1072,12 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell }
   useEffect(() => {
     setCurrentIndex(0);
     setFlipped(false);
+    cardStartTimeRef.current = Date.now();
   }, [allFlashcards, hideLowConfidence]);
+
+  useEffect(() => {
+    cardStartTimeRef.current = Date.now();
+  }, [currentIndex]);
 
   const flashcards = hideLowConfidence
     ? allFlashcards.filter((card) => !card.quality?.isLowConfidence)
@@ -1094,6 +1109,41 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell }
   const progress = ((currentIndex + 1) / flashcards.length) * 100;
   const topicDisplay = formatTopicForDisplay(currentCard.topic);
   const quality = currentCard.quality || {};
+  const moveToNextCard = () => {
+    if (currentIndex < flashcards.length - 1) {
+      setCurrentIndex((current) => current + 1);
+      setFlipped(false);
+      return;
+    }
+
+    setFlipped(false);
+  };
+
+  const recordFlashcardAssessment = async (remembered) => {
+    if (!currentCard || assessing) {
+      return;
+    }
+
+    setAssessing(true);
+    try {
+      await learningService.recordAttempt({
+        documentId: Number(documentId),
+        questionId: currentCard.id,
+        mode: LEARNING_MODE_VALUES.flashcards,
+        selectedAnswer: remembered ? 'self:remembered' : 'self:review',
+        isCorrect: remembered,
+        responseTimeMs: Math.max(0, Date.now() - cardStartTimeRef.current),
+      });
+      if (onAttemptRecorded) {
+        onAttemptRecorded();
+      }
+      moveToNextCard();
+    } catch (error) {
+      console.warn('Could not record flashcard assessment.', error);
+    } finally {
+      setAssessing(false);
+    }
+  };
 
   return (
     <div className="study-panel study-panel-flashcards">
@@ -1150,6 +1200,30 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell }
                     <p>{currentCard.explanation}</p>
                   </div>
                 )}
+                <div className="study-action-row">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      recordFlashcardAssessment(false);
+                    }}
+                    disabled={assessing}
+                  >
+                    {t('flashcards.markForReview')}
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      recordFlashcardAssessment(true);
+                    }}
+                    disabled={assessing}
+                  >
+                    {assessing ? t('flashcards.recording') : t('flashcards.remembered')}
+                  </button>
+                </div>
                 <p className="study-flashcard-hint">{t('flashcards.tapToReturn')}</p>
               </div>
             )}
@@ -1179,10 +1253,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell }
           <button
             className="button"
             onClick={() => {
-              if (currentIndex < flashcards.length - 1) {
-                setCurrentIndex((current) => current + 1);
-                setFlipped(false);
-              }
+              moveToNextCard();
             }}
             disabled={currentIndex === flashcards.length - 1}
           >

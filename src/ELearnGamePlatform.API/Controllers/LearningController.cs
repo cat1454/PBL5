@@ -53,10 +53,10 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Question not found for this document.");
         }
 
-        var isCorrect = ResolveCorrectness(question, request);
+        var isCorrect = ResolveCorrectness(question, request.Mode, request.SelectedAnswer, request.IsCorrect);
         if (!isCorrect.HasValue)
         {
-            return BadRequest("Cannot determine correctness. Provide selectedAnswer or isCorrect.");
+            return BadRequest("Cannot determine correctness for this learning mode.");
         }
 
         var progress = await _learningProgressService.RecordAttemptAsync(
@@ -120,18 +120,10 @@ public class LearningController : AuthenticatedControllerBase
                 return NotFound($"Question {answer.QuestionId} not found for this document.");
             }
 
-            var isCorrect = ResolveCorrectness(question, new RecordLearningAttemptRequest
-            {
-                DocumentId = request.DocumentId,
-                QuestionId = answer.QuestionId,
-                Mode = LearningMode.Test,
-                SelectedAnswer = answer.SelectedAnswer,
-                IsCorrect = answer.IsCorrect,
-                ResponseTimeMs = answer.ResponseTimeMs
-            });
+            var isCorrect = ResolveCorrectness(question, LearningMode.Test, answer.SelectedAnswer, null);
             if (!isCorrect.HasValue)
             {
-                return BadRequest($"Cannot determine correctness for question {answer.QuestionId}.");
+                return BadRequest($"Cannot determine correctness for question {answer.QuestionId}. Provide selectedAnswer.");
             }
 
             submissions.Add(new LearningTestAnswerSubmission
@@ -263,7 +255,7 @@ public class LearningController : AuthenticatedControllerBase
             return authResult;
         }
 
-        var totalQuestions = (await _questionRepository.GetByDocumentIdAsync(documentId)).Count();
+        var totalQuestions = await _questionRepository.CountByDocumentIdAsync(documentId, cancellationToken);
         var summary = await _learningProgressService.GetDocumentSummaryAsync(
             CurrentUserIdAsString,
             documentId,
@@ -273,17 +265,22 @@ public class LearningController : AuthenticatedControllerBase
         return Ok(summary);
     }
 
-    private static bool? ResolveCorrectness(Question question, RecordLearningAttemptRequest request)
+    private static bool? ResolveCorrectness(Question question, LearningMode mode, string? selectedAnswer, bool? selfAssessment)
     {
-        if (!string.IsNullOrWhiteSpace(question.CorrectAnswer) && !string.IsNullOrWhiteSpace(request.SelectedAnswer))
+        if (mode == LearningMode.Flashcard)
+        {
+            return selfAssessment;
+        }
+
+        if (!string.IsNullOrWhiteSpace(question.CorrectAnswer) && !string.IsNullOrWhiteSpace(selectedAnswer))
         {
             return string.Equals(
-                request.SelectedAnswer.Trim(),
+                selectedAnswer.Trim(),
                 question.CorrectAnswer.Trim(),
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        return request.IsCorrect;
+        return null;
     }
 }
 

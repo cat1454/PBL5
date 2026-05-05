@@ -28,10 +28,13 @@ public class QuestionRepository : IQuestionRepository
         await using var transaction = await _context.Database.BeginTransactionAsync();
 
         var existingQuestions = await _context.Questions
-            .Where(q => q.DocumentId == documentId)
+            .Where(q => q.DocumentId == documentId && !q.IsArchived)
             .ToListAsync();
 
-        _context.Questions.RemoveRange(existingQuestions);
+        foreach (var existingQuestion in existingQuestions)
+        {
+            existingQuestion.IsArchived = true;
+        }
 
         if (questionList.Any())
         {
@@ -54,14 +57,20 @@ public class QuestionRepository : IQuestionRepository
     public async Task<IEnumerable<Question>> GetByDocumentIdAsync(int documentId)
     {
         return await _context.Questions
-            .Where(q => q.DocumentId == documentId)
+            .Where(q => q.DocumentId == documentId && !q.IsArchived)
             .ToListAsync();
+    }
+
+    public async Task<int> CountByDocumentIdAsync(int documentId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Questions
+            .CountAsync(q => q.DocumentId == documentId && !q.IsArchived, cancellationToken);
     }
 
     public async Task<IEnumerable<Question>> GetByDocumentIdAndTypeAsync(int documentId, QuestionType type)
     {
         return await _context.Questions
-            .Where(q => q.DocumentId == documentId && q.QuestionType == type)
+            .Where(q => q.DocumentId == documentId && q.QuestionType == type && !q.IsArchived)
             .ToListAsync();
     }
 
@@ -82,7 +91,7 @@ public class QuestionRepository : IQuestionRepository
         if (question == null)
             return false;
 
-        _context.Questions.Remove(question);
+        question.IsArchived = true;
         await _context.SaveChangesAsync();
         return true;
     }
@@ -90,10 +99,14 @@ public class QuestionRepository : IQuestionRepository
     public async Task<bool> DeleteByDocumentIdAsync(int documentId)
     {
         var questions = await _context.Questions
-            .Where(q => q.DocumentId == documentId)
+            .Where(q => q.DocumentId == documentId && !q.IsArchived)
             .ToListAsync();
 
-        _context.Questions.RemoveRange(questions);
+        foreach (var question in questions)
+        {
+            question.IsArchived = true;
+        }
+
         await _context.SaveChangesAsync();
         return true;
     }

@@ -2,7 +2,7 @@
 personality = "friendly"
 
 [windows]
-sandbox = "elevated"
+sandbox = "unelevated"
 
 [features]
 multi_agent = true

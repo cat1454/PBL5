@@ -342,8 +342,8 @@ export const gameService = {
     return response.data;
   },
 
-  getQuizGame: async (documentId, count = 10) => {
-    const response = await apiClient.get(`/games/quiz/${documentId}?count=${count}`);
+  getQuizGame: async (documentId, count = 10, { includeAnswers = true } = {}) => {
+    const response = await apiClient.get(`/games/quiz/${documentId}?count=${count}&includeAnswers=${includeAnswers}`);
     return response.data;
   },
 
