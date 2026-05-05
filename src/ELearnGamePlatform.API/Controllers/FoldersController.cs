@@ -3,13 +3,15 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class FoldersController : ControllerBase
+[Authorize]
+public class FoldersController : AuthenticatedControllerBase
 {
     private readonly IFolderProjectRepository _folderProjectRepository;
     private readonly IDocumentRepository _documentRepository;
@@ -42,16 +44,16 @@ public class FoldersController : ControllerBase
             return BadRequest("Name is required");
         }
 
-        if (string.IsNullOrWhiteSpace(request.UserId))
+        if (CurrentUserId == null)
         {
-            return BadRequest("UserId is required");
+            return Unauthorized("User context is required");
         }
 
         var folder = new FolderProject
         {
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
-            UploadedBy = request.UserId.Trim()
+            UploadedBy = CurrentUserIdAsString
         };
 
         var created = await _folderProjectRepository.CreateAsync(folder);
@@ -61,10 +63,17 @@ public class FoldersController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserFolders(string userId)
     {
-        var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
-        await _workspaceService.AttachOrphanDocumentsAsync(userId, defaultWorkspace.Id);
+        var authResult = EnsureCurrentUserMatches(userId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
 
-        var folders = await _folderProjectRepository.GetByUserAsync(userId);
+        var currentUserId = CurrentUserIdAsString;
+        var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(currentUserId);
+        await _workspaceService.AttachOrphanDocumentsAsync(currentUserId, defaultWorkspace.Id);
+
+        var folders = await _folderProjectRepository.GetByUserAsync(currentUserId);
         var payload = folders.Select(folder =>
         {
             var sources = folder.Documents.OrderBy(source => source.FolderSourceOrder).ThenBy(source => source.CreatedAt).ToList();
@@ -84,6 +93,12 @@ public class FoldersController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var sources = folder.Documents.OrderBy(source => source.FolderSourceOrder).ThenBy(source => source.CreatedAt).ToList();
         var deck = folder.SlideDecks.OrderByDescending(item => item.CreatedAt).FirstOrDefault();
         return Ok(BuildFolderPayload(folder, sources, deck));
@@ -96,6 +111,12 @@ public class FoldersController : ControllerBase
         if (folder == null)
         {
             return NotFound();
+        }
+
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         foreach (var source in folder.Documents)
@@ -126,9 +147,15 @@ public class FoldersController : ControllerBase
             return NotFound("Folder project not found");
         }
 
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         try
         {
-            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, userId, id);
+            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, CurrentUserIdAsString, id);
             await _folderProjectRepository.TouchAsync(id);
             _documentJobStore.TryGetJob(createdDocument.Id, out var progressState);
             _documentIngestionService.StartBackgroundProcessing(createdDocument.Id);
@@ -159,6 +186,12 @@ public class FoldersController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var sources = await _documentRepository.GetByFolderProjectIdAsync(id);
         var payload = sources.Select(source => BuildSourcePayload(source, source.Questions.Count));
         return Ok(payload);
@@ -173,10 +206,22 @@ public class FoldersController : ControllerBase
             return NotFound("Folder project not found");
         }
 
+        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var source = await _documentRepository.GetByIdAsync(sourceId);
         if (source == null || source.FolderProjectId != id)
         {
             return NotFound("Folder source not found");
+        }
+
+        authResult = EnsureOwnerOrAdmin(source.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         source.IncludeInFolderSlides = request.IncludeInFolderSlides;

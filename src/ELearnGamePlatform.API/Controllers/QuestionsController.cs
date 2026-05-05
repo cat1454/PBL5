@@ -3,13 +3,15 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class QuestionsController : ControllerBase
+[Authorize]
+public class QuestionsController : AuthenticatedControllerBase
 {
     private readonly IQuestionRepository _questionRepository;
     private readonly IDocumentRepository _documentRepository;
@@ -35,11 +37,23 @@ public class QuestionsController : ControllerBase
     }
 
     [HttpPost("generate/start")]
-    public IActionResult StartGenerateQuestions([FromBody] GenerateQuestionsRequest request)
+    public async Task<IActionResult> StartGenerateQuestions([FromBody] GenerateQuestionsRequest request)
     {
         if (request.Count < 1 || request.Count > 50)
         {
             return BadRequest("Count must be between 1 and 50");
+        }
+
+        var document = await _documentRepository.GetByIdAsync(request.DocumentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         var jobId = _jobStore.CreateJob(request.DocumentId, request.Count, request.QuestionType?.ToString());
@@ -82,6 +96,12 @@ public class QuestionsController : ControllerBase
             if (document == null)
             {
                 return NotFound("Document not found");
+            }
+
+            var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+            if (authResult != null)
+            {
+                return authResult;
             }
 
             if (string.IsNullOrEmpty(document.ExtractedText))
@@ -349,6 +369,18 @@ public class QuestionsController : ControllerBase
     [HttpGet("document/{documentId}")]
     public async Task<IActionResult> GetQuestionsByDocument(int documentId)
     {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var questions = await _questionRepository.GetByDocumentIdAsync(documentId);
         return Ok(questions.Select(BuildQuestionPayload));
     }
@@ -362,6 +394,12 @@ public class QuestionsController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(question.Document?.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         return Ok(BuildQuestionPayload(question));
     }
 
@@ -372,6 +410,12 @@ public class QuestionsController : ControllerBase
         if (existing == null)
         {
             return NotFound();
+        }
+
+        var authResult = EnsureOwnerOrAdmin(existing.Document?.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         question.Id = id;
@@ -393,6 +437,12 @@ public class QuestionsController : ControllerBase
         if (question == null)
         {
             return NotFound();
+        }
+
+        var authResult = EnsureOwnerOrAdmin(question.Document?.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         await _questionRepository.DeleteAsync(id);

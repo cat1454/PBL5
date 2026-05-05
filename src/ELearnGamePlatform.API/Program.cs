@@ -1,7 +1,10 @@
+using System.Text;
 using System.Text.Json.Serialization;
 using System.Data;
 using System.Data.Common;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Entities;
+using ELearnGamePlatform.Core.Enums;
 using ELearnGamePlatform.Infrastructure.Configuration;
 using ELearnGamePlatform.Infrastructure.Data;
 using ELearnGamePlatform.Infrastructure.Repositories;
@@ -11,9 +14,12 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
 using ELearnGamePlatform.Services.OCR;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -47,6 +53,34 @@ builder.Services.Configure<FileUploadSettings>(
     builder.Configuration.GetSection(FileUploadSettings.SectionName));
 builder.Services.Configure<ImagePipelineSettings>(
     builder.Configuration.GetSection(ImagePipelineSettings.SectionName));
+builder.Services.Configure<JwtSettings>(
+    builder.Configuration.GetSection(JwtSettings.SectionName));
+builder.Services.Configure<AdminSeedSettings>(
+    builder.Configuration.GetSection(AdminSeedSettings.SectionName));
+
+var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
+    ?? throw new InvalidOperationException("JwtSettings configuration is required.");
+if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
+{
+    throw new InvalidOperationException("JwtSettings.SecretKey must be configured.");
+}
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtSettings.Issuer,
+            ValidAudience = jwtSettings.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+builder.Services.AddAuthorization();
 
 // Register HttpClient for Ollama
 builder.Services.AddHttpClient<IOllamaService, OllamaService>();
@@ -68,6 +102,8 @@ builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
+builder.Services.AddScoped<IPasswordService, PasswordService>();
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");
@@ -109,6 +145,7 @@ using (var scope = app.Services.CreateScope())
         }
 
         dbContext.Database.Migrate();
+        await SeedAdminUserAsync(scope.ServiceProvider, dbContext, logger);
         ValidateCriticalSchema(dbContext);
     }
     catch (Exception ex)
@@ -138,6 +175,7 @@ app.UseStaticFiles(new StaticFileOptions
     FileProvider = new PhysicalFileProvider(uploadsPath),
     RequestPath = "/uploads"
 });
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
@@ -178,6 +216,49 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
             connection.Close();
         }
     }
+}
+
+static async Task SeedAdminUserAsync(
+    IServiceProvider serviceProvider,
+    ApplicationDbContext dbContext,
+    ILogger logger)
+{
+    var settings = serviceProvider.GetRequiredService<IOptions<AdminSeedSettings>>().Value;
+    if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.Email) || string.IsNullOrWhiteSpace(settings.Password))
+    {
+        return;
+    }
+
+    var normalizedEmail = settings.Email.Trim().ToLowerInvariant();
+    var existingAdmin = await dbContext.AppUsers.FirstOrDefaultAsync(user => user.Email == normalizedEmail);
+    if (existingAdmin != null)
+    {
+        if (existingAdmin.Role != UserRole.Admin || !existingAdmin.IsActive)
+        {
+            existingAdmin.Role = UserRole.Admin;
+            existingAdmin.IsActive = true;
+            existingAdmin.UpdatedAt = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync();
+        }
+
+        return;
+    }
+
+    var passwordService = serviceProvider.GetRequiredService<IPasswordService>();
+    var admin = new AppUser
+    {
+        FullName = string.IsNullOrWhiteSpace(settings.FullName) ? "System Admin" : settings.FullName.Trim(),
+        Email = normalizedEmail,
+        PasswordHash = string.Empty,
+        Role = UserRole.Admin,
+        IsActive = true,
+        CreatedAt = DateTime.UtcNow
+    };
+    admin.PasswordHash = passwordService.HashPassword(admin, settings.Password);
+
+    dbContext.AppUsers.Add(admin);
+    await dbContext.SaveChangesAsync();
+    logger.LogInformation("Seeded admin user {Email}", normalizedEmail);
 }
 
 static void EnsureColumnExists(DbConnection connection, string tableName, string columnName)

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
 import { documentService, questionService, slideService } from '../services/api';
 import { isActiveProgress, normalizeProgressState } from '../services/progress';
@@ -93,6 +94,7 @@ function ActionButton({ label, detail, onClick, disabled = false, tone = 'defaul
 }
 
 function DocumentList() {
+  const { currentUser } = useAuth();
   const { showToast } = useToast();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +119,7 @@ function DocumentList() {
     }
 
     try {
-      const docs = await documentService.getUserDocuments('demo-user');
+      const docs = await documentService.getUserDocuments(String(currentUser?.id || ''));
       setDocuments(docs);
       setLastUpdated(new Date());
     } catch (err) {
@@ -127,7 +129,7 @@ function DocumentList() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     loadDocuments();

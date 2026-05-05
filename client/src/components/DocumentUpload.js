@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { documentService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
 function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const { t } = useLanguage();
   const { showToast } = useToast();
   const [file, setFile] = useState(null);
@@ -50,8 +52,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     setError('');
 
     try {
-      const userId = 'demo-user';
-      const result = await documentService.uploadDocument(file, userId, (progressValue) => {
+      const result = await documentService.uploadDocument(file, String(currentUser?.id || ''), (progressValue) => {
         setUploadProgress(progressValue);
       });
 

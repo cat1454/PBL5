@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { documentService } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 
 function AnalysisContent({ data: initialData }) {
+  const { currentUser } = useAuth();
   const { t } = useLanguage();
   const [fullData, setFullData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -16,7 +18,7 @@ function AnalysisContent({ data: initialData }) {
 
     const loadRealData = async () => {
       try {
-        const docs = await documentService.getUserDocuments('demo-user');
+        const docs = await documentService.getUserDocuments(String(currentUser?.id || ''));
         const matchedDoc = docs.find((doc) => doc.id === initialData.id);
 
         if (matchedDoc && matchedDoc.mainTopics && matchedDoc.mainTopics.length > 0) {
@@ -46,7 +48,7 @@ function AnalysisContent({ data: initialData }) {
         clearInterval(intervalId);
       }
     };
-  }, [initialData?.id]);
+  }, [currentUser?.id, initialData?.id]);
 
   if (loading && !fullData) {
     return (

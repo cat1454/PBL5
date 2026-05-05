@@ -2,6 +2,7 @@ using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ELearnGamePlatform.API.Services;
 
@@ -9,7 +10,8 @@ namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class DocumentsController : ControllerBase
+[Authorize]
+public class DocumentsController : AuthenticatedControllerBase
 {
     private readonly IDocumentRepository _documentRepository;
     private readonly IQuestionRepository _questionRepository;
@@ -45,17 +47,18 @@ public class DocumentsController : ControllerBase
             return BadRequest("No file provided");
         }
 
-        if (string.IsNullOrWhiteSpace(userId))
+        if (CurrentUserId == null)
         {
-            return BadRequest("UserId is required");
+            return Unauthorized("User context is required");
         }
 
         try
         {
-            var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(userId);
-            await _workspaceService.AttachOrphanDocumentsAsync(userId, defaultWorkspace.Id);
+            var currentUserId = CurrentUserIdAsString;
+            var defaultWorkspace = await _workspaceService.EnsureDefaultWorkspaceAsync(currentUserId);
+            await _workspaceService.AttachOrphanDocumentsAsync(currentUserId, defaultWorkspace.Id);
 
-            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, userId, defaultWorkspace.Id);
+            var createdDocument = await _documentIngestionService.UploadDocumentAsync(file, currentUserId, defaultWorkspace.Id);
             _documentJobStore.TryGetJob(createdDocument.Id, out var progressState);
             _documentIngestionService.StartBackgroundProcessing(createdDocument.Id);
 
@@ -89,6 +92,12 @@ public class DocumentsController : ControllerBase
             return NotFound();
         }
 
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         return Ok(BuildDocumentPayload(document, questionsCount: document.Questions.Count));
     }
 
@@ -100,6 +109,12 @@ public class DocumentsController : ControllerBase
         if (document == null)
         {
             return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         _documentJobStore.TryGetJob(id, out var progressState);
@@ -115,6 +130,12 @@ public class DocumentsController : ControllerBase
             return NotFound("Document not found");
         }
 
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         return Ok(BuildDocumentStructurePayload(document));
     }
 
@@ -125,6 +146,12 @@ public class DocumentsController : ControllerBase
         if (document == null)
         {
             return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         if (string.IsNullOrWhiteSpace(document.ExtractedText))
@@ -164,7 +191,13 @@ public class DocumentsController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetUserDocuments(string userId)
     {
-        var documents = await _documentRepository.GetByUserAsync(userId);
+        var authResult = EnsureCurrentUserMatches(userId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var documents = await _documentRepository.GetByUserAsync(CurrentUserIdAsString);
         var questionsCountMap = new Dictionary<int, int>();
 
         foreach (var document in documents)
@@ -189,6 +222,12 @@ public class DocumentsController : ControllerBase
         if (document == null)
         {
             return NotFound();
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
         }
 
         // Delete file

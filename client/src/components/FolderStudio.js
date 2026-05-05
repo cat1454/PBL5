@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, questionService, slideService, workspaceService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
-
-const DEMO_USER = 'demo-user';
 
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
@@ -430,6 +429,7 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
   );
 }
 function FolderStudio() {
+  const { currentUser } = useAuth();
   const { t, language } = useLanguage();
   const { showToast } = useToast();
   const { workspaceId } = useParams();
@@ -1081,7 +1081,7 @@ function FolderStudio() {
       setUploading(true);
       setError('');
       for (const file of files) {
-        await workspaceService.uploadSource(workspaceId, file, DEMO_USER);
+        await workspaceService.uploadSource(workspaceId, file, String(currentUser?.id || ''));
       }
 
       showToast({
