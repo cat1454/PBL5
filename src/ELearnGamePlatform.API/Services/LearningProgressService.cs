@@ -23,13 +23,217 @@ public class LearningProgressService : ILearningProgressService
         string? selectedAnswer,
         bool isCorrect,
         int? responseTimeMs,
+        int? testResultId = null,
         CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var attempt = new LearningAttempt
+        AddAttempt(userId, documentId, questionId, mode, selectedAnswer, isCorrect, responseTimeMs, now, testResultId);
+        var progress = await ApplyProgressAsync(userId, documentId, questionId, isCorrect, responseTimeMs, now, cancellationToken);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return ToSnapshot(progress, now);
+    }
+
+    public async Task<LearningTestResultSnapshot> SubmitTestAsync(
+        string userId,
+        int documentId,
+        LearningTestType testType,
+        DateTime? startedAt,
+        long? durationMs,
+        IReadOnlyList<LearningTestAnswerSubmission> answers,
+        bool recordAttempts,
+        CancellationToken cancellationToken = default)
+    {
+        var submittedAt = DateTime.UtcNow;
+        var resolvedDurationMs = Math.Max(0, durationMs ?? 0);
+        var resolvedStartedAt = startedAt ?? submittedAt.AddMilliseconds(-resolvedDurationMs);
+        if (resolvedStartedAt > submittedAt)
+        {
+            resolvedStartedAt = submittedAt;
+        }
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var correctCount = answers.Count(answer => answer.IsCorrect);
+        var wrongCount = answers.Count - correctCount;
+        var testResult = new LearningTestResult
+        {
+            UserId = userId,
+            DocumentId = documentId,
+            TotalQuestions = answers.Count,
+            CorrectCount = correctCount,
+            WrongCount = wrongCount,
+            Score = answers.Count > 0 ? RoundScore((double)correctCount / answers.Count * 100d) : 0d,
+            StartedAt = DateTime.SpecifyKind(resolvedStartedAt, DateTimeKind.Utc),
+            SubmittedAt = submittedAt,
+            DurationMs = resolvedDurationMs,
+            TestType = testType,
+            CreatedAt = submittedAt
+        };
+
+        _dbContext.LearningTestResults.Add(testResult);
+
+        var progressByQuestionId = new Dictionary<int, LearningProgress>();
+        foreach (var answer in answers)
+        {
+            if (recordAttempts)
+            {
+                AddAttempt(
+                    userId,
+                    documentId,
+                    answer.QuestionId,
+                    LearningMode.Test,
+                    answer.SelectedAnswer,
+                    answer.IsCorrect,
+                    answer.ResponseTimeMs,
+                    submittedAt,
+                    testResult);
+
+                progressByQuestionId[answer.QuestionId] = await ApplyProgressAsync(
+                    userId,
+                    documentId,
+                    answer.QuestionId,
+                    answer.IsCorrect,
+                    answer.ResponseTimeMs,
+                    submittedAt,
+                    cancellationToken);
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        if (!recordAttempts)
+        {
+            var questionIds = answers.Select(answer => answer.QuestionId).ToList();
+            var existingAttempts = await _dbContext.LearningAttempts
+                .Where(attempt => attempt.UserId == userId
+                    && attempt.DocumentId == documentId
+                    && attempt.Mode == LearningMode.Test
+                    && attempt.TestResultId == null
+                    && questionIds.Contains(attempt.QuestionId)
+                    && attempt.CreatedAt >= testResult.StartedAt
+                    && attempt.CreatedAt <= testResult.SubmittedAt)
+                .ToListAsync(cancellationToken);
+
+            foreach (var attempt in existingAttempts)
+            {
+                attempt.TestResultId = testResult.Id;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        if (!recordAttempts)
+        {
+            var questionIds = answers.Select(answer => answer.QuestionId).ToList();
+            progressByQuestionId = await _dbContext.LearningProgresses
+                .Where(item => item.UserId == userId
+                    && item.DocumentId == documentId
+                    && questionIds.Contains(item.QuestionId))
+                .ToDictionaryAsync(item => item.QuestionId, cancellationToken);
+        }
+
+        return ToTestResultSnapshot(testResult, progressByQuestionId, answers, submittedAt);
+    }
+
+    public async Task<IReadOnlyList<LearningTestResultSnapshot>> GetDocumentTestResultsAsync(
+        string userId,
+        int documentId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var results = await _dbContext.LearningTestResults
+            .Where(item => item.UserId == userId && item.DocumentId == documentId)
+            .OrderByDescending(item => item.SubmittedAt)
+            .ToListAsync(cancellationToken);
+
+        if (results.Count == 0)
+        {
+            return Array.Empty<LearningTestResultSnapshot>();
+        }
+
+        var progressByQuestionId = await _dbContext.LearningProgresses
+            .Where(item => item.UserId == userId && item.DocumentId == documentId)
+            .ToDictionaryAsync(item => item.QuestionId, cancellationToken);
+
+        return results
+            .Select(result => ToTestResultSnapshot(result, progressByQuestionId, Array.Empty<LearningTestAnswerSubmission>(), now))
+            .ToList();
+    }
+
+    public async Task<LearningTestSummarySnapshot> GetDocumentTestSummaryAsync(
+        string userId,
+        int documentId,
+        CancellationToken cancellationToken = default)
+    {
+        var results = await GetDocumentTestResultsAsync(userId, documentId, cancellationToken);
+        var latest = results.FirstOrDefault();
+
+        return new LearningTestSummarySnapshot
+        {
+            TotalTests = results.Count,
+            AverageScore = RoundScore(results.Any() ? results.Average(item => item.Score) : 0d),
+            BestScore = RoundScore(results.Any() ? results.Max(item => item.Score) : 0d),
+            LatestResult = latest
+        };
+    }
+
+    public async Task<IReadOnlyList<LearningProgressSnapshot>> GetDocumentProgressAsync(
+        string userId,
+        int documentId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var progresses = await _dbContext.LearningProgresses
+            .Where(item => item.UserId == userId && item.DocumentId == documentId)
+            .OrderBy(item => item.QuestionId)
+            .ToListAsync(cancellationToken);
+
+        return progresses.Select(progress => ToSnapshot(progress, now)).ToList();
+    }
+
+    public async Task<LearningProgressSummarySnapshot> GetDocumentSummaryAsync(
+        string userId,
+        int documentId,
+        int totalQuestions,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var progresses = await _dbContext.LearningProgresses
+            .Where(item => item.UserId == userId && item.DocumentId == documentId)
+            .ToListAsync(cancellationToken);
+
+        var snapshots = progresses.Select(progress => ToSnapshot(progress, now)).ToList();
+
+        return new LearningProgressSummarySnapshot
+        {
+            TotalQuestions = totalQuestions,
+            AttemptedQuestions = snapshots.Count(item => item.AttemptCount > 0),
+            AverageMasteryScore = RoundScore(snapshots.Any() ? snapshots.Average(item => item.MasteryScore) : 0d),
+            AverageMemoryScore = RoundScore(snapshots.Any() ? snapshots.Average(item => item.MemoryScore) : 0d),
+            WeakCount = snapshots.Count(item => item.Level == LearningLevel.Weak),
+            MasteredCount = snapshots.Count(item => item.Level == LearningLevel.Mastered)
+        };
+    }
+
+    private void AddAttempt(
+        string userId,
+        int documentId,
+        int questionId,
+        LearningMode mode,
+        string? selectedAnswer,
+        bool isCorrect,
+        int? responseTimeMs,
+        DateTime createdAt,
+        int? testResultId = null)
+    {
+        _dbContext.LearningAttempts.Add(new LearningAttempt
         {
             UserId = userId,
             DocumentId = documentId,
@@ -38,11 +242,45 @@ public class LearningProgressService : ILearningProgressService
             SelectedAnswer = selectedAnswer,
             IsCorrect = isCorrect,
             ResponseTimeMs = responseTimeMs,
-            CreatedAt = now
-        };
+            TestResultId = testResultId,
+            CreatedAt = createdAt
+        });
+    }
 
-        _dbContext.LearningAttempts.Add(attempt);
+    private void AddAttempt(
+        string userId,
+        int documentId,
+        int questionId,
+        LearningMode mode,
+        string? selectedAnswer,
+        bool isCorrect,
+        int? responseTimeMs,
+        DateTime createdAt,
+        LearningTestResult testResult)
+    {
+        _dbContext.LearningAttempts.Add(new LearningAttempt
+        {
+            UserId = userId,
+            DocumentId = documentId,
+            QuestionId = questionId,
+            Mode = mode,
+            SelectedAnswer = selectedAnswer,
+            IsCorrect = isCorrect,
+            ResponseTimeMs = responseTimeMs,
+            TestResult = testResult,
+            CreatedAt = createdAt
+        });
+    }
 
+    private async Task<LearningProgress> ApplyProgressAsync(
+        string userId,
+        int documentId,
+        int questionId,
+        bool isCorrect,
+        int? responseTimeMs,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
         var progress = await _dbContext.LearningProgresses
             .FirstOrDefaultAsync(
                 item => item.UserId == userId
@@ -90,48 +328,7 @@ public class LearningProgressService : ILearningProgressService
         progress.MemoryScore = memoryScore;
         progress.Level = ClassifyLevel(masteryScore);
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        return ToSnapshot(progress, now);
-    }
-
-    public async Task<IReadOnlyList<LearningProgressSnapshot>> GetDocumentProgressAsync(
-        string userId,
-        int documentId,
-        CancellationToken cancellationToken = default)
-    {
-        var now = DateTime.UtcNow;
-        var progresses = await _dbContext.LearningProgresses
-            .Where(item => item.UserId == userId && item.DocumentId == documentId)
-            .OrderBy(item => item.QuestionId)
-            .ToListAsync(cancellationToken);
-
-        return progresses.Select(progress => ToSnapshot(progress, now)).ToList();
-    }
-
-    public async Task<LearningProgressSummarySnapshot> GetDocumentSummaryAsync(
-        string userId,
-        int documentId,
-        int totalQuestions,
-        CancellationToken cancellationToken = default)
-    {
-        var now = DateTime.UtcNow;
-        var progresses = await _dbContext.LearningProgresses
-            .Where(item => item.UserId == userId && item.DocumentId == documentId)
-            .ToListAsync(cancellationToken);
-
-        var snapshots = progresses.Select(progress => ToSnapshot(progress, now)).ToList();
-
-        return new LearningProgressSummarySnapshot
-        {
-            TotalQuestions = totalQuestions,
-            AttemptedQuestions = snapshots.Count(item => item.AttemptCount > 0),
-            AverageMasteryScore = RoundScore(snapshots.Any() ? snapshots.Average(item => item.MasteryScore) : 0d),
-            AverageMemoryScore = RoundScore(snapshots.Any() ? snapshots.Average(item => item.MemoryScore) : 0d),
-            WeakCount = snapshots.Count(item => item.Level == LearningLevel.Weak),
-            MasteredCount = snapshots.Count(item => item.Level == LearningLevel.Mastered)
-        };
+        return progress;
     }
 
     private static LearningProgressSnapshot ToSnapshot(LearningProgress progress, DateTime nowUtc)
@@ -152,6 +349,61 @@ public class LearningProgressService : ILearningProgressService
             MemoryScore = RoundScore(CalculateMemoryScore(progress.MasteryScore, progress.LastReviewedAt, nowUtc)),
             Level = progress.Level,
             UpdatedAt = progress.UpdatedAt
+        };
+    }
+
+    private static LearningTestResultSnapshot ToTestResultSnapshot(
+        LearningTestResult result,
+        IReadOnlyDictionary<int, LearningProgress> progressByQuestionId,
+        IReadOnlyList<LearningTestAnswerSubmission> answers,
+        DateTime nowUtc)
+    {
+        var relatedProgress = progressByQuestionId.Values
+            .Where(progress => progress.DocumentId == result.DocumentId)
+            .Select(progress => ToSnapshot(progress, nowUtc))
+            .ToList();
+
+        var masteryScoreAfterTest = relatedProgress.Count > 0
+            ? RoundScore(relatedProgress.Average(item => item.MasteryScore))
+            : 0d;
+        var memoryScoreAfterTest = relatedProgress.Count > 0
+            ? RoundScore(relatedProgress.Average(item => item.MemoryScore))
+            : 0d;
+
+        var weakQuestions = answers
+            .Where(answer => !answer.IsCorrect)
+            .Select(answer =>
+            {
+                progressByQuestionId.TryGetValue(answer.QuestionId, out var progress);
+                return new LearningTestWeakQuestionSnapshot
+                {
+                    QuestionId = answer.QuestionId,
+                    QuestionText = answer.QuestionText,
+                    SelectedAnswer = answer.SelectedAnswer,
+                    CorrectAnswer = answer.CorrectAnswer,
+                    Topic = answer.Topic,
+                    MasteryScore = RoundScore(progress?.MasteryScore ?? 0d)
+                };
+            })
+            .ToList();
+
+        return new LearningTestResultSnapshot
+        {
+            Id = result.Id,
+            UserId = result.UserId,
+            DocumentId = result.DocumentId,
+            TotalQuestions = result.TotalQuestions,
+            CorrectCount = result.CorrectCount,
+            WrongCount = result.WrongCount,
+            Score = RoundScore(result.Score),
+            StartedAt = result.StartedAt,
+            SubmittedAt = result.SubmittedAt,
+            DurationMs = result.DurationMs,
+            TestType = result.TestType,
+            CreatedAt = result.CreatedAt,
+            MasteryScoreAfterTest = masteryScoreAfterTest,
+            MemoryScoreAfterTest = memoryScoreAfterTest,
+            WeakQuestions = weakQuestions
         };
     }
 

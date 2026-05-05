@@ -12,6 +12,12 @@ const LEARNING_MODE_VALUES = {
   test: 3,
   streak: 4,
 };
+const LEARNING_TEST_TYPE_VALUES = {
+  preTest: 1,
+  postTest: 2,
+  retention: 3,
+  practiceTest: 4,
+};
 
 function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true }) {
   const { language, t } = useLanguage();
@@ -70,6 +76,17 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         flashTab: 'Flashcards',
         testTab: 'Test',
         testHint: 'Làm bài kiểm tra liền mạch và xem điểm ở cuối.',
+        testStartTitle: 'Sẵn sàng làm Test',
+        testStartBody: 'Bài test ghi nhận kết quả đánh giá năng lực. Trong khi làm bài sẽ không hiện đáp án hay giải thích.',
+        testStartCta: 'Bắt đầu test',
+        testSubmitting: 'Đang nộp test...',
+        masteryAfterTest: 'Mastery sau test',
+        duration: 'Thời lượng',
+        reviewWeakQuestions: 'Ôn lại câu yếu',
+        noWeakQuestions: 'Không có câu yếu trong lần test này.',
+        weakReviewHint: 'Ôn tập các câu bị sai trong test vừa rồi, có phản hồi sau mỗi câu.',
+        weakReviewCompleteHint: 'Đã hoàn thành phiên ôn lại câu yếu.',
+        testSubmitError: 'Chưa thể nộp test. Hãy thử lại.',
         testCompletedTitle: 'Hoàn thành Test',
         testCompleteHint: 'Bài test đã hoàn tất. Kết quả chỉ được hiển thị sau câu cuối.',
         testEmptyHint: 'Hãy tạo question bank trước khi vào Test mode.',
@@ -112,6 +129,17 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       flashTab: 'Flashcards',
       testTab: 'Test',
       testHint: 'Take a clean test flow and review the score at the end.',
+      testStartTitle: 'Ready for Test Mode',
+      testStartBody: 'This test records an assessment result. Answers and explanations stay hidden until you submit the full test.',
+      testStartCta: 'Start test',
+      testSubmitting: 'Submitting test...',
+      masteryAfterTest: 'Mastery after test',
+      duration: 'Duration',
+      reviewWeakQuestions: 'Review weak questions',
+      noWeakQuestions: 'No weak questions in this test run.',
+      weakReviewHint: 'Practice the questions missed in the last test with feedback after each answer.',
+      weakReviewCompleteHint: 'Weak-question review complete.',
+      testSubmitError: 'Could not submit the test. Please try again.',
       testCompletedTitle: 'Test complete',
       testCompleteHint: 'Test complete. Results are revealed only after the final question.',
       testEmptyHint: 'Generate a question bank before entering Test mode.',
@@ -448,6 +476,41 @@ function ProgressSummaryItem({ label, value }) {
   );
 }
 
+function formatDurationMs(durationMs) {
+  const totalSeconds = Math.max(0, Math.round(Number(durationMs || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function WeakQuestionsPanel({ copy, weakQuestions, onReviewWeakQuestions }) {
+  return (
+    <div className="study-weak-panel">
+      <div className="study-weak-panel-head">
+        <strong>{copy.weakQuestions}</strong>
+        <span>{weakQuestions.length}</span>
+      </div>
+      {weakQuestions.length > 0 ? (
+        <>
+          <div className="study-weak-list">
+            {weakQuestions.slice(0, 4).map((question) => (
+              <div key={question.questionId} className="study-weak-item">
+                <span>{question.questionText || `#${question.questionId}`}</span>
+                <strong>{Math.round(Number(question.masteryScore || 0))}%</strong>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="button" onClick={onReviewWeakQuestions}>
+            {copy.reviewWeakQuestions}
+          </button>
+        </>
+      ) : (
+        <p>{copy.noWeakQuestions}</p>
+      )}
+    </div>
+  );
+}
+
 function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken, onAttemptRecorded }) {
   if (mode === 'flashcards') {
     return (
@@ -485,6 +548,12 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   const [showResult, setShowResult] = useState(false);
   const [answers, setAnswers] = useState([]);
   const [finalScore, setFinalScore] = useState(null);
+  const [testState, setTestState] = useState(mode === 'test' ? 'ready' : 'practice');
+  const [testStartedAt, setTestStartedAt] = useState(null);
+  const [testResult, setTestResult] = useState(null);
+  const [testSubmitting, setTestSubmitting] = useState(false);
+  const [testSubmitError, setTestSubmitError] = useState('');
+  const [weakReviewQuestionIds, setWeakReviewQuestionIds] = useState(null);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
@@ -494,6 +563,8 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   const submittedQuestionKeysRef = useRef(new Set());
   const isStreakMode = mode === 'streak';
   const isTestMode = mode === 'test';
+  const isAssessmentTest = isTestMode && testState === 'inProgress';
+  const isWeakReviewMode = isTestMode && testState === 'review';
 
   useEffect(() => {
     const loadQuiz = async () => {
@@ -520,10 +591,18 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   }, []);
 
   const questions = useMemo(
-    () => (hideLowConfidence
+    () => {
+      const visibleQuestions = (hideLowConfidence
       ? allQuestions.filter((question) => !question.quality?.isLowConfidence)
-      : allQuestions),
-    [allQuestions, hideLowConfidence]
+      : allQuestions);
+
+      if (!weakReviewQuestionIds || weakReviewQuestionIds.size === 0) {
+        return visibleQuestions;
+      }
+
+      return visibleQuestions.filter((question) => weakReviewQuestionIds.has(question.id));
+    },
+    [allQuestions, hideLowConfidence, weakReviewQuestionIds]
   );
 
   useEffect(() => {
@@ -532,6 +611,12 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setShowResult(false);
     setAnswers([]);
     setFinalScore(null);
+    setTestState(mode === 'test' ? 'ready' : 'practice');
+    setTestStartedAt(null);
+    setTestResult(null);
+    setTestSubmitting(false);
+    setTestSubmitError('');
+    setWeakReviewQuestionIds(null);
     setCurrentStreak(0);
     setBestStreak(0);
     setStreakBump(false);
@@ -556,12 +641,13 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
   const isCurrentAnswerCorrect = () => currentQuestion?.correctAnswer === selectedAnswer;
 
-  const recordCurrentAttempt = (isCorrect) => {
+  const recordCurrentAttempt = async (isCorrect) => {
     if (!currentQuestion) {
       return false;
     }
 
-    const submissionKey = `${mode}:${currentQuestion.id}:${currentQuestionIndex}`;
+    const submissionMode = isWeakReviewMode ? 'quiz' : mode;
+    const submissionKey = `${submissionMode}:${currentQuestion.id}:${currentQuestionIndex}`;
     if (submittedQuestionKeysRef.current.has(submissionKey)) {
       return false;
     }
@@ -569,25 +655,26 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     submittedQuestionKeysRef.current.add(submissionKey);
 
     const responseTimeMs = Math.max(0, Date.now() - questionStartTimeRef.current);
-    learningService.recordAttempt({
-      documentId: Number(documentId),
-      questionId: currentQuestion.id,
-      mode: LEARNING_MODE_VALUES[mode],
-      selectedAnswer,
-      isCorrect,
-      responseTimeMs,
-    })
-      .then(() => {
-        if (onAttemptRecorded) {
-          onAttemptRecorded();
-        }
-      })
-      .catch((error) => {
-        console.warn('Could not record learning attempt.', error);
+    try {
+      await learningService.recordAttempt({
+        documentId: Number(documentId),
+        questionId: currentQuestion.id,
+        mode: LEARNING_MODE_VALUES[submissionMode],
+        selectedAnswer,
+        isCorrect,
+        responseTimeMs,
       });
+      if (onAttemptRecorded) {
+        onAttemptRecorded();
+      }
+    } catch (error) {
+      console.warn('Could not record learning attempt.', error);
+    }
 
     return true;
   };
+
+  const getResponseTimeMs = () => Math.max(0, Date.now() - questionStartTimeRef.current);
 
   const finishWithAnswers = (nextAnswers) => {
     const totalCorrect = nextAnswers.filter((answer) => answer.isCorrect).length;
@@ -595,13 +682,46 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setFinalScore(score);
   };
 
-  const handleSubmitAnswer = () => {
-    if (!selectedAnswer || !currentQuestion) {
+  const submitTestWithAnswers = async (nextAnswers) => {
+    setTestSubmitting(true);
+    setTestSubmitError('');
+
+    try {
+      const submittedResult = await learningService.submitTestResult({
+        documentId: Number(documentId),
+        testType: LEARNING_TEST_TYPE_VALUES.practiceTest,
+        startedAt: testStartedAt?.toISOString(),
+        durationMs: testStartedAt ? Math.max(0, Date.now() - testStartedAt.getTime()) : null,
+        attemptsAlreadyRecorded: true,
+        answers: nextAnswers.map((answer) => ({
+          questionId: answer.questionId,
+          selectedAnswer: answer.selectedAnswer,
+          responseTimeMs: answer.responseTimeMs,
+        })),
+      });
+
+      setTestResult(submittedResult);
+      setFinalScore(Math.round(Number(submittedResult?.score || 0)));
+      if (onAttemptRecorded) {
+        onAttemptRecorded();
+      }
+    } catch (error) {
+      console.warn('Could not submit learning test.', error);
+      setTestSubmitError(error?.response?.data?.message || error?.message || copy.testSubmitError);
+    } finally {
+      setTestSubmitting(false);
+    }
+  };
+
+  const handleSubmitAnswer = async () => {
+    if (!selectedAnswer || !currentQuestion || testSubmitting) {
       return;
     }
 
     const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
-    if (!recordCurrentAttempt(isCorrect)) {
+    const responseTimeMs = getResponseTimeMs();
+
+    if (!await recordCurrentAttempt(isCorrect)) {
       return;
     }
 
@@ -611,11 +731,12 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         questionId: currentQuestion.id,
         selectedAnswer,
         isCorrect,
+        responseTimeMs,
       },
     ];
     setAnswers(nextAnswers);
 
-    if (isTestMode) {
+    if (isAssessmentTest) {
       if (currentQuestionIndex < questions.length - 1) {
         setCurrentQuestionIndex((current) => current + 1);
         setSelectedAnswer(null);
@@ -623,7 +744,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         return;
       }
 
-      finishWithAnswers(nextAnswers);
+      await submitTestWithAnswers(nextAnswers);
       return;
     }
 
@@ -663,9 +784,49 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setShowResult(false);
     setAnswers([]);
     setFinalScore(null);
+    setTestState(isTestMode ? 'ready' : 'practice');
+    setTestStartedAt(null);
+    setTestResult(null);
+    setTestSubmitting(false);
+    setTestSubmitError('');
+    setWeakReviewQuestionIds(null);
     setCurrentStreak(0);
     setBestStreak(0);
     setStreakBump(false);
+    submittedQuestionKeysRef.current = new Set();
+    questionStartTimeRef.current = Date.now();
+  };
+
+  const startTest = () => {
+    setCurrentQuestionIndex(0);
+    setSelectedAnswer(null);
+    setShowResult(false);
+    setAnswers([]);
+    setFinalScore(null);
+    setTestResult(null);
+    setTestSubmitError('');
+    setWeakReviewQuestionIds(null);
+    setTestStartedAt(new Date());
+    setTestState('inProgress');
+    submittedQuestionKeysRef.current = new Set();
+    questionStartTimeRef.current = Date.now();
+  };
+
+  const startWeakQuestionReview = () => {
+    const weakIds = (testResult?.weakQuestions || []).map((question) => question.questionId);
+    if (weakIds.length === 0) {
+      return;
+    }
+
+    setWeakReviewQuestionIds(new Set(weakIds));
+    setCurrentQuestionIndex(0);
+    setSelectedAnswer(null);
+    setShowResult(false);
+    setAnswers([]);
+    setFinalScore(null);
+    setTestSubmitError('');
+    setTestStartedAt(null);
+    setTestState('review');
     submittedQuestionKeysRef.current = new Set();
     questionStartTimeRef.current = Date.now();
   };
@@ -708,18 +869,49 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     );
   }
 
+  if (isTestMode && testState === 'ready') {
+    return (
+      <div className="study-panel study-panel-test">
+        <div className="card study-card study-test-start-card">
+          <h2>{copy.testStartTitle}</h2>
+          <p className="section-subtitle">{copy.testStartBody}</p>
+          <div className="study-progress-summary-grid">
+            <ProgressSummaryItem label={copy.totalQuestions} value={questions.length} />
+            <ProgressSummaryItem label={copy.weakQuestions} value={copy.reviewWeakQuestions} />
+          </div>
+          <div className="study-action-row">
+            <button className="button" onClick={startTest}>
+              {copy.testStartCta}
+            </button>
+            {!showShell && (
+              <button className="button button-secondary" onClick={onBack}>
+                {copy.backToWorkspace}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (finalScore !== null) {
     const totalCorrect = answers.filter((answer) => answer.isCorrect).length;
     const completedTitle = isStreakMode
       ? t('streak.completedTitle')
-      : isTestMode
+      : isAssessmentTest
         ? copy.testCompletedTitle
         : t('quiz.completed');
     const completedHint = isStreakMode
       ? t('streak.completedSubtitle')
-      : isTestMode
+      : isAssessmentTest
         ? copy.testCompleteHint
+        : isWeakReviewMode
+          ? copy.weakReviewCompleteHint
         : copy.quizCompleteHint;
+    const weakQuestions = testResult?.weakQuestions || [];
+    const resultScore = testResult ? Math.round(Number(testResult.score || 0)) : finalScore;
+    const resultCorrect = testResult?.correctCount ?? totalCorrect;
+    const resultTotal = testResult?.totalQuestions ?? questions.length;
 
     return (
       <div className={`study-panel study-panel-${mode}`}>
@@ -729,14 +921,28 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
             {completedHint}
           </p>
           <div className="score-display">
-            <h1 style={{ fontSize: '4em', color: finalScore >= 70 ? '#28a745' : '#dc3545' }}>
-              {finalScore}%
+            <h1 style={{ fontSize: '4em', color: resultScore >= 70 ? '#28a745' : '#dc3545' }}>
+              {resultScore}%
             </h1>
             <p style={{ fontSize: '1.1em' }}>
-              {t(isStreakMode ? 'streak.scoreLine' : 'quiz.scoreLine', { correct: totalCorrect, total: questions.length })}
+              {t(isStreakMode ? 'streak.scoreLine' : 'quiz.scoreLine', { correct: resultCorrect, total: resultTotal })}
             </p>
             {isStreakMode && <p className="study-summary-inline-meta">{t('streak.bestStreakLine', { count: bestStreak })}</p>}
+            {testResult && (
+              <div className="study-test-result-metrics">
+                <ProgressSummaryItem label={copy.duration} value={formatDurationMs(testResult.durationMs)} />
+                <ProgressSummaryItem label={copy.masteryAfterTest} value={`${Math.round(Number(testResult.masteryScoreAfterTest || 0))}%`} />
+                <ProgressSummaryItem label={copy.averageMemory} value={`${Math.round(Number(testResult.memoryScoreAfterTest || 0))}%`} />
+              </div>
+            )}
           </div>
+          {testResult && (
+            <WeakQuestionsPanel
+              copy={copy}
+              weakQuestions={weakQuestions}
+              onReviewWeakQuestions={startWeakQuestionReview}
+            />
+          )}
           <div className="study-action-row">
             <button className="button" onClick={resetSession}>
               {t(isStreakMode ? 'streak.retry' : 'quiz.retry')}
@@ -756,7 +962,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         <div className="study-card-toolbar">
           <div>
             <h3>{t('quiz.questionProgress', { current: currentQuestionIndex + 1, total: questions.length })}</h3>
-            <p className="study-card-caption">{getModeHint(mode, copy)}</p>
+            <p className="study-card-caption">{isWeakReviewMode ? copy.weakReviewHint : getModeHint(mode, copy)}</p>
           </div>
           <div className="study-card-tools">
             <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
@@ -802,9 +1008,11 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
         <div className="study-action-row">
           {!showResult ? (
-            <button className="button" onClick={handleSubmitAnswer} disabled={!selectedAnswer}>
-              {isTestMode
-                ? (currentQuestionIndex < questions.length - 1 ? t('quiz.next') : t('quiz.finish'))
+            <button className="button" onClick={handleSubmitAnswer} disabled={!selectedAnswer || testSubmitting}>
+              {testSubmitting
+                ? copy.testSubmitting
+                : isAssessmentTest
+                  ? (currentQuestionIndex < questions.length - 1 ? t('quiz.next') : t('quiz.finish'))
                 : t('quiz.submit')}
             </button>
           ) : (
@@ -819,6 +1027,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
             </button>
           )}
         </div>
+        {testSubmitError && <p className="form-error">{testSubmitError}</p>}
       </div>
     </div>
   );

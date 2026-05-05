@@ -279,6 +279,30 @@ export const learningService = {
     return response.data;
   },
 
+  submitTestResult: async ({ documentId, testType = 4, startedAt, durationMs, attemptsAlreadyRecorded = false, answers }) => {
+    const response = await apiClient.post('/learning/tests/submit', {
+      documentId,
+      testType,
+      startedAt,
+      durationMs,
+      attemptsAlreadyRecorded,
+      answers,
+    });
+    return response.data;
+  },
+
+  submitTest: async (payload) => learningService.submitTestResult(payload),
+
+  getDocumentTestResults: async (documentId) => {
+    const response = await apiClient.get(`/learning/tests/document/${documentId}`);
+    return response.data;
+  },
+
+  getDocumentTestSummary: async (documentId) => {
+    const response = await apiClient.get(`/learning/tests/summary/${documentId}`);
+    return response.data;
+  },
+
   getDocumentProgress: async (documentId) => {
     const response = await apiClient.get(`/learning/progress/document/${documentId}`);
     return response.data;

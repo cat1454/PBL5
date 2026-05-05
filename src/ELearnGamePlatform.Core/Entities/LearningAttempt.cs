@@ -36,6 +36,9 @@ public class LearningAttempt
     [Column("response_time_ms")]
     public int? ResponseTimeMs { get; set; }
 
+    [Column("test_result_id")]
+    public int? TestResultId { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -44,6 +47,9 @@ public class LearningAttempt
 
     [ForeignKey("QuestionId")]
     public virtual Question? Question { get; set; }
+
+    [ForeignKey("TestResultId")]
+    public virtual LearningTestResult? TestResult { get; set; }
 }
 
 public enum LearningMode

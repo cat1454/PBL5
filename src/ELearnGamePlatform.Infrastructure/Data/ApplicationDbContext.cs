@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<GameSession> GameSessions { get; set; }
     public DbSet<LearningAttempt> LearningAttempts { get; set; }
     public DbSet<LearningProgress> LearningProgresses { get; set; }
+    public DbSet<LearningTestResult> LearningTestResults { get; set; }
     public DbSet<SlideDeck> SlideDecks { get; set; }
     public DbSet<SlideItem> SlideItems { get; set; }
 
@@ -88,6 +89,11 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(g => g.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasMany(d => d.LearningTestResults)
+                .WithOne(result => result.Document)
+                .HasForeignKey(result => result.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             entity.HasMany(d => d.SlideDecks)
                 .WithOne(deck => deck.Document)
                 .HasForeignKey(deck => deck.DocumentId)
@@ -137,6 +143,7 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => e.QuestionId);
+            entity.HasIndex(e => e.TestResultId);
             entity.HasIndex(e => new { e.UserId, e.DocumentId, e.QuestionId });
             entity.HasIndex(e => new { e.UserId, e.DocumentId, e.CreatedAt });
 
@@ -149,6 +156,11 @@ public class ApplicationDbContext : DbContext
                 .WithMany(q => q.LearningAttempts)
                 .HasForeignKey(e => e.QuestionId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.TestResult)
+                .WithMany(result => result.Attempts)
+                .HasForeignKey(e => e.TestResultId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<LearningProgress>(entity =>
@@ -168,6 +180,22 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Question)
                 .WithMany(q => q.LearningProgresses)
                 .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LearningTestResult>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.SubmittedAt);
+            entity.HasIndex(e => e.TestType);
+            entity.HasIndex(e => new { e.UserId, e.DocumentId });
+            entity.HasIndex(e => new { e.UserId, e.DocumentId, e.SubmittedAt });
+
+            entity.HasOne(e => e.Document)
+                .WithMany(d => d.LearningTestResults)
+                .HasForeignKey(e => e.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
