@@ -1,8 +1,10 @@
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
+using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -72,6 +74,49 @@ public class LearningController : AuthenticatedControllerBase
         return Ok(progress);
     }
 
+    [HttpPost("tests/start")]
+    public async Task<IActionResult> StartTest(
+        [FromBody] StartLearningTestRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (CurrentUserId == null || string.IsNullOrWhiteSpace(CurrentUserIdAsString))
+        {
+            return Unauthorized();
+        }
+
+        var document = await _documentRepository.GetByIdAsync(request.DocumentId);
+        if (document == null)
+        {
+            return NotFound("Document not found.");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var requestedCount = Math.Clamp(request.Count <= 0 ? 10 : request.Count, 1, 50);
+        var questions = (await _questionRepository.GetByDocumentIdAndTypeAsync(request.DocumentId, QuestionType.MultipleChoice))
+            .Take(requestedCount)
+            .Select(ToSanitizedTestQuestion)
+            .ToList();
+
+        if (questions.Count == 0)
+        {
+            return BadRequest("No test questions available for this document. Please generate questions first.");
+        }
+
+        var started = await _learningProgressService.StartTestAsync(
+            CurrentUserIdAsString,
+            request.DocumentId,
+            request.TestType,
+            questions,
+            cancellationToken);
+
+        return Ok(started);
+    }
+
     [HttpPost("tests/submit")]
     public async Task<IActionResult> SubmitTest(
         [FromBody] SubmitLearningTestRequest request,
@@ -97,20 +142,19 @@ public class LearningController : AuthenticatedControllerBase
             return BadRequest("Test answers must contain each question only once.");
         }
 
-        var document = await _documentRepository.GetByIdAsync(request.DocumentId);
-        if (document == null)
+        if (request.TestSessionId == Guid.Empty)
         {
-            return NotFound("Document not found.");
+            return BadRequest("testSessionId is required.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
-        if (authResult != null)
-        {
-            return authResult;
-        }
-
-        var documentQuestions = (await _questionRepository.GetByDocumentIdAsync(request.DocumentId))
+        var testSessionQuestions = request.Answers.Select(answer => answer.QuestionId).ToList();
+        var documentQuestions = (await _questionRepository.GetByIdsAsync(testSessionQuestions))
             .ToDictionary(question => question.Id);
+        if (documentQuestions.Count != testSessionQuestions.Distinct().Count())
+        {
+            return NotFound("One or more test questions were not found.");
+        }
+
         var submissions = new List<LearningTestAnswerSubmission>();
 
         foreach (var answer in request.Answers)
@@ -138,15 +182,32 @@ public class LearningController : AuthenticatedControllerBase
             });
         }
 
-        var result = await _learningProgressService.SubmitTestAsync(
-            CurrentUserIdAsString,
-            request.DocumentId,
-            request.TestType,
-            request.StartedAt,
-            request.DurationMs,
-            submissions,
-            !request.AttemptsAlreadyRecorded,
-            cancellationToken);
+        LearningTestResultSnapshot result;
+        try
+        {
+            result = await _learningProgressService.SubmitTestAsync(
+                CurrentUserIdAsString,
+                request.TestSessionId,
+                request.DurationMs,
+                submissions,
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+
+        var document = await _documentRepository.GetByIdAsync(result.DocumentId);
+        if (document == null)
+        {
+            return NotFound("Document not found.");
+        }
+
+        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
 
         return Ok(result);
     }
@@ -282,6 +343,59 @@ public class LearningController : AuthenticatedControllerBase
 
         return null;
     }
+
+    private static LearningTestQuestionStartSnapshot ToSanitizedTestQuestion(Question question)
+    {
+        return new LearningTestQuestionStartSnapshot
+        {
+            Id = question.Id,
+            QuestionText = NormalizeLearningText(question.QuestionText),
+            QuestionType = question.QuestionType.ToString(),
+            Options = question.GetOptions()
+                .Select(option => new LearningTestOptionStartSnapshot
+                {
+                    Key = option.Key,
+                    Text = NormalizeLearningText(option.Text)
+                })
+                .ToList(),
+            Difficulty = question.Difficulty.ToString(),
+            Topic = question.Topic,
+            Quality = BuildQuestionQualityPayload(question)
+        };
+    }
+
+    private static string NormalizeLearningText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value.Replace('\u00A0', ' ');
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        normalized = Regex.Replace(normalized, @"\s+([,.;:?!])", "$1");
+        normalized = Regex.Replace(normalized, @"([,.;:?!])(?=[\p{L}\p{N}])", "$1 ");
+        return normalized;
+    }
+
+    private static object BuildQuestionQualityPayload(Question question)
+    {
+        var issues = question.GetVerifierIssues();
+        return new
+        {
+            score = question.VerifierScore,
+            issues,
+            isLowConfidence = question.VerifierScore.HasValue && question.VerifierScore.Value < 70,
+            isUnknown = !question.VerifierScore.HasValue
+        };
+    }
+}
+
+public class StartLearningTestRequest
+{
+    public int DocumentId { get; set; }
+    public int Count { get; set; } = 10;
+    public LearningTestType TestType { get; set; } = LearningTestType.PracticeTest;
 }
 
 public class RecordLearningAttemptRequest
@@ -296,11 +410,8 @@ public class RecordLearningAttemptRequest
 
 public class SubmitLearningTestRequest
 {
-    public int DocumentId { get; set; }
-    public LearningTestType TestType { get; set; } = LearningTestType.PracticeTest;
-    public DateTime? StartedAt { get; set; }
+    public Guid TestSessionId { get; set; }
     public long? DurationMs { get; set; }
-    public bool AttemptsAlreadyRecorded { get; set; }
     public List<SubmitLearningTestAnswerRequest> Answers { get; set; } = new();
 }
 
@@ -308,6 +419,5 @@ public class SubmitLearningTestAnswerRequest
 {
     public int QuestionId { get; set; }
     public string? SelectedAnswer { get; set; }
-    public bool? IsCorrect { get; set; }
     public int? ResponseTimeMs { get; set; }
 }

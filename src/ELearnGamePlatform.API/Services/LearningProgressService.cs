@@ -2,6 +2,7 @@ using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Text.Json;
 
 namespace ELearnGamePlatform.API.Services;
 
@@ -10,6 +11,7 @@ public class LearningProgressService : ILearningProgressService
     private const double NeutralSpeedScore = 50d;
 
     private readonly ApplicationDbContext _dbContext;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public LearningProgressService(ApplicationDbContext dbContext)
     {
@@ -84,105 +86,132 @@ public class LearningProgressService : ILearningProgressService
         return ToSnapshot(progress, now);
     }
 
-    public async Task<LearningTestResultSnapshot> SubmitTestAsync(
+    public async Task<LearningTestStartSnapshot> StartTestAsync(
         string userId,
         int documentId,
         LearningTestType testType,
-        DateTime? startedAt,
-        long? durationMs,
-        IReadOnlyList<LearningTestAnswerSubmission> answers,
-        bool recordAttempts,
+        IReadOnlyList<LearningTestQuestionStartSnapshot> questions,
         CancellationToken cancellationToken = default)
     {
-        var submittedAt = DateTime.UtcNow;
-        var resolvedDurationMs = Math.Max(0, durationMs ?? 0);
-        var resolvedStartedAt = startedAt ?? submittedAt.AddMilliseconds(-resolvedDurationMs);
-        if (resolvedStartedAt > submittedAt)
-        {
-            resolvedStartedAt = submittedAt;
-        }
-
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-
-        var correctCount = answers.Count(answer => answer.IsCorrect);
-        var wrongCount = answers.Count - correctCount;
+        var now = DateTime.UtcNow;
         var testResult = new LearningTestResult
         {
             UserId = userId,
             DocumentId = documentId,
-            TotalQuestions = answers.Count,
-            CorrectCount = correctCount,
-            WrongCount = wrongCount,
-            Score = answers.Count > 0 ? RoundScore((double)correctCount / answers.Count * 100d) : 0d,
-            StartedAt = DateTime.SpecifyKind(resolvedStartedAt, DateTimeKind.Utc),
-            SubmittedAt = submittedAt,
-            DurationMs = resolvedDurationMs,
+            TotalQuestions = questions.Count,
+            CorrectCount = 0,
+            WrongCount = 0,
+            Score = 0d,
+            StartedAt = now,
+            SubmittedAt = now,
+            DurationMs = 0,
             TestType = testType,
-            CreatedAt = submittedAt
+            TestSessionId = Guid.NewGuid(),
+            Status = LearningTestResultStatus.InProgress,
+            QuestionIdsJson = JsonSerializer.Serialize(questions.Select(question => question.Id).ToList(), JsonOptions),
+            CreatedAt = now
         };
 
         _dbContext.LearningTestResults.Add(testResult);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return new LearningTestStartSnapshot
+        {
+            TestSessionId = testResult.TestSessionId,
+            TestResultDraftId = testResult.Id,
+            DocumentId = documentId,
+            TestType = testType,
+            StartedAt = testResult.StartedAt,
+            Questions = questions
+        };
+    }
+
+    public async Task<LearningTestResultSnapshot> SubmitTestAsync(
+        string userId,
+        Guid testSessionId,
+        long? durationMs,
+        IReadOnlyList<LearningTestAnswerSubmission> answers,
+        CancellationToken cancellationToken = default)
+    {
+        var submittedAt = DateTime.UtcNow;
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var sessionLockKey = $"learning-test:{userId}:{testSessionId}";
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtext({sessionLockKey})::bigint);",
+            cancellationToken);
+
+        var testResult = await _dbContext.LearningTestResults
+            .FirstOrDefaultAsync(
+                result => result.UserId == userId && result.TestSessionId == testSessionId,
+                cancellationToken);
+
+        if (testResult == null)
+        {
+            throw new InvalidOperationException("Test session not found.");
+        }
+
+        if (testResult.Status == LearningTestResultStatus.Completed)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return ToTestResultSnapshot(testResult, new Dictionary<int, LearningProgress>(), Array.Empty<LearningTestAnswerSubmission>(), submittedAt);
+        }
+
+        var expectedQuestionIds = GetQuestionIds(testResult);
+        if (expectedQuestionIds.Count == 0)
+        {
+            throw new InvalidOperationException("Test session has no questions.");
+        }
+
+        var submittedQuestionIds = answers.Select(answer => answer.QuestionId).ToHashSet();
+        if (submittedQuestionIds.Count != expectedQuestionIds.Count || expectedQuestionIds.Any(questionId => !submittedQuestionIds.Contains(questionId)))
+        {
+            throw new InvalidOperationException("Test answers do not match the started test session.");
+        }
+
+        var resolvedDurationMs = Math.Max(0, durationMs ?? (long)Math.Max(0, (submittedAt - testResult.StartedAt).TotalMilliseconds));
+
+        var correctCount = answers.Count(answer => answer.IsCorrect);
+        var wrongCount = answers.Count - correctCount;
 
         var progressByQuestionId = new Dictionary<int, LearningProgress>();
         foreach (var answer in answers)
         {
-            if (recordAttempts)
-            {
-                AddAttempt(
-                    userId,
-                    documentId,
-                    answer.QuestionId,
-                    LearningMode.Test,
-                    answer.SelectedAnswer,
-                    answer.IsCorrect,
-                    answer.ResponseTimeMs,
-                    submittedAt,
-                    testResult);
+            AddAttempt(
+                userId,
+                testResult.DocumentId,
+                answer.QuestionId,
+                LearningMode.Test,
+                answer.SelectedAnswer,
+                answer.IsCorrect,
+                answer.ResponseTimeMs,
+                submittedAt,
+                testResult);
 
-                progressByQuestionId[answer.QuestionId] = await ApplyProgressAsync(
-                    userId,
-                    documentId,
-                    answer.QuestionId,
-                    answer.IsCorrect,
-                    answer.ResponseTimeMs,
-                    submittedAt,
-                    cancellationToken);
-            }
+            progressByQuestionId[answer.QuestionId] = await ApplyProgressAsync(
+                userId,
+                testResult.DocumentId,
+                answer.QuestionId,
+                answer.IsCorrect,
+                answer.ResponseTimeMs,
+                submittedAt,
+                cancellationToken);
         }
+
+        testResult.TotalQuestions = answers.Count;
+        testResult.CorrectCount = correctCount;
+        testResult.WrongCount = wrongCount;
+        testResult.Score = answers.Count > 0 ? RoundScore((double)correctCount / answers.Count * 100d) : 0d;
+        testResult.SubmittedAt = submittedAt;
+        testResult.DurationMs = resolvedDurationMs;
+        testResult.Status = LearningTestResultStatus.Completed;
+        testResult.ResultSnapshotJson = JsonSerializer.Serialize(
+            BuildPersistedSnapshot(testResult, progressByQuestionId, answers, submittedAt),
+            JsonOptions);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        if (!recordAttempts)
-        {
-            var questionIds = answers.Select(answer => answer.QuestionId).ToList();
-            var existingAttempts = await _dbContext.LearningAttempts
-                .Where(attempt => attempt.UserId == userId
-                    && attempt.DocumentId == documentId
-                    && attempt.Mode == LearningMode.Test
-                    && attempt.TestResultId == null
-                    && questionIds.Contains(attempt.QuestionId)
-                    && attempt.CreatedAt >= testResult.StartedAt
-                    && attempt.CreatedAt <= testResult.SubmittedAt)
-                .ToListAsync(cancellationToken);
-
-            foreach (var attempt in existingAttempts)
-            {
-                attempt.TestResultId = testResult.Id;
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-        }
-
         await transaction.CommitAsync(cancellationToken);
-
-        if (!recordAttempts)
-        {
-            var questionIds = answers.Select(answer => answer.QuestionId).ToList();
-            progressByQuestionId = await _dbContext.LearningProgresses
-                .Where(item => item.UserId == userId
-                    && item.DocumentId == documentId
-                    && questionIds.Contains(item.QuestionId))
-                .ToDictionaryAsync(item => item.QuestionId, cancellationToken);
-        }
 
         return ToTestResultSnapshot(testResult, progressByQuestionId, answers, submittedAt);
     }
@@ -194,7 +223,9 @@ public class LearningProgressService : ILearningProgressService
     {
         var now = DateTime.UtcNow;
         var results = await _dbContext.LearningTestResults
-            .Where(item => item.UserId == userId && item.DocumentId == documentId)
+            .Where(item => item.UserId == userId
+                && item.DocumentId == documentId
+                && item.Status == LearningTestResultStatus.Completed)
             .OrderByDescending(item => item.SubmittedAt)
             .ToListAsync(cancellationToken);
 
@@ -203,12 +234,8 @@ public class LearningProgressService : ILearningProgressService
             return Array.Empty<LearningTestResultSnapshot>();
         }
 
-        var progressByQuestionId = await _dbContext.LearningProgresses
-            .Where(item => item.UserId == userId && item.DocumentId == documentId)
-            .ToDictionaryAsync(item => item.QuestionId, cancellationToken);
-
         return results
-            .Select(result => ToTestResultSnapshot(result, progressByQuestionId, Array.Empty<LearningTestAnswerSubmission>(), now))
+            .Select(result => ToTestResultSnapshot(result, new Dictionary<int, LearningProgress>(), Array.Empty<LearningTestAnswerSubmission>(), now))
             .ToList();
     }
 
@@ -409,6 +436,12 @@ public class LearningProgressService : ILearningProgressService
         IReadOnlyList<LearningTestAnswerSubmission> answers,
         DateTime nowUtc)
     {
+        var persistedSnapshot = DeserializePersistedSnapshot(result.ResultSnapshotJson);
+        if (persistedSnapshot != null)
+        {
+            return persistedSnapshot;
+        }
+
         var relatedProgress = progressByQuestionId.Values
             .Where(progress => progress.DocumentId == result.DocumentId)
             .Select(progress => ToSnapshot(progress, nowUtc))
@@ -441,6 +474,7 @@ public class LearningProgressService : ILearningProgressService
         return new LearningTestResultSnapshot
         {
             Id = result.Id,
+            TestSessionId = result.TestSessionId,
             UserId = result.UserId,
             DocumentId = result.DocumentId,
             TotalQuestions = result.TotalQuestions,
@@ -454,8 +488,117 @@ public class LearningProgressService : ILearningProgressService
             CreatedAt = result.CreatedAt,
             MasteryScoreAfterTest = masteryScoreAfterTest,
             MemoryScoreAfterTest = memoryScoreAfterTest,
+            Answers = BuildAnswerResultSnapshots(answers, progressByQuestionId, nowUtc),
             WeakQuestions = weakQuestions
         };
+    }
+
+    private static LearningTestResultSnapshot BuildPersistedSnapshot(
+        LearningTestResult result,
+        IReadOnlyDictionary<int, LearningProgress> progressByQuestionId,
+        IReadOnlyList<LearningTestAnswerSubmission> answers,
+        DateTime nowUtc)
+    {
+        var answerResults = BuildAnswerResultSnapshots(answers, progressByQuestionId, nowUtc);
+        var masteryScoreAfterTest = answerResults.Count > 0
+            ? RoundScore(answerResults.Average(item => item.MasteryScore))
+            : 0d;
+        var memoryScoreAfterTest = answerResults.Count > 0
+            ? RoundScore(answerResults.Average(item => item.MemoryScore))
+            : 0d;
+
+        return new LearningTestResultSnapshot
+        {
+            Id = result.Id,
+            TestSessionId = result.TestSessionId,
+            UserId = result.UserId,
+            DocumentId = result.DocumentId,
+            TotalQuestions = result.TotalQuestions,
+            CorrectCount = result.CorrectCount,
+            WrongCount = result.WrongCount,
+            Score = RoundScore(result.Score),
+            StartedAt = result.StartedAt,
+            SubmittedAt = result.SubmittedAt,
+            DurationMs = result.DurationMs,
+            TestType = result.TestType,
+            CreatedAt = result.CreatedAt,
+            MasteryScoreAfterTest = masteryScoreAfterTest,
+            MemoryScoreAfterTest = memoryScoreAfterTest,
+            Answers = answerResults,
+            WeakQuestions = answerResults
+                .Where(answer => !answer.IsCorrect)
+                .Select(answer => new LearningTestWeakQuestionSnapshot
+                {
+                    QuestionId = answer.QuestionId,
+                    QuestionText = answer.QuestionText,
+                    SelectedAnswer = answer.SelectedAnswer,
+                    CorrectAnswer = answer.CorrectAnswer,
+                    Topic = answer.Topic,
+                    MasteryScore = answer.MasteryScore
+                })
+                .ToList()
+        };
+    }
+
+    private static IReadOnlyList<LearningTestAnswerResultSnapshot> BuildAnswerResultSnapshots(
+        IReadOnlyList<LearningTestAnswerSubmission> answers,
+        IReadOnlyDictionary<int, LearningProgress> progressByQuestionId,
+        DateTime nowUtc)
+    {
+        return answers
+            .Select(answer =>
+            {
+                progressByQuestionId.TryGetValue(answer.QuestionId, out var progress);
+                var progressSnapshot = progress != null ? ToSnapshot(progress, nowUtc) : null;
+
+                return new LearningTestAnswerResultSnapshot
+                {
+                    QuestionId = answer.QuestionId,
+                    QuestionText = answer.QuestionText,
+                    SelectedAnswer = answer.SelectedAnswer,
+                    CorrectAnswer = answer.CorrectAnswer,
+                    IsCorrect = answer.IsCorrect,
+                    ResponseTimeMs = answer.ResponseTimeMs,
+                    Topic = answer.Topic,
+                    MasteryScore = RoundScore(progressSnapshot?.MasteryScore ?? 0d),
+                    MemoryScore = RoundScore(progressSnapshot?.MemoryScore ?? 0d)
+                };
+            })
+            .ToList();
+    }
+
+    private static LearningTestResultSnapshot? DeserializePersistedSnapshot(string? snapshotJson)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<LearningTestResultSnapshot>(snapshotJson, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<int> GetQuestionIds(LearningTestResult result)
+    {
+        if (string.IsNullOrWhiteSpace(result.QuestionIdsJson))
+        {
+            return Array.Empty<int>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<int>>(result.QuestionIdsJson, JsonOptions) ?? new List<int>();
+        }
+        catch (JsonException)
+        {
+            return Array.Empty<int>();
+        }
     }
 
     private static double CalculateAccuracyScore(LearningProgress progress)

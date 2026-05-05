@@ -43,6 +43,18 @@ public class LearningTestResult
     [Column("test_type")]
     public LearningTestType TestType { get; set; } = LearningTestType.PracticeTest;
 
+    [Column("test_session_id")]
+    public Guid TestSessionId { get; set; } = Guid.NewGuid();
+
+    [Column("status")]
+    public LearningTestResultStatus Status { get; set; } = LearningTestResultStatus.Completed;
+
+    [Column("question_ids")]
+    public string? QuestionIdsJson { get; set; }
+
+    [Column("result_snapshot")]
+    public string? ResultSnapshotJson { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -58,4 +70,10 @@ public enum LearningTestType
     PostTest = 2,
     Retention = 3,
     PracticeTest = 4
+}
+
+public enum LearningTestResultStatus
+{
+    InProgress = 1,
+    Completed = 2
 }
