@@ -1,6 +1,7 @@
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace ELearnGamePlatform.API.Services;
 
@@ -25,6 +26,50 @@ public class LearningProgressService : ILearningProgressService
         int? responseTimeMs,
         int? testResultId = null,
         CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                return await RecordAttemptCoreAsync(
+                    userId,
+                    documentId,
+                    questionId,
+                    mode,
+                    selectedAnswer,
+                    isCorrect,
+                    responseTimeMs,
+                    testResultId,
+                    cancellationToken);
+            }
+            catch (DbUpdateException ex) when (attempt == 0 && IsLearningProgressUniqueViolation(ex))
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
+        }
+
+        return await RecordAttemptCoreAsync(
+            userId,
+            documentId,
+            questionId,
+            mode,
+            selectedAnswer,
+            isCorrect,
+            responseTimeMs,
+            testResultId,
+            cancellationToken);
+    }
+
+    private async Task<LearningProgressSnapshot> RecordAttemptCoreAsync(
+        string userId,
+        int documentId,
+        int questionId,
+        LearningMode mode,
+        string? selectedAnswer,
+        bool isCorrect,
+        int? responseTimeMs,
+        int? testResultId,
+        CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
 
@@ -281,6 +326,11 @@ public class LearningProgressService : ILearningProgressService
         DateTime now,
         CancellationToken cancellationToken)
     {
+        var lockKey = $"{userId}:{documentId}:{questionId}";
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtext({lockKey})::bigint);",
+            cancellationToken);
+
         var progress = await _dbContext.LearningProgresses
             .FirstOrDefaultAsync(
                 item => item.UserId == userId
@@ -301,6 +351,8 @@ public class LearningProgressService : ILearningProgressService
             _dbContext.LearningProgresses.Add(progress);
         }
 
+        var previousLastReviewedAt = progress.LastReviewedAt;
+
         progress.AttemptCount++;
         if (isCorrect)
         {
@@ -314,19 +366,18 @@ public class LearningProgressService : ILearningProgressService
             progress.CurrentStreak = 0;
         }
 
-        progress.LastReviewedAt = now;
-        progress.UpdatedAt = now;
-
         var accuracyScore = CalculateAccuracyScore(progress);
-        var recencyScore = CalculateRecencyScore(progress.LastReviewedAt, now);
+        var recencyScore = CalculateRecencyScore(previousLastReviewedAt, now);
         var streakScore = CalculateStreakScore(progress);
         var speedScore = CalculateSpeedScore(responseTimeMs);
         var masteryScore = CalculateMasteryScore(accuracyScore, recencyScore, streakScore, speedScore);
-        var memoryScore = CalculateMemoryScore(masteryScore, progress.LastReviewedAt, now);
+        var memoryScore = CalculateMemoryScore(masteryScore, previousLastReviewedAt, now);
 
         progress.MasteryScore = masteryScore;
         progress.MemoryScore = memoryScore;
         progress.Level = ClassifyLevel(masteryScore);
+        progress.LastReviewedAt = now;
+        progress.UpdatedAt = now;
 
         return progress;
     }
@@ -501,4 +552,14 @@ public class LearningProgressService : ILearningProgressService
     private static double ClampScore(double score) => Math.Clamp(score, 0d, 100d);
 
     private static double RoundScore(double score) => Math.Round(score, 2, MidpointRounding.AwayFromZero);
+
+    private static bool IsLearningProgressUniqueViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is PostgresException postgresException
+            && postgresException.SqlState == PostgresErrorCodes.UniqueViolation
+            && string.Equals(
+                postgresException.ConstraintName,
+                "IX_learning_progresses_user_id_document_id_question_id",
+                StringComparison.Ordinal);
+    }
 }

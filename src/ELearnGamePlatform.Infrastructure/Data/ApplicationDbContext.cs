@@ -109,6 +109,7 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.IsArchived);
             entity.HasIndex(e => new { e.DocumentId, e.QuestionType });
 
             entity.Property(e => e.QuestionText)
@@ -155,7 +156,7 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Question)
                 .WithMany(q => q.LearningAttempts)
                 .HasForeignKey(e => e.QuestionId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(e => e.TestResult)
                 .WithMany(result => result.Attempts)
@@ -180,7 +181,7 @@ public class ApplicationDbContext : DbContext
             entity.HasOne(e => e.Question)
                 .WithMany(q => q.LearningProgresses)
                 .HasForeignKey(e => e.QuestionId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<LearningTestResult>(entity =>

@@ -44,6 +44,9 @@ public class Question
     [Column("verifier_issues")]
     public string? VerifierIssuesJson { get; set; }
 
+    [Column("is_archived")]
+    public bool IsArchived { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -209,7 +209,10 @@ public class GamesController : AuthenticatedControllerBase
     }
 
     [HttpGet("quiz/{documentId}")]
-    public async Task<IActionResult> GetQuizGame(int documentId, [FromQuery] int count = 10)
+    public async Task<IActionResult> GetQuizGame(
+        int documentId,
+        [FromQuery] int count = 10,
+        [FromQuery] bool includeAnswers = true)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
         if (document == null)
@@ -233,10 +236,10 @@ public class GamesController : AuthenticatedControllerBase
             {
                 key = option.Key,
                 text = NormalizeGameText(option.Text),
-                isCorrect = option.IsCorrect
+                isCorrect = includeAnswers ? option.IsCorrect : (bool?)null
             }),
-            correctAnswer = q.CorrectAnswer,
-            explanation = NormalizeGameExplanation(q.Explanation),
+            correctAnswer = includeAnswers ? q.CorrectAnswer : null,
+            explanation = includeAnswers ? NormalizeGameExplanation(q.Explanation) : null,
             difficulty = q.Difficulty.ToString(),
             topic = q.Topic,
             quality = BuildQuestionQualityPayload(q)
