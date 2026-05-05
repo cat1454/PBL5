@@ -40,16 +40,16 @@ public class DocumentsController : AuthenticatedControllerBase
     }
 
     [HttpPost("upload")]
-    public async Task<IActionResult> UploadDocument([FromForm] IFormFile file, [FromForm] string userId)
+    public async Task<IActionResult> UploadDocument([FromForm] IFormFile file)
     {
         if (file == null || file.Length == 0)
         {
-            return BadRequest("No file provided");
+            return ApiBadRequest("file_required", "No file provided");
         }
 
         if (CurrentUserId == null)
         {
-            return Unauthorized("User context is required");
+            return Unauthorized(ApiErrorResponse.Create("user_context_required", "User context is required"));
         }
 
         try
@@ -77,8 +77,8 @@ public class DocumentsController : AuthenticatedControllerBase
         {
             _logger.LogError(ex, "Error uploading document");
             return ex is InvalidOperationException
-                ? BadRequest(ex.Message)
-                : StatusCode(500, "Error uploading file");
+                ? ApiBadRequest("document_upload_invalid", ex.Message)
+                : ApiServerError("document_upload_failed", "Error uploading file");
         }
     }
 

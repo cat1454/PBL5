@@ -185,7 +185,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       setProgressSummary(summary);
       setProgressError('');
     } catch (error) {
-      setProgressError(error?.response?.data?.message || error?.message || copy.progressError);
+      setProgressError(getApiErrorMessage(error, copy.progressError));
     } finally {
       if (!silent) {
         setProgressLoading(false);
@@ -276,7 +276,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       setRegenerateMessage(copy.generated);
       setRefreshToken((current) => current + 1);
     } catch (error) {
-      setRegenerateMessage(error?.response?.data?.message || error?.message || t('workspace.study.failed'));
+      setRegenerateMessage(getApiErrorMessage(error, t('workspace.study.failed')));
     } finally {
       setIsRegenerating(false);
     }
@@ -645,6 +645,22 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
   const isCurrentAnswerCorrect = () => currentQuestion?.correctAnswer === selectedAnswer;
 
+  const revealAnsweredQuestion = (answerResult) => {
+    if (!answerResult || !currentQuestion) {
+      return;
+    }
+
+    setAllQuestions((currentQuestions) => currentQuestions.map((question) => (
+      question.id === currentQuestion.id
+        ? {
+            ...question,
+            correctAnswer: answerResult.correctAnswer,
+            explanation: answerResult.explanation || question.explanation,
+          }
+        : question
+    )));
+  };
+
   const recordCurrentAttempt = async (isCorrect) => {
     if (!currentQuestion) {
       return false;
@@ -734,7 +750,6 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       return;
     }
 
-    const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
     const responseTimeMs = getResponseTimeMs();
 
     if (isAssessmentTest) {
@@ -763,6 +778,22 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       await submitTestWithAnswers(nextAnswers);
       return;
     }
+
+    let answerResult;
+    try {
+      answerResult = await gameService.submitQuizAnswer(
+        Number(documentId),
+        currentQuestion.id,
+        selectedAnswer
+      );
+      revealAnsweredQuestion(answerResult);
+    } catch (error) {
+      console.warn('Could not submit quiz answer.', error);
+      setTestSubmitError(getApiErrorMessage(error, copy.testSubmitError));
+      return;
+    }
+
+    const isCorrect = Boolean(answerResult?.isCorrect);
 
     if (!await recordCurrentAttempt(isCorrect)) {
       return;

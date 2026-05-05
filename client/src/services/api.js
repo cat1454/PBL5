@@ -54,9 +54,21 @@ export function getApiErrorMessage(error, fallback = 'Request failed.') {
     if (typeof candidate === 'string' && candidate.trim()) {
       return candidate;
     }
+
+    if (data.errors && typeof data.errors === 'object') {
+      const firstErrors = Object.values(data.errors).flat();
+      const firstMessage = firstErrors.find((item) => typeof item === 'string' && item.trim());
+      if (firstMessage) {
+        return firstMessage;
+      }
+    }
   }
 
   return error?.message || fallback;
+}
+
+export function isApiNotFound(error) {
+  return error?.response?.status === 404;
 }
 
 export const authService = {
@@ -84,10 +96,9 @@ export const adminService = {
 };
 
 export const documentService = {
-  uploadDocument: async (file, userId, onProgress) => {
+  uploadDocument: async (file, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId || '');
 
     const response = await apiClient.post('/documents/upload', formData, {
       headers: {
@@ -338,10 +349,9 @@ export const learningService = {
 };
 
 export const gameService = {
-  createGameSession: async (documentId, userId, gameType, questionCount = 10) => {
+  createGameSession: async (documentId, gameType, questionCount = 10) => {
     const response = await apiClient.post('/games/sessions', {
       documentId,
-      userId,
       gameType,
       questionCount,
     });
@@ -365,8 +375,16 @@ export const gameService = {
     return response.data;
   },
 
-  getQuizGame: async (documentId, count = 10, { includeAnswers = true } = {}) => {
+  getQuizGame: async (documentId, count = 10, { includeAnswers = false } = {}) => {
     const response = await apiClient.get(`/games/quiz/${documentId}?count=${count}&includeAnswers=${includeAnswers}`);
+    return response.data;
+  },
+
+  submitQuizAnswer: async (documentId, questionId, selectedAnswer) => {
+    const response = await apiClient.post(`/games/quiz/${documentId}/answers`, {
+      questionId,
+      selectedAnswer,
+    });
     return response.data;
   },
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProgressCard from './ProgressCard';
 import { useToast } from './common/ToastProvider';
-import { documentService, questionService, slideService } from '../services/api';
+import { documentService, getApiErrorMessage, isApiNotFound, questionService, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,9 +67,11 @@ function DocumentListScreen() {
         ...current,
       }));
       setLastUpdated(new Date());
+      return docs;
     } catch (err) {
-      setError('Error loading documents');
+      setError(getApiErrorMessage(err, 'Error loading documents'));
       console.error(err);
+      return [];
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -221,12 +223,36 @@ function DocumentListScreen() {
       const startResult = await questionService.startGenerateQuestions(documentId, 5);
       const jobId = startResult.jobId;
       const timeoutAt = Date.now() + 5 * 60 * 1000;
+      let delayMs = 1200;
 
       while (Date.now() < timeoutAt) {
-        const progressState = normalizeProgressState(
-          await questionService.getGenerateProgress(jobId),
-          { documentId, jobId }
-        );
+        let progressState;
+        try {
+          progressState = normalizeProgressState(
+            await questionService.getGenerateProgress(jobId),
+            { documentId, jobId }
+          );
+          delayMs = 1200;
+        } catch (progressError) {
+          if (!isApiNotFound(progressError)) {
+            throw progressError;
+          }
+
+          const freshDocs = await loadDocuments({ silent: true });
+          const recoveredDoc = freshDocs.find((doc) => doc.id === documentId);
+          if ((recoveredDoc?.questionsCount || 0) <= 0) {
+            throw new Error('Backend restarted and the question generation job is no longer available.');
+          }
+
+          progressState = normalizeProgressState({
+            status: 'completed',
+            stage: 'completed',
+            stageLabel: 'Da khoi phuc',
+            message: 'Backend da mat job trong RAM, nhung question bank da san sang.',
+            percent: 100,
+            questionsGenerated: recoveredDoc.questionsCount,
+          }, { documentId, jobId });
+        }
 
         setQuestionProgress((current) => ({
           ...current,
@@ -246,13 +272,14 @@ function DocumentListScreen() {
           throw new Error(progressState.error || progressState.message || 'Question generation failed');
         }
 
-        await sleep(1200);
+        await sleep(delayMs);
+        delayMs = Math.min(delayMs + 500, 5000);
       }
     } catch (err) {
       showToast({
         type: 'error',
         message: 'Không tạo được câu hỏi.',
-        description: err.message || 'Kiểm tra progress và backend log.',
+        description: getApiErrorMessage(err, 'Kiểm tra progress và backend log.'),
       });
       console.error(err);
     } finally {
@@ -291,12 +318,51 @@ function DocumentListScreen() {
       const startResult = await slideService.startGenerateSlides(documentId, 8);
       const jobId = startResult.jobId;
       const timeoutAt = Date.now() + 8 * 60 * 1000;
+      let delayMs = 1200;
 
       while (Date.now() < timeoutAt) {
-        const progressState = normalizeProgressState(
-          await slideService.getGenerateProgress(jobId),
-          { documentId, jobId }
-        );
+        let progressState;
+        try {
+          progressState = normalizeProgressState(
+            await slideService.getGenerateProgress(jobId),
+            { documentId, jobId }
+          );
+          delayMs = 1200;
+        } catch (progressError) {
+          if (!isApiNotFound(progressError)) {
+            throw progressError;
+          }
+
+          const deck = await slideService.getDeckByDocument(documentId);
+          if (!deck) {
+            throw new Error('Backend restarted and the slide generation job is no longer available.');
+          }
+
+          setSlideDecks((current) => ({
+            ...current,
+            [documentId]: deck,
+          }));
+          setSlideDeckAvailability((current) => ({
+            ...current,
+            [documentId]: true,
+          }));
+
+          const fallbackProgress = normalizeProgressState(deck.generationProgress, { documentId, jobId });
+          if (deck.status === 'Completed' || fallbackProgress.status === 'completed') {
+            progressState = {
+              ...fallbackProgress,
+              status: 'completed',
+              stage: 'completed',
+              stageLabel: 'Da khoi phuc',
+              message: 'Backend da mat job trong RAM, nhung slide deck da san sang.',
+              percent: 100,
+            };
+          } else if (isActiveProgress(fallbackProgress)) {
+            progressState = fallbackProgress;
+          } else {
+            throw new Error('Backend restarted and the slide generation job is no longer available.');
+          }
+        }
 
         setSlideProgress((current) => ({
           ...current,
@@ -335,13 +401,14 @@ function DocumentListScreen() {
           throw new Error(progressState.error || progressState.message || 'Slide generation failed');
         }
 
-        await sleep(1200);
+        await sleep(delayMs);
+        delayMs = Math.min(delayMs + 500, 5000);
       }
     } catch (err) {
       showToast({
         type: 'error',
         message: 'Không tạo được slide deck.',
-        description: err.message || 'Kiểm tra progress và backend log.',
+        description: getApiErrorMessage(err, 'Kiểm tra progress và backend log.'),
       });
       console.error(err);
     } finally {

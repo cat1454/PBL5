@@ -43,4 +43,31 @@ public abstract class AuthenticatedControllerBase : ControllerBase
 
         return null;
     }
+
+    protected IActionResult ApiBadRequest(string code, string message)
+        => BadRequest(ApiErrorResponse.Create(code, message));
+
+    protected IActionResult ApiNotFound(string code, string message)
+        => NotFound(ApiErrorResponse.Create(code, message));
+
+    protected IActionResult ApiConflict(string code, string message)
+        => Conflict(ApiErrorResponse.Create(code, message));
+
+    protected IActionResult ApiServerError(string code, string message)
+        => StatusCode(StatusCodes.Status500InternalServerError, ApiErrorResponse.Create(code, message));
+}
+
+public sealed class ApiErrorResponse
+{
+    public bool Success { get; init; }
+    public string Code { get; init; } = string.Empty;
+    public string Message { get; init; } = string.Empty;
+
+    public static ApiErrorResponse Create(string code, string message)
+        => new()
+        {
+            Success = false,
+            Code = code,
+            Message = message
+        };
 }
