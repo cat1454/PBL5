@@ -50,6 +50,8 @@ public class Question
     // Navigation property
     [ForeignKey("DocumentId")]
     public virtual Document? Document { get; set; }
+    public virtual ICollection<LearningAttempt> LearningAttempts { get; set; } = new List<LearningAttempt>();
+    public virtual ICollection<LearningProgress> LearningProgresses { get; set; } = new List<LearningProgress>();
 }
 
 public class QuestionOption

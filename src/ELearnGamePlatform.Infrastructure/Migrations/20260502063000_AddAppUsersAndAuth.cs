@@ -1,11 +1,14 @@
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-
+using ELearnGamePlatform.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 #nullable disable
 
 namespace ELearnGamePlatform.Infrastructure.Migrations
 {
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260502063000_AddAppUsersAndAuth")]
     public partial class AddAppUsersAndAuth : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

@@ -3,6 +3,7 @@ using System;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ELearnGamePlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260502062237_RepairMissingRuntimeSchemaColumns")]
+    partial class RepairMissingRuntimeSchemaColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -291,142 +294,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.ToTable("game_sessions");
                 });
 
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.LearningAttempt", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("DocumentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("document_id");
-
-                    b.Property<bool>("IsCorrect")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_correct");
-
-                    b.Property<int>("Mode")
-                        .HasColumnType("integer")
-                        .HasColumnName("mode");
-
-                    b.Property<int>("QuestionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("question_id");
-
-                    b.Property<int?>("ResponseTimeMs")
-                        .HasColumnType("integer")
-                        .HasColumnName("response_time_ms");
-
-                    b.Property<string>("SelectedAnswer")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("selected_answer");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DocumentId");
-
-                    b.HasIndex("QuestionId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("UserId", "DocumentId", "CreatedAt");
-
-                    b.HasIndex("UserId", "DocumentId", "QuestionId");
-
-                    b.ToTable("learning_attempts");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.LearningProgress", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt_count");
-
-                    b.Property<int>("BestStreak")
-                        .HasColumnType("integer")
-                        .HasColumnName("best_streak");
-
-                    b.Property<int>("CorrectCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("correct_count");
-
-                    b.Property<int>("CurrentStreak")
-                        .HasColumnType("integer")
-                        .HasColumnName("current_streak");
-
-                    b.Property<int>("DocumentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("document_id");
-
-                    b.Property<DateTime?>("LastReviewedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_reviewed_at");
-
-                    b.Property<int>("Level")
-                        .HasColumnType("integer")
-                        .HasColumnName("level");
-
-                    b.Property<double>("MasteryScore")
-                        .HasColumnType("double precision")
-                        .HasColumnName("mastery_score");
-
-                    b.Property<double>("MemoryScore")
-                        .HasColumnType("double precision")
-                        .HasColumnName("memory_score");
-
-                    b.Property<int>("QuestionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("question_id");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("user_id");
-
-                    b.Property<int>("WrongCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("wrong_count");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DocumentId");
-
-                    b.HasIndex("QuestionId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("UserId", "DocumentId");
-
-                    b.HasIndex("UserId", "DocumentId", "QuestionId")
-                        .IsUnique();
-
-                    b.ToTable("learning_progresses");
-                });
-
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Question", b =>
                 {
                     b.Property<int>("Id")
@@ -687,44 +554,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("Document");
                 });
 
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.LearningAttempt", b =>
-                {
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
-                        .WithMany("LearningAttempts")
-                        .HasForeignKey("DocumentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Question", "Question")
-                        .WithMany("LearningAttempts")
-                        .HasForeignKey("QuestionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Document");
-
-                    b.Navigation("Question");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.LearningProgress", b =>
-                {
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
-                        .WithMany("LearningProgresses")
-                        .HasForeignKey("DocumentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Question", "Question")
-                        .WithMany("LearningProgresses")
-                        .HasForeignKey("QuestionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Document");
-
-                    b.Navigation("Question");
-                });
-
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Question", b =>
                 {
                     b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
@@ -768,10 +597,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                 {
                     b.Navigation("GameSessions");
 
-                    b.Navigation("LearningAttempts");
-
-                    b.Navigation("LearningProgresses");
-
                     b.Navigation("Questions");
 
                     b.Navigation("SlideDecks");
@@ -782,13 +607,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("Documents");
 
                     b.Navigation("SlideDecks");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Question", b =>
-                {
-                    b.Navigation("LearningAttempts");
-
-                    b.Navigation("LearningProgresses");
                 });
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.SlideDeck", b =>

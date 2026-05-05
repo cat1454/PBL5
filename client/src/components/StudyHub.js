@@ -1,11 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { documentService, gameService, questionService } from '../services/api';
+import { documentService, gameService, learningService, questionService } from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import { formatTopicForDisplay } from '../services/topicDisplay';
 
-const STUDY_MODES = ['quiz', 'flashcards', 'streak'];
+const STUDY_MODES = ['quiz', 'flashcards', 'test', 'streak'];
 const DEFAULT_QUESTION_COUNT = 10;
+const LEARNING_MODE_VALUES = {
+  flashcards: 1,
+  quiz: 2,
+  test: 3,
+  streak: 4,
+};
 
 function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true }) {
   const { language, t } = useLanguage();
@@ -21,6 +27,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const [metaError, setMetaError] = useState('');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerateMessage, setRegenerateMessage] = useState('');
+  const [progressSummary, setProgressSummary] = useState(null);
+  const [progressLoading, setProgressLoading] = useState(shouldShowShell);
+  const [progressError, setProgressError] = useState('');
 
   const routeModeFromLegacyPath = useMemo(() => {
     if (forcedMode) {
@@ -59,6 +68,20 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         modeSwitcher: 'Chế độ học',
         quizTab: 'Quiz',
         flashTab: 'Flashcards',
+        testTab: 'Test',
+        testHint: 'Làm bài kiểm tra liền mạch và xem điểm ở cuối.',
+        testCompletedTitle: 'Hoàn thành Test',
+        testCompleteHint: 'Bài test đã hoàn tất. Kết quả chỉ được hiển thị sau câu cuối.',
+        testEmptyHint: 'Hãy tạo question bank trước khi vào Test mode.',
+        progressLabel: 'Tiến độ học',
+        progressLoading: 'Đang tải tiến độ...',
+        progressError: 'Chưa tải được tiến độ.',
+        totalQuestions: 'Tổng số câu',
+        attemptedQuestions: 'Đã làm',
+        averageMastery: 'Mastery TB',
+        averageMemory: 'Memory TB',
+        weakQuestions: 'Câu yếu',
+        masteredQuestions: 'Đã vững',
         streakTab: 'Streak',
         quizHint: 'Ôn nhanh bằng câu hỏi trắc nghiệm.',
         flashHint: 'Lật thẻ để ghi nhớ đáp án.',
@@ -87,6 +110,20 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       modeSwitcher: 'Study mode',
       quizTab: 'Quiz',
       flashTab: 'Flashcards',
+      testTab: 'Test',
+      testHint: 'Take a clean test flow and review the score at the end.',
+      testCompletedTitle: 'Test complete',
+      testCompleteHint: 'Test complete. Results are revealed only after the final question.',
+      testEmptyHint: 'Generate a question bank before entering Test mode.',
+      progressLabel: 'Learning progress',
+      progressLoading: 'Loading progress...',
+      progressError: 'Progress is not available yet.',
+      totalQuestions: 'Total questions',
+      attemptedQuestions: 'Attempted',
+      averageMastery: 'Avg mastery',
+      averageMemory: 'Avg memory',
+      weakQuestions: 'Weak',
+      masteredQuestions: 'Mastered',
       streakTab: 'Streak',
       quizHint: 'Move quickly through focused multiple-choice practice.',
       flashHint: 'Flip cards and stay focused on recall.',
@@ -101,6 +138,40 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   useEffect(() => {
     setActiveMode(routeModeFromLegacyPath);
   }, [routeModeFromLegacyPath]);
+
+  const loadProgressSummary = useCallback(async ({ silent = false } = {}) => {
+    if (!documentId) {
+      setProgressSummary(null);
+      setProgressLoading(false);
+      setProgressError('');
+      return;
+    }
+
+    if (!silent) {
+      setProgressLoading(true);
+      setProgressError('');
+    }
+
+    try {
+      const summary = await learningService.getDocumentSummary(documentId);
+      setProgressSummary(summary);
+      setProgressError('');
+    } catch (error) {
+      setProgressError(error?.response?.data?.message || error?.message || copy.progressError);
+    } finally {
+      if (!silent) {
+        setProgressLoading(false);
+      }
+    }
+  }, [copy.progressError, documentId]);
+
+  useEffect(() => {
+    loadProgressSummary();
+  }, [loadProgressSummary, refreshToken]);
+
+  const handleAttemptRecorded = useCallback(() => {
+    loadProgressSummary({ silent: true });
+  }, [loadProgressSummary]);
 
   useEffect(() => {
     if (!shouldShowShell || !documentId) {
@@ -217,6 +288,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
                 copy={copy}
                 showShell
                 refreshToken={refreshToken}
+                onAttemptRecorded={handleAttemptRecorded}
               />
             </div>
 
@@ -227,6 +299,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
               metaLoading={metaLoading}
               onBack={handleBack}
               onRegenerate={handleRegenerate}
+              progressError={progressError}
+              progressLoading={progressLoading}
+              progressSummary={progressSummary}
               questionCount={questionCount}
               regenerateMessage={regenerateMessage}
               regenerating={isRegenerating}
@@ -244,6 +319,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
           copy={copy}
           showShell={false}
           refreshToken={refreshToken}
+          onAttemptRecorded={handleAttemptRecorded}
         />
       )}
     </div>
@@ -264,7 +340,7 @@ function StudyModeSwitcher({ activeMode, onModeChange, copy }) {
             className={`study-mode-switcher-button${activeMode === mode ? ' active' : ''}`}
             onClick={() => onModeChange(mode)}
           >
-            {mode === 'quiz' ? copy.quizTab : mode === 'flashcards' ? copy.flashTab : copy.streakTab}
+            {getModeTabLabel(mode, copy)}
           </button>
         ))}
       </div>
@@ -279,6 +355,9 @@ function StudySidebar({
   metaLoading,
   onBack,
   onRegenerate,
+  progressError,
+  progressLoading,
+  progressSummary,
   questionCount,
   regenerateMessage,
   regenerating,
@@ -302,6 +381,13 @@ function StudySidebar({
         <strong>{questionCount}</strong>
       </div>
 
+      <ProgressSummaryCard
+        copy={copy}
+        progressError={progressError}
+        progressLoading={progressLoading}
+        progressSummary={progressSummary}
+      />
+
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.sourceLabel}</span>
         <strong className="study-sidebar-source">{documentName || copy.emptySource}</strong>
@@ -321,7 +407,48 @@ function StudySidebar({
   );
 }
 
-function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken }) {
+function ProgressSummaryCard({ copy, progressError, progressLoading, progressSummary }) {
+  const formatScore = (value) => {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) {
+      return '0%';
+    }
+
+    return `${Math.round(Number(value))}%`;
+  };
+
+  const summary = progressSummary || {};
+
+  return (
+    <div className="study-sidebar-card study-progress-summary-card">
+      <span className="study-sidebar-label">{copy.progressLabel}</span>
+      {progressLoading ? (
+        <p>{copy.progressLoading}</p>
+      ) : progressError ? (
+        <p>{progressError || copy.progressError}</p>
+      ) : (
+        <div className="study-progress-summary-grid">
+          <ProgressSummaryItem label={copy.totalQuestions} value={summary.totalQuestions || 0} />
+          <ProgressSummaryItem label={copy.attemptedQuestions} value={summary.attemptedQuestions || 0} />
+          <ProgressSummaryItem label={copy.averageMastery} value={formatScore(summary.averageMasteryScore)} />
+          <ProgressSummaryItem label={copy.averageMemory} value={formatScore(summary.averageMemoryScore)} />
+          <ProgressSummaryItem label={copy.weakQuestions} value={summary.weakCount || 0} />
+          <ProgressSummaryItem label={copy.masteredQuestions} value={summary.masteredCount || 0} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgressSummaryItem({ label, value }) {
+  return (
+    <div className="study-progress-summary-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken, onAttemptRecorded }) {
   if (mode === 'flashcards') {
     return (
       <FlashcardsPane
@@ -344,11 +471,12 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
       copy={copy}
       refreshToken={refreshToken}
       showShell={showShell}
+      onAttemptRecorded={onAttemptRecorded}
     />
   );
 }
 
-function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell }) {
+function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [allQuestions, setAllQuestions] = useState([]);
@@ -362,7 +490,10 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   const [bestStreak, setBestStreak] = useState(0);
   const [streakBump, setStreakBump] = useState(false);
   const bumpTimerRef = useRef(null);
+  const questionStartTimeRef = useRef(Date.now());
+  const submittedQuestionKeysRef = useRef(new Set());
   const isStreakMode = mode === 'streak';
+  const isTestMode = mode === 'test';
 
   useEffect(() => {
     const loadQuiz = async () => {
@@ -404,12 +535,18 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setCurrentStreak(0);
     setBestStreak(0);
     setStreakBump(false);
+    submittedQuestionKeysRef.current = new Set();
+    questionStartTimeRef.current = Date.now();
   }, [allQuestions, hideLowConfidence, mode]);
 
   const currentQuestion = questions[currentQuestionIndex];
   const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
   const topicDisplay = currentQuestion ? formatTopicForDisplay(currentQuestion.topic) : null;
   const quality = currentQuestion?.quality || {};
+
+  useEffect(() => {
+    questionStartTimeRef.current = Date.now();
+  }, [currentQuestion?.id, currentQuestionIndex, mode]);
 
   const handleAnswerSelect = (optionKey) => {
     if (!showResult) {
@@ -419,21 +556,76 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
   const isCurrentAnswerCorrect = () => currentQuestion?.correctAnswer === selectedAnswer;
 
+  const recordCurrentAttempt = (isCorrect) => {
+    if (!currentQuestion) {
+      return false;
+    }
+
+    const submissionKey = `${mode}:${currentQuestion.id}:${currentQuestionIndex}`;
+    if (submittedQuestionKeysRef.current.has(submissionKey)) {
+      return false;
+    }
+
+    submittedQuestionKeysRef.current.add(submissionKey);
+
+    const responseTimeMs = Math.max(0, Date.now() - questionStartTimeRef.current);
+    learningService.recordAttempt({
+      documentId: Number(documentId),
+      questionId: currentQuestion.id,
+      mode: LEARNING_MODE_VALUES[mode],
+      selectedAnswer,
+      isCorrect,
+      responseTimeMs,
+    })
+      .then(() => {
+        if (onAttemptRecorded) {
+          onAttemptRecorded();
+        }
+      })
+      .catch((error) => {
+        console.warn('Could not record learning attempt.', error);
+      });
+
+    return true;
+  };
+
+  const finishWithAnswers = (nextAnswers) => {
+    const totalCorrect = nextAnswers.filter((answer) => answer.isCorrect).length;
+    const score = questions.length > 0 ? Math.round((totalCorrect / questions.length) * 100) : 0;
+    setFinalScore(score);
+  };
+
   const handleSubmitAnswer = () => {
     if (!selectedAnswer || !currentQuestion) {
       return;
     }
 
     const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
+    if (!recordCurrentAttempt(isCorrect)) {
+      return;
+    }
 
-    setAnswers((current) => ([
-      ...current,
+    const nextAnswers = [
+      ...answers,
       {
         questionId: currentQuestion.id,
         selectedAnswer,
         isCorrect,
       },
-    ]));
+    ];
+    setAnswers(nextAnswers);
+
+    if (isTestMode) {
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex((current) => current + 1);
+        setSelectedAnswer(null);
+        setShowResult(false);
+        return;
+      }
+
+      finishWithAnswers(nextAnswers);
+      return;
+    }
 
     if (isStreakMode) {
       const nextStreak = isCorrect ? currentStreak + 1 : 0;
@@ -462,10 +654,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       return;
     }
 
-    const lastAnswerIsCorrect = showResult && isCurrentAnswerCorrect();
-    const totalCorrect = answers.filter((answer) => answer.isCorrect).length + (lastAnswerIsCorrect ? 1 : 0);
-    const score = questions.length > 0 ? Math.round((totalCorrect / questions.length) * 100) : 0;
-    setFinalScore(score);
+    finishWithAnswers(answers);
   };
 
   const resetSession = () => {
@@ -477,6 +666,8 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setCurrentStreak(0);
     setBestStreak(0);
     setStreakBump(false);
+    submittedQuestionKeysRef.current = new Set();
+    questionStartTimeRef.current = Date.now();
   };
 
   const getOptionClass = (optionKey) => {
@@ -508,7 +699,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     return (
       <StudyEmptyState
         title={allQuestions.length > 0 ? t('quiz.allHiddenTitle') : t(isStreakMode ? 'streak.emptyTitle' : 'quiz.emptyTitle')}
-        body={allQuestions.length > 0 ? t('quiz.allHiddenBody') : (isStreakMode ? copy.streakEmptyHint : copy.quizEmptyHint)}
+        body={allQuestions.length > 0 ? t('quiz.allHiddenBody') : (isStreakMode ? copy.streakEmptyHint : isTestMode ? copy.testEmptyHint : copy.quizEmptyHint)}
         resetLabel={allQuestions.length > 0 ? t('quiz.showLowConfidence') : null}
         onReset={allQuestions.length > 0 ? () => setHideLowConfidence(false) : null}
         onBack={onBack}
@@ -519,13 +710,23 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
   if (finalScore !== null) {
     const totalCorrect = answers.filter((answer) => answer.isCorrect).length;
+    const completedTitle = isStreakMode
+      ? t('streak.completedTitle')
+      : isTestMode
+        ? copy.testCompletedTitle
+        : t('quiz.completed');
+    const completedHint = isStreakMode
+      ? t('streak.completedSubtitle')
+      : isTestMode
+        ? copy.testCompleteHint
+        : copy.quizCompleteHint;
 
     return (
       <div className={`study-panel study-panel-${mode}`}>
         <div className="card study-card study-summary-card">
-          <h2>{t(isStreakMode ? 'streak.completedTitle' : 'quiz.completed')}</h2>
+          <h2>{completedTitle}</h2>
           <p className="section-subtitle">
-            {isStreakMode ? t('streak.completedSubtitle') : copy.quizCompleteHint}
+            {completedHint}
           </p>
           <div className="score-display">
             <h1 style={{ fontSize: '4em', color: finalScore >= 70 ? '#28a745' : '#dc3545' }}>
@@ -602,7 +803,9 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         <div className="study-action-row">
           {!showResult ? (
             <button className="button" onClick={handleSubmitAnswer} disabled={!selectedAnswer}>
-              {t('quiz.submit')}
+              {isTestMode
+                ? (currentQuestionIndex < questions.length - 1 ? t('quiz.next') : t('quiz.finish'))
+                : t('quiz.submit')}
             </button>
           ) : (
             <button className="button" onClick={handleNextQuestion}>
@@ -927,10 +1130,26 @@ function getModeHint(mode, copy) {
   if (mode === 'flashcards') {
     return copy.flashHint;
   }
+  if (mode === 'test') {
+    return copy.testHint;
+  }
   if (mode === 'streak') {
     return copy.streakHint;
   }
   return copy.quizHint;
+}
+
+function getModeTabLabel(mode, copy) {
+  if (mode === 'flashcards') {
+    return copy.flashTab;
+  }
+  if (mode === 'test') {
+    return copy.testTab;
+  }
+  if (mode === 'streak') {
+    return copy.streakTab;
+  }
+  return copy.quizTab;
 }
 
 export default StudyHub;

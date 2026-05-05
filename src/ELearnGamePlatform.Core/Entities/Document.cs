@@ -79,6 +79,8 @@ public class Document
 
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
     public virtual ICollection<GameSession> GameSessions { get; set; } = new List<GameSession>();
+    public virtual ICollection<LearningAttempt> LearningAttempts { get; set; } = new List<LearningAttempt>();
+    public virtual ICollection<LearningProgress> LearningProgresses { get; set; } = new List<LearningProgress>();
     public virtual ICollection<SlideDeck> SlideDecks { get; set; } = new List<SlideDeck>();
 }
 

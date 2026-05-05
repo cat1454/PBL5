@@ -1,9 +1,8 @@
-model = "gpt-5.4"
-model_reasoning_effort = "medium"
+
 personality = "friendly"
 
 [windows]
-sandbox = "unelevated"
+sandbox = "elevated"
 
 [features]
 multi_agent = true
