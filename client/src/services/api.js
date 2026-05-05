@@ -266,6 +266,30 @@ export const questionService = {
   },
 };
 
+export const learningService = {
+  recordAttempt: async ({ documentId, questionId, mode, selectedAnswer, isCorrect, responseTimeMs }) => {
+    const response = await apiClient.post('/learning/attempts', {
+      documentId,
+      questionId,
+      mode,
+      selectedAnswer,
+      isCorrect,
+      responseTimeMs,
+    });
+    return response.data;
+  },
+
+  getDocumentProgress: async (documentId) => {
+    const response = await apiClient.get(`/learning/progress/document/${documentId}`);
+    return response.data;
+  },
+
+  getDocumentSummary: async (documentId) => {
+    const response = await apiClient.get(`/learning/progress/summary/${documentId}`);
+    return response.data;
+  },
+};
+
 export const gameService = {
   createGameSession: async (documentId, userId, gameType, questionCount = 10) => {
     const response = await apiClient.post('/games/sessions', {
