@@ -16,6 +16,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
     public DbSet<GameSession> GameSessions { get; set; }
+    public DbSet<LearningAttempt> LearningAttempts { get; set; }
+    public DbSet<LearningProgress> LearningProgresses { get; set; }
     public DbSet<SlideDeck> SlideDecks { get; set; }
     public DbSet<SlideItem> SlideItems { get; set; }
 
@@ -127,6 +129,46 @@ public class ApplicationDbContext : DbContext
 
             entity.Property(e => e.QuestionIdsJson)
                 .HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<LearningAttempt>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.QuestionId);
+            entity.HasIndex(e => new { e.UserId, e.DocumentId, e.QuestionId });
+            entity.HasIndex(e => new { e.UserId, e.DocumentId, e.CreatedAt });
+
+            entity.HasOne(e => e.Document)
+                .WithMany(d => d.LearningAttempts)
+                .HasForeignKey(e => e.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Question)
+                .WithMany(q => q.LearningAttempts)
+                .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LearningProgress>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.QuestionId);
+            entity.HasIndex(e => new { e.UserId, e.DocumentId });
+            entity.HasIndex(e => new { e.UserId, e.DocumentId, e.QuestionId }).IsUnique();
+
+            entity.HasOne(e => e.Document)
+                .WithMany(d => d.LearningProgresses)
+                .HasForeignKey(e => e.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Question)
+                .WithMany(q => q.LearningProgresses)
+                .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SlideDeck>(entity =>
