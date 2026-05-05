@@ -191,8 +191,16 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => e.SubmittedAt);
             entity.HasIndex(e => e.TestType);
+            entity.HasIndex(e => e.TestSessionId).IsUnique();
+            entity.HasIndex(e => e.Status);
             entity.HasIndex(e => new { e.UserId, e.DocumentId });
             entity.HasIndex(e => new { e.UserId, e.DocumentId, e.SubmittedAt });
+
+            entity.Property(e => e.QuestionIdsJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.ResultSnapshotJson)
+                .HasColumnType("jsonb");
 
             entity.HasOne(e => e.Document)
                 .WithMany(d => d.LearningTestResults)

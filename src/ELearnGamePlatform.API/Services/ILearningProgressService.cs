@@ -15,14 +15,18 @@ public interface ILearningProgressService
         int? testResultId = null,
         CancellationToken cancellationToken = default);
 
-    Task<LearningTestResultSnapshot> SubmitTestAsync(
+    Task<LearningTestStartSnapshot> StartTestAsync(
         string userId,
         int documentId,
         LearningTestType testType,
-        DateTime? startedAt,
+        IReadOnlyList<LearningTestQuestionStartSnapshot> questions,
+        CancellationToken cancellationToken = default);
+
+    Task<LearningTestResultSnapshot> SubmitTestAsync(
+        string userId,
+        Guid testSessionId,
         long? durationMs,
         IReadOnlyList<LearningTestAnswerSubmission> answers,
-        bool recordAttempts,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LearningTestResultSnapshot>> GetDocumentTestResultsAsync(
@@ -86,9 +90,37 @@ public class LearningTestAnswerSubmission
     public string? Topic { get; set; }
 }
 
+public class LearningTestStartSnapshot
+{
+    public Guid TestSessionId { get; set; }
+    public int TestResultDraftId { get; set; }
+    public int DocumentId { get; set; }
+    public LearningTestType TestType { get; set; }
+    public DateTime StartedAt { get; set; }
+    public IReadOnlyList<LearningTestQuestionStartSnapshot> Questions { get; set; } = Array.Empty<LearningTestQuestionStartSnapshot>();
+}
+
+public class LearningTestQuestionStartSnapshot
+{
+    public int Id { get; set; }
+    public string QuestionText { get; set; } = string.Empty;
+    public string QuestionType { get; set; } = string.Empty;
+    public IReadOnlyList<LearningTestOptionStartSnapshot> Options { get; set; } = Array.Empty<LearningTestOptionStartSnapshot>();
+    public string Difficulty { get; set; } = string.Empty;
+    public string? Topic { get; set; }
+    public object? Quality { get; set; }
+}
+
+public class LearningTestOptionStartSnapshot
+{
+    public string Key { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
+}
+
 public class LearningTestResultSnapshot
 {
     public int Id { get; set; }
+    public Guid TestSessionId { get; set; }
     public string UserId { get; set; } = string.Empty;
     public int DocumentId { get; set; }
     public int TotalQuestions { get; set; }
@@ -102,7 +134,21 @@ public class LearningTestResultSnapshot
     public DateTime CreatedAt { get; set; }
     public double MasteryScoreAfterTest { get; set; }
     public double MemoryScoreAfterTest { get; set; }
+    public IReadOnlyList<LearningTestAnswerResultSnapshot> Answers { get; set; } = Array.Empty<LearningTestAnswerResultSnapshot>();
     public IReadOnlyList<LearningTestWeakQuestionSnapshot> WeakQuestions { get; set; } = Array.Empty<LearningTestWeakQuestionSnapshot>();
+}
+
+public class LearningTestAnswerResultSnapshot
+{
+    public int QuestionId { get; set; }
+    public string? QuestionText { get; set; }
+    public string? SelectedAnswer { get; set; }
+    public string? CorrectAnswer { get; set; }
+    public bool IsCorrect { get; set; }
+    public int? ResponseTimeMs { get; set; }
+    public string? Topic { get; set; }
+    public double MasteryScore { get; set; }
+    public double MemoryScore { get; set; }
 }
 
 public class LearningTestWeakQuestionSnapshot

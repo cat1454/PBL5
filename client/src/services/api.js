@@ -42,6 +42,23 @@ apiClient.interceptors.response.use(
   }
 );
 
+export function getApiErrorMessage(error, fallback = 'Request failed.') {
+  const data = error?.response?.data;
+
+  if (typeof data === 'string' && data.trim()) {
+    return data;
+  }
+
+  if (data && typeof data === 'object') {
+    const candidate = data.message || data.error || data.title;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return error?.message || fallback;
+}
+
 export const authService = {
   register: async (payload) => {
     const response = await apiClient.post('/auth/register', payload);
@@ -279,13 +296,19 @@ export const learningService = {
     return response.data;
   },
 
-  submitTestResult: async ({ documentId, testType = 4, startedAt, durationMs, attemptsAlreadyRecorded = false, answers }) => {
-    const response = await apiClient.post('/learning/tests/submit', {
+  startTest: async ({ documentId, count = 10, testType = 4 }) => {
+    const response = await apiClient.post('/learning/tests/start', {
       documentId,
+      count,
       testType,
-      startedAt,
+    });
+    return response.data;
+  },
+
+  submitTestResult: async ({ testSessionId, durationMs, answers }) => {
+    const response = await apiClient.post('/learning/tests/submit', {
+      testSessionId,
       durationMs,
-      attemptsAlreadyRecorded,
       answers,
     });
     return response.data;

@@ -54,6 +54,19 @@ public class QuestionRepository : IQuestionRepository
             .FirstOrDefaultAsync(q => q.Id == id);
     }
 
+    public async Task<IEnumerable<Question>> GetByIdsAsync(IEnumerable<int> ids)
+    {
+        var idList = ids.Distinct().ToList();
+        if (idList.Count == 0)
+        {
+            return Array.Empty<Question>();
+        }
+
+        return await _context.Questions
+            .Where(q => idList.Contains(q.Id))
+            .ToListAsync();
+    }
+
     public async Task<IEnumerable<Question>> GetByDocumentIdAsync(int documentId)
     {
         return await _context.Questions
