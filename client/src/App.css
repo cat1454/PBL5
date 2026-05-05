@@ -7623,6 +7623,70 @@ main {
   margin: 16px 0;
 }
 
+.study-test-start-card {
+  display: grid;
+  gap: 16px;
+}
+
+.study-test-result-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.study-weak-panel {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.study-weak-panel-head,
+.study-weak-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.study-weak-panel-head strong {
+  color: #0f172a;
+}
+
+.study-weak-panel-head span {
+  color: #667085;
+  font-weight: 700;
+}
+
+.study-weak-list {
+  display: grid;
+  gap: 8px;
+}
+
+.study-weak-item {
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.study-weak-item span {
+  min-width: 0;
+  color: #344054;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-weak-item strong {
+  color: #b42318;
+}
+
 .study-action-row {
   align-items: center;
 }
@@ -7714,6 +7778,10 @@ main {
   .streak-card {
     max-width: 100%;
     padding: 18px !important;
+  }
+
+  .study-test-result-metrics {
+    grid-template-columns: 1fr;
   }
 
   .study-topic-chip {
