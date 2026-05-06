@@ -2167,7 +2167,7 @@ translations.en.upload = {
 
 translations.vi.slides.errors = {
   ...translations.vi.slides.errors,
-  schemaUnavailable: 'Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.',
+  schemaUnavailable: 'Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.',
 };
 
 translations.en.slides.errors = {
