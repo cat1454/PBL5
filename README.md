@@ -1,80 +1,89 @@
 # ELearn Game Platform
 
-ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể đăng ký/đăng nhập, upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI local, sinh câu hỏi, học bằng quiz/flashcard/streak/test mode, theo dõi tiến độ học và tạo slide deck để preview/chỉnh sửa trên web.
+ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể đăng ký/đăng nhập, upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI local, sinh câu hỏi, học bằng quiz/flashcard/streak/test mode, theo dõi tiến độ học và tạo slide deck để preview, chỉnh sửa và export.
 
-Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có để trình diễn end-to-end, nhưng hệ thống **chưa production-ready** vì vẫn còn một số phần cần hardening như persistent background jobs, test tự động đầy đủ, security hardening và polish UI/UX.
+Sau PR #17, các nút export slide không còn là placeholder: hệ thống đã có export HTML, mở bản print-friendly để dùng Print / Save as PDF của trình duyệt, và export PPTX cơ bản.
+
+Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có thể trình diễn end-to-end, nhưng hệ thống **chưa production-ready** vì vẫn còn nợ kỹ thuật ở persistent background jobs, test tự động, security hardening và polish UI/UX.
 
 ---
 
 ## 1. Trạng thái hiện tại
 
-### Đã có và có thể dùng để demo
+### Đã có thể demo
 
-- Authentication cơ bản bằng JWT:
-  - đăng ký;
-  - đăng nhập;
-  - lấy thông tin user hiện tại;
-  - lưu token ở frontend;
-  - gửi Bearer token qua axios interceptor;
-  - route/API chính yêu cầu xác thực.
-- Role cơ bản:
-  - `ADMIN`;
-  - `INSTRUCTOR`;
-  - `LEARNER`.
-- Admin overview ở mức cơ bản:
-  - xem tổng quan users;
-  - xem danh sách tài liệu gần đây.
-- Document pipeline:
-  - upload `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`;
-  - validate file, size, extension;
-  - lưu metadata/file;
-  - OCR hoặc text extraction;
-  - cleanup text;
-  - AI phân tích summary/topics/key points/language/coverage metadata;
-  - progress polling cho document processing.
-- Question pipeline:
-  - sinh câu hỏi từ document;
-  - start job + poll progress;
-  - verifier local/AI;
-  - auto-repair một vòng khi chất lượng output yếu;
-  - lưu câu hỏi xuống PostgreSQL;
+- **Authentication cơ bản bằng JWT**
+  - Đăng ký, đăng nhập, lấy thông tin user hiện tại.
+  - Frontend lưu token và gửi `Authorization: Bearer <token>` qua axios interceptor.
+  - Các API chính yêu cầu xác thực.
+
+- **Role cơ bản**
+  - `ADMIN`
+  - `INSTRUCTOR`
+  - `LEARNER`
+
+- **Admin overview**
+  - Xem tổng quan users.
+  - Xem danh sách tài liệu gần đây.
+
+- **Document pipeline**
+  - Upload `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`.
+  - Validate file, size, extension và user hiện tại.
+  - Lưu metadata/file.
+  - OCR hoặc text extraction.
+  - Cleanup text.
+  - AI phân tích summary, topics, key points, language, structure và coverage metadata.
+  - Progress polling cho document processing.
+
+- **Question pipeline**
+  - Sinh câu hỏi từ document.
+  - Start job và poll progress.
+  - Verifier local/AI.
+  - Auto-repair một vòng khi output yếu.
+  - Lưu câu hỏi xuống PostgreSQL.
   - CRUD cơ bản cho question.
-- Learning/game flows:
-  - Quiz;
-  - Flashcards;
-  - Streak Mode;
-  - game session;
-  - record learning attempt;
-  - practice test start/submit;
-  - xem learning progress/summary theo document.
-- Slide Studio:
-  - sinh slide deck từ document;
-  - sinh slide deck từ workspace/folder nhiều nguồn;
-  - chọn phạm vi section/source trước khi sinh slide;
-  - poll progress khi generate slide;
-  - preview HTML;
-  - export HTML file;
-  - Print / Save as PDF qua browser print flow;
-  - export PPTX basic;
-  - chỉnh sửa slide item;
-  - refresh/select image candidate cho slide.
-- Workspace/Folder flow:
-  - tạo workspace/folder;
-  - upload nhiều source vào workspace;
-  - chọn source dùng cho slide;
-  - sinh deck từ workspace.
-- PostgreSQL migration/EF Core đã là runtime chính.
-- Frontend dashboard đã được nâng cấp theo hướng AI learning workspace, có AI guide, module cards, recent sources, pipeline/demo checklist và account dropdown.
 
-### Đang ổn cho demo nhưng chưa nên xem là production-ready
+- **Learning/game flows**
+  - Quiz.
+  - Flashcards.
+  - Streak Mode.
+  - Game session.
+  - Learning attempt.
+  - Practice test start/submit.
+  - Learning progress/summary theo document.
 
-- Auth đã có thật ở mức ứng dụng local/demo, nhưng chưa hoàn thiện hardening production như refresh token, rate limit, password policy nâng cao, audit log, account recovery.
-- Job progress vẫn lưu trong memory. Restart backend có thể mất trạng thái job đang chạy.
-- Background processing vẫn dựa trên `Task.Run`, chưa có queue bền vững như Hangfire/Quartz/worker service + persistent store.
+- **Workspace/Folder flow**
+  - Tạo workspace/folder.
+  - Upload nhiều source vào workspace.
+  - Chọn source/section dùng cho slide.
+  - Sinh slide deck từ workspace/folder.
+
+- **Slide Studio**
+  - Sinh slide deck từ document.
+  - Sinh slide deck từ workspace/folder nhiều nguồn.
+  - Chọn phạm vi section/source trước khi sinh slide.
+  - Poll progress khi generate slide.
+  - Preview HTML.
+  - Chỉnh sửa slide item.
+  - Refresh/select image candidate cho slide.
+  - Export HTML file.
+  - Print / Save as PDF qua browser print flow.
+  - Export PPTX basic.
+
+- **PostgreSQL/EF Core**
+  - PostgreSQL là runtime database chính.
+  - EF Core Code First migrations.
+  - JSONB dùng cho các trường dữ liệu phức tạp.
+
+### Chưa production-ready
+
+- Auth mới ở mức ứng dụng local/demo, chưa có refresh token, reset password, email verification, rate limit hoặc audit log đầy đủ.
+- Job progress vẫn lưu trong memory. Restart backend có thể làm mất trạng thái job đang chạy.
+- Background processing vẫn dựa trên `Task.Run`, chưa có queue bền vững như Hangfire/Quartz/Worker Service + persistent store.
 - Chưa có test tự động đầy đủ cho toàn bộ core flow.
 - Chưa có CI/CD verify chính thức trong repo.
 - Chất lượng AI phụ thuộc model Ollama local, tài nguyên máy và chất lượng tài liệu đầu vào.
-- UI/UX đã cải thiện nhưng vẫn cần polish thêm cho demo mượt và đồng bộ hơn.
+- UI/UX đã cải thiện nhưng vẫn cần polish thêm để demo mượt và đồng bộ hơn.
 
 ---
 
@@ -104,7 +113,7 @@ Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có �
 
 - PostgreSQL 14+
 - EF Core Code First migrations
-- JSONB cho các trường dữ liệu phức tạp như options, topics, key points, slide body, image candidates
+- JSONB cho các trường như options, topics, key points, slide body, image candidates
 
 ---
 
@@ -115,7 +124,7 @@ src/
   ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, auth, job stores, tessdata
   ELearnGamePlatform.Core/            Entities, enums, interfaces, extensions, domain contracts
   ELearnGamePlatform.Infrastructure/  EF Core DbContext, repositories, migrations, Ollama integration
-  ELearnGamePlatform.Services/        OCR, document processing, AI analysis/generation/verification
+  ELearnGamePlatform.Services/        OCR, document processing, AI analysis/generation/verification, slide export
 
 client/                               React frontend
 
@@ -161,7 +170,7 @@ Khuyến nghị thêm nếu xử lý tài liệu tiếng Việt:
 vie.traineddata
 ```
 
-Với PDF scan, hệ thống ưu tiên Poppler bundled trong repo. Nếu không có, hệ thống fallback sang `pdftoppm` trong `PATH`.
+Với PDF scan, hệ thống ưu tiên Poppler bundled trong repo. Nếu không có Poppler bundled, hệ thống fallback sang `pdftoppm` trong `PATH`.
 
 ---
 
@@ -367,8 +376,13 @@ http://localhost:3000
 8. Làm Practice Test và xem learning progress/summary.
 9. Mở Slide Studio.
 10. Sinh slide deck từ một document.
-11. Preview/chỉnh sửa slide item.
-12. Tạo workspace/folder, upload nhiều nguồn, chọn phạm vi nội dung và sinh slide deck từ workspace.
+11. Preview và chỉnh sửa slide item.
+12. Export slide:
+    - Download HTML.
+    - Print / Save as PDF.
+    - Download PPTX.
+13. Tạo workspace/folder, upload nhiều nguồn, chọn phạm vi nội dung và sinh slide deck từ workspace.
+14. Export slide deck sinh từ workspace/folder nếu có.
 
 ---
 
@@ -389,9 +403,9 @@ http://localhost:3000
 3. Tạo hoặc lấy default workspace của user.
 4. Lưu metadata/file vào hệ thống.
 5. Trích xuất text:
-   - PDF text-based -> PdfPig/direct extraction;
-   - DOCX -> OpenXML;
-   - image/PDF scan -> Tesseract OCR.
+   - PDF text-based -> PdfPig/direct extraction.
+   - DOCX -> OpenXML.
+   - Image/PDF scan -> Tesseract OCR.
 6. Cleanup text sau OCR.
 7. AI phân tích nội dung theo chunk.
 8. Lưu summary, topics, key points, language, structure và coverage metadata vào PostgreSQL.
@@ -427,12 +441,56 @@ http://localhost:3000
 7. Tìm/chọn media cho slide nếu image pipeline bật.
 8. Lưu `SlideDeck` + `SlideItem`.
 9. Render HTML để preview.
-10. Export HTML, Print / Save as PDF và PPTX basic theo deck.
-11. Cho phép chỉnh sửa slide item và chọn lại image candidate.
+10. Cho phép chỉnh sửa slide item và chọn lại image candidate.
+11. Export theo deck: HTML, Print / Save as PDF, PPTX basic.
 
 ---
 
-## 10. API chính
+## 10. Slide export sau PR #17
+
+Các export action trong Slide Studio hiện đã là flow thật thay vì nút giả/placeholder.
+
+### Format hỗ trợ
+
+- **HTML file download**
+  - Tải deck hiện tại thành file `.html` độc lập.
+
+- **Print / Save as PDF**
+  - Backend trả về bản HTML print-friendly.
+  - Frontend mở bản này ở tab mới.
+  - Người dùng dùng hộp thoại in của browser để `Save as PDF`.
+  - Đây không phải binary `.pdf` do backend render.
+
+- **PPTX basic**
+  - Backend xuất file `.pptx` bằng OpenXML.
+  - Đủ dùng cho demo và mở bằng PowerPoint/LibreOffice.
+  - Không đảm bảo pixel-perfect so với HTML preview.
+
+### Endpoint export
+
+```text
+GET /api/slides/{deckId}/export/html
+GET /api/slides/{deckId}/export/print
+GET /api/slides/{deckId}/export/pptx
+```
+
+### Auth/ownership
+
+- Export endpoint yêu cầu JWT Bearer token.
+- Backend kiểm tra deck thuộc về user hiện tại thông qua document hoặc workspace/folder owner.
+- User khác không được export deck không thuộc quyền sở hữu của mình.
+
+### Giới hạn của export
+
+- PDF dùng browser Print / Save as PDF, không phải file PDF do backend render trực tiếp.
+- PPTX basic chưa pixel-perfect so với HTML preview.
+- PPTX chưa embed image candidate/local image đầy đủ.
+- Speaker notes trong PPTX hiện render như text box nhỏ, chưa phải PowerPoint presenter notes pane.
+- HTML/print export dùng CSS inline tối thiểu, không thay thế hoàn toàn preview/editor trên web.
+
+---
+
+## 11. API chính
 
 Tất cả endpoint chính, trừ auth login/register, yêu cầu JWT Bearer token.
 
@@ -542,7 +600,7 @@ POST   /api/slides/{deckId}/items/{itemId}/images/select
 
 ---
 
-## 11. Lệnh kiểm tra trước khi merge/push
+## 12. Lệnh kiểm tra trước khi merge/push
 
 Chạy từ root repo:
 
@@ -570,7 +628,7 @@ Không merge/push nếu backend hoặc frontend build fail.
 
 ---
 
-## 12. Lỗi thường gặp
+## 13. Lỗi thường gặp
 
 ### Backend không kết nối được PostgreSQL
 
@@ -633,13 +691,27 @@ ollama list
 curl http://localhost:11434/api/tags
 ```
 
+### Export slide lỗi 401/403
+
+- Kiểm tra đã đăng nhập chưa.
+- Kiểm tra deck có thuộc user hiện tại không.
+- Export endpoint cần JWT token; frontend đã dùng blob request để gắn Bearer token.
+- Nếu mở export URL trực tiếp trên tab mới, browser có thể không tự gắn Authorization header.
+
+### File PPTX mở lỗi hoặc thiếu style
+
+- Kiểm tra deck có slide item hợp lệ không.
+- PPTX hiện là export cơ bản, chưa pixel-perfect.
+- Thử mở bằng PowerPoint hoặc LibreOffice.
+- Nếu vẫn lỗi, kiểm tra log backend trong `SlideExportService`.
+
 ### Progress job biến mất sau khi restart backend
 
 Đây là giới hạn hiện tại. Job store vẫn nằm trong memory, nên restart backend có thể làm mất progress job đang chạy. Kết quả đã persist xuống database thì vẫn còn, nhưng trạng thái job runtime có thể mất.
 
 ---
 
-## 13. Giới hạn hiện tại
+## 14. Giới hạn hiện tại
 
 - Chưa production-ready.
 - Auth đã có ở mức JWT cơ bản, nhưng chưa hardening đầy đủ cho production.
@@ -650,40 +722,42 @@ curl http://localhost:11434/api/tags
 - Chưa có CI/CD verify chính thức.
 - Chất lượng AI phụ thuộc model local, tài nguyên máy và chất lượng tài liệu đầu vào.
 - Không nên xem `local-store` hoặc dữ liệu mẫu là runtime source chính.
+- Slide export đã có thật, nhưng PPTX/PDF vẫn ở mức demo-friendly, chưa phải export production-grade.
 
 ---
 
-## 14. Ưu tiên tiếp theo
+## 15. Ưu tiên tiếp theo
 
 Thứ tự nên xử lý tiếp:
 
 1. Polish UI/UX cho dashboard, document detail, question review, learning modes và Slide Studio.
 2. Chuyển job state/progress sang persistent store.
 3. Thay `Task.Run` bằng background worker/queue rõ ràng hơn.
-4. Bổ sung test tự động cho auth, upload, question generation, game/learning và slide generation.
+4. Bổ sung test tự động cho auth, upload, question generation, game/learning và slide generation/export.
 5. Hoàn thiện security hardening cho auth.
 6. Thêm benchmark/timing log có hệ thống cho OCR, analysis, question và slide pipeline.
 7. Hoàn thiện slide templates và game mode nâng cao.
 
 ---
 
-## 15. Tài liệu liên quan
+## 16. Tài liệu liên quan
 
 - [Docs Index](./docs/README.md)
 - [Architecture](./docs/guides/ARCHITECTURE.md)
 - [Run Guide](./docs/guides/RUN_GUIDE.md)
 - [Frontend Handoff](./docs/guides/FRONTEND_HANDOFF.md)
+- [Slide Export](./docs/guides/SLIDE_EXPORT.md)
 - [Roadmap](./docs/guides/ROADMAP.md)
 - [Agent Context](./docs/agent/PROJECT_CONTEXT.md)
 
 ---
 
-## 16. Kết luận trạng thái project
+## 17. Kết luận trạng thái project
 
 Nên xem repo hiện tại như:
 
 - một bản **MVP+ có thể demo end-to-end**;
 - đã vượt qua giai đoạn chỉ có upload/quiz/flashcard đơn giản;
-- đã có auth, workspace, learning progress và slide pipeline mở rộng;
+- đã có auth, workspace, learning progress, Slide Studio và slide export thật;
 - chưa phải hệ thống production-ready;
 - cần ưu tiên ổn định job, test, security hardening và polish UI/UX trước khi mở rộng thêm nhiều tính năng mới.
