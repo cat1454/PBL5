@@ -1,32 +1,77 @@
 # ELearn Game Platform
 
-ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI local, sinh câu hỏi để học bằng quiz/flashcards/streak và tạo slide deck để preview/chỉnh sửa trên web.
+ELearn Game Platform là hệ thống biến tài liệu học tập thành trải nghiệm học tương tác. Người dùng có thể đăng ký/đăng nhập, upload tài liệu, trích xuất nội dung bằng OCR/text extraction, phân tích bằng AI local, sinh câu hỏi, học bằng quiz/flashcard/streak/test mode, theo dõi tiến độ học và tạo slide deck để preview/chỉnh sửa trên web.
 
-Repo hiện ở mức **MVP+**: đã có đủ luồng chính để demo và phát triển tiếp, nhưng chưa phải bản production-ready.
+Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có để trình diễn end-to-end, nhưng hệ thống **chưa production-ready** vì vẫn còn một số phần cần hardening như persistent background jobs, test tự động đầy đủ, security hardening và polish UI/UX.
 
 ---
 
-## 1. Tính năng chính
+## 1. Trạng thái hiện tại
 
-- Upload tài liệu: `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`.
-- Trích xuất text từ PDF text-based.
-- OCR cho ảnh và PDF scan.
-- Phân tích nội dung bằng AI:
-  - tóm tắt nội dung;
-  - chủ đề chính;
-  - ý chính;
-  - ngôn ngữ;
-  - metadata/coverage map phục vụ sinh slide.
-- Sinh câu hỏi tự động kèm progress polling.
-- Học bằng nhiều chế độ:
+### Đã có và có thể dùng để demo
+
+- Authentication cơ bản bằng JWT:
+  - đăng ký;
+  - đăng nhập;
+  - lấy thông tin user hiện tại;
+  - lưu token ở frontend;
+  - gửi Bearer token qua axios interceptor;
+  - route/API chính yêu cầu xác thực.
+- Role cơ bản:
+  - `ADMIN`;
+  - `INSTRUCTOR`;
+  - `LEARNER`.
+- Admin overview ở mức cơ bản:
+  - xem tổng quan users;
+  - xem danh sách tài liệu gần đây.
+- Document pipeline:
+  - upload `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`;
+  - validate file, size, extension;
+  - lưu metadata/file;
+  - OCR hoặc text extraction;
+  - cleanup text;
+  - AI phân tích summary/topics/key points/language/coverage metadata;
+  - progress polling cho document processing.
+- Question pipeline:
+  - sinh câu hỏi từ document;
+  - start job + poll progress;
+  - verifier local/AI;
+  - auto-repair một vòng khi chất lượng output yếu;
+  - lưu câu hỏi xuống PostgreSQL;
+  - CRUD cơ bản cho question.
+- Learning/game flows:
   - Quiz;
   - Flashcards;
-  - Streak Mode.
-- Tạo slide deck từ tài liệu hoặc workspace/folder.
-- Preview HTML cho slide deck.
-- Chỉnh sửa từng slide item trong Slide Studio.
-- Tìm/chọn media cho slide theo image pipeline.
-- Workspace/Folder Studio để gom nhiều nguồn tài liệu và chọn phạm vi nội dung trước khi sinh slide.
+  - Streak Mode;
+  - game session;
+  - record learning attempt;
+  - practice test start/submit;
+  - xem learning progress/summary theo document.
+- Slide Studio:
+  - sinh slide deck từ document;
+  - sinh slide deck từ workspace/folder nhiều nguồn;
+  - chọn phạm vi section/source trước khi sinh slide;
+  - poll progress khi generate slide;
+  - preview HTML;
+  - chỉnh sửa slide item;
+  - refresh/select image candidate cho slide.
+- Workspace/Folder flow:
+  - tạo workspace/folder;
+  - upload nhiều source vào workspace;
+  - chọn source dùng cho slide;
+  - sinh deck từ workspace.
+- PostgreSQL migration/EF Core đã là runtime chính.
+- Frontend dashboard đã được nâng cấp theo hướng AI learning workspace, có AI guide, module cards, recent sources, pipeline/demo checklist và account dropdown.
+
+### Đang ổn cho demo nhưng chưa nên xem là production-ready
+
+- Auth đã có thật ở mức ứng dụng local/demo, nhưng chưa hoàn thiện hardening production như refresh token, rate limit, password policy nâng cao, audit log, account recovery.
+- Job progress vẫn lưu trong memory. Restart backend có thể mất trạng thái job đang chạy.
+- Background processing vẫn dựa trên `Task.Run`, chưa có queue bền vững như Hangfire/Quartz/worker service + persistent store.
+- Chưa có test tự động đầy đủ cho toàn bộ core flow.
+- Chưa có CI/CD verify chính thức trong repo.
+- Chất lượng AI phụ thuộc model Ollama local, tài nguyên máy và chất lượng tài liệu đầu vào.
+- UI/UX đã cải thiện nhưng vẫn cần polish thêm cho demo mượt và đồng bộ hơn.
 
 ---
 
@@ -37,6 +82,7 @@ Repo hiện ở mức **MVP+**: đã có đủ luồng chính để demo và ph�
 - ASP.NET Core 8 Web API
 - Entity Framework Core 8
 - PostgreSQL + Npgsql
+- JWT Bearer Authentication
 - Tesseract OCR
 - ImageSharp
 - PdfPig
@@ -54,7 +100,8 @@ Repo hiện ở mức **MVP+**: đã có đủ luồng chính để demo và ph�
 ### Database
 
 - PostgreSQL 14+
-- EF Core migrations tự động chạy khi backend start.
+- EF Core Code First migrations
+- JSONB cho các trường dữ liệu phức tạp như options, topics, key points, slide body, image candidates
 
 ---
 
@@ -62,16 +109,17 @@ Repo hiện ở mức **MVP+**: đã có đủ luồng chính để demo và ph�
 
 ```text
 src/
-  ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, tessdata
-  ELearnGamePlatform.Core/            Entities, enums, interfaces, extensions
-  ELearnGamePlatform.Infrastructure/  EF Core, repositories, migrations, external integrations
-  ELearnGamePlatform.Services/        OCR, document processing, AI services
+  ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, auth, job stores, tessdata
+  ELearnGamePlatform.Core/            Entities, enums, interfaces, extensions, domain contracts
+  ELearnGamePlatform.Infrastructure/  EF Core DbContext, repositories, migrations, Ollama integration
+  ELearnGamePlatform.Services/        OCR, document processing, AI analysis/generation/verification
 
 client/                               React frontend
 
 docs/
   guides/                             Tài liệu hướng dẫn/chính thức
   working-notes/                      Ghi chú thiết kế, checklist, research tạm thời
+  agent/                              Ngữ cảnh/rule cho agent hỗ trợ phát triển
 
 poppler-25.12.0/                      Poppler bundled cho OCR PDF scan
 README.md
@@ -122,12 +170,24 @@ File cấu hình backend:
 src/ELearnGamePlatform.API/appsettings.json
 ```
 
-Mẫu cấu hình local nên dùng:
+Mẫu cấu hình local:
 
 ```json
 {
   "ConnectionStrings": {
     "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_PASSWORD;SslMode=disable"
+  },
+  "JwtSettings": {
+    "SecretKey": "CHANGE_THIS_TO_A_LONG_LOCAL_DEV_SECRET_KEY",
+    "Issuer": "ELearnGamePlatform",
+    "Audience": "ELearnGamePlatform.Client",
+    "ExpiresInMinutes": 1440
+  },
+  "AdminSeed": {
+    "Enabled": true,
+    "Email": "admin@example.com",
+    "Password": "CHANGE_THIS_ADMIN_PASSWORD",
+    "FullName": "System Admin"
   },
   "OllamaSettings": {
     "BaseUrl": "http://localhost:11434",
@@ -162,7 +222,7 @@ Không commit mật khẩu thật, API key thật hoặc cấu hình cá nhân l
 
 ## 6. Chuẩn bị Ollama model
 
-Model mặc định đang dùng trong cấu hình local:
+Model mặc định nên dùng cho local/dev:
 
 ```text
 qwen2.5:7b
@@ -175,7 +235,7 @@ ollama pull qwen2.5:7b
 ollama list
 ```
 
-Nếu dùng image review trong slide image pipeline, có thể cần thêm model vision theo cấu hình:
+Nếu dùng image review trong slide image pipeline, có thể cần thêm model vision theo cấu hình hiện tại:
 
 ```powershell
 ollama pull qwen2.5-vl:3b
@@ -214,7 +274,7 @@ Tạo database nếu chưa có:
 CREATE DATABASE "ELearnGameDB";
 ```
 
-Kiểm tra lại connection string trong:
+Kiểm tra connection string trong:
 
 ```text
 src/ELearnGamePlatform.API/appsettings.json
@@ -295,32 +355,44 @@ http://localhost:3000
 ## 8. Luồng demo đề xuất
 
 1. Mở frontend tại `http://localhost:3000`.
-2. Upload một tài liệu PDF/DOCX/ảnh.
-3. Đợi tài liệu xử lý xong và chuyển sang trạng thái `Completed`.
-4. Xem phần analysis.
-5. Sinh câu hỏi.
-6. Chơi Quiz, Flashcards hoặc Streak Mode.
-7. Mở Slide Studio.
-8. Sinh slide deck.
-9. Preview/chỉnh sửa slide.
-10. Tạo workspace/folder, upload nhiều nguồn và sinh slide theo phạm vi chọn.
+2. Đăng ký hoặc đăng nhập.
+3. Upload một tài liệu PDF/DOCX/ảnh.
+4. Đợi document xử lý xong và chuyển sang trạng thái completed.
+5. Xem analysis/structure của tài liệu.
+6. Sinh câu hỏi.
+7. Chơi Quiz, Flashcards hoặc Streak Mode.
+8. Làm Practice Test và xem learning progress/summary.
+9. Mở Slide Studio.
+10. Sinh slide deck từ một document.
+11. Preview/chỉnh sửa slide item.
+12. Tạo workspace/folder, upload nhiều nguồn, chọn phạm vi nội dung và sinh slide deck từ workspace.
 
 ---
 
 ## 9. Pipeline chính
 
+### Auth pipeline
+
+1. User đăng ký hoặc đăng nhập.
+2. Backend xác thực tài khoản và sinh JWT.
+3. Frontend lưu token vào localStorage.
+4. Axios interceptor gắn `Authorization: Bearer <token>` cho request sau đó.
+5. Backend kiểm tra JWT qua middleware authentication/authorization.
+
 ### Document pipeline
 
 1. Upload tài liệu.
-2. Validate file, size, extension và `userId`.
-3. Lưu metadata/file vào hệ thống.
-4. Trích xuất text:
+2. Validate file, size, extension và user hiện tại.
+3. Tạo hoặc lấy default workspace của user.
+4. Lưu metadata/file vào hệ thống.
+5. Trích xuất text:
    - PDF text-based -> PdfPig/direct extraction;
    - DOCX -> OpenXML;
    - image/PDF scan -> Tesseract OCR.
-5. Cleanup text sau OCR.
-6. AI phân tích nội dung theo chunk.
-7. Lưu summary, topics, key points, language và coverage metadata vào PostgreSQL.
+6. Cleanup text sau OCR.
+7. AI phân tích nội dung theo chunk.
+8. Lưu summary, topics, key points, language, structure và coverage metadata vào PostgreSQL.
+9. Frontend poll progress để cập nhật trạng thái.
 
 ### Question pipeline
 
@@ -328,14 +400,23 @@ http://localhost:3000
 2. Backend tạo job state trong memory.
 3. Background task sinh câu hỏi bằng Ollama.
 4. Chạy kiểm tra chất lượng/verifier.
-5. Auto-repair 1 vòng nếu output yếu.
+5. Auto-repair một vòng nếu output yếu.
 6. Lưu câu hỏi xuống PostgreSQL.
 7. Frontend poll progress và lấy câu hỏi theo document.
 
+### Learning/game pipeline
+
+1. User chọn mode học hoặc test.
+2. Backend lấy question theo document và mode.
+3. User trả lời.
+4. Frontend submit answer/session/test result.
+5. Backend ghi learning attempt/progress/test result.
+6. Frontend hiển thị kết quả, điểm và summary.
+
 ### Slide pipeline
 
-1. Chọn tài liệu hoặc workspace/folder.
-2. Chọn số slide, theme, audience, tone và scope nội dung.
+1. Chọn document hoặc workspace/folder.
+2. Chọn số slide, theme, audience, tone, narrative goal và scope nội dung.
 3. Sinh outline.
 4. Sinh từng slide item.
 5. Verifier local + AI verifier.
@@ -343,22 +424,54 @@ http://localhost:3000
 7. Tìm/chọn media cho slide nếu image pipeline bật.
 8. Lưu `SlideDeck` + `SlideItem`.
 9. Render HTML để preview.
+10. Cho phép chỉnh sửa slide item và chọn lại image candidate.
 
 ---
 
 ## 10. API chính
+
+Tất cả endpoint chính, trừ auth login/register, yêu cầu JWT Bearer token.
+
+### Auth
+
+```text
+POST   /api/auth/register
+POST   /api/auth/login
+GET    /api/auth/me
+```
+
+### Admin
+
+```text
+GET    /api/admin/overview
+```
 
 ### Documents
 
 ```text
 POST   /api/documents/upload
 GET    /api/documents/{id}
-GET    /api/documents/user/{userId}
 GET    /api/documents/{id}/progress
+GET    /api/documents/{id}/structure
+POST   /api/documents/{id}/analyze-structure
+GET    /api/documents/user/{userId}
 DELETE /api/documents/{id}
 ```
 
-### Folders / Workspaces
+### Workspaces / Folders
+
+```text
+POST   /api/workspaces
+GET    /api/workspaces/user/{userId}
+GET    /api/workspaces/default/user/{userId}
+GET    /api/workspaces/{id}
+DELETE /api/workspaces/{id}
+POST   /api/workspaces/{id}/sources/upload
+GET    /api/workspaces/{id}/sources
+PUT    /api/workspaces/{id}/sources/{sourceId}/slide-selection
+```
+
+Folder aliases vẫn tồn tại cho một số flow cũ:
 
 ```text
 POST   /api/folders
@@ -394,6 +507,18 @@ GET    /api/games/flashcards/{documentId}
 GET    /api/games/user/{userId}
 ```
 
+### Learning
+
+```text
+POST   /api/learning/attempts
+POST   /api/learning/tests/start
+POST   /api/learning/tests/submit
+GET    /api/learning/tests/document/{documentId}
+GET    /api/learning/tests/summary/{documentId}
+GET    /api/learning/progress/document/{documentId}
+GET    /api/learning/progress/summary/{documentId}
+```
+
 ### Slides
 
 ```text
@@ -416,6 +541,7 @@ Chạy từ root repo:
 
 ```powershell
 git status
+dotnet restore
 dotnet build ELearnGamePlatform.sln
 ```
 
@@ -449,6 +575,12 @@ Không merge/push nếu backend hoặc frontend build fail.
 psql -U postgres -d ELearnGameDB
 ```
 
+### Backend không start vì JWT config
+
+- Kiểm tra `JwtSettings.SecretKey` trong `appsettings.json`.
+- Secret key không được rỗng.
+- Nên dùng chuỗi đủ dài cho môi trường local/dev.
+
 ### Migration lỗi khi start backend
 
 Backend tự chạy EF Core migrations khi start. Nếu schema lệch, kiểm tra migration và database hiện tại:
@@ -458,6 +590,13 @@ cd src\ELearnGamePlatform.API
 dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
 dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
 ```
+
+### Frontend bị đá về login hoặc API trả 401
+
+- Kiểm tra đã đăng nhập chưa.
+- Kiểm tra token trong localStorage còn hợp lệ không.
+- Logout/login lại nếu token cũ bị lệch secret hoặc hết hạn.
+- Kiểm tra backend đang dùng đúng `JwtSettings`.
 
 ### Frontend không gọi được backend
 
@@ -487,34 +626,57 @@ ollama list
 curl http://localhost:11434/api/tags
 ```
 
+### Progress job biến mất sau khi restart backend
+
+Đây là giới hạn hiện tại. Job store vẫn nằm trong memory, nên restart backend có thể làm mất progress job đang chạy. Kết quả đã persist xuống database thì vẫn còn, nhưng trạng thái job runtime có thể mất.
+
 ---
 
 ## 13. Giới hạn hiện tại
 
-- Chưa có authentication/authorization thật sự.
-- Frontend vẫn đang dùng user demo/hardcoded ở một số luồng.
-- Job progress store vẫn là in-memory, restart backend có thể mất progress job đang chạy.
-- Background job hiện dùng `Task.Run`, chưa phải hàng đợi bền vững.
+- Chưa production-ready.
+- Auth đã có ở mức JWT cơ bản, nhưng chưa hardening đầy đủ cho production.
+- Chưa có refresh token, reset password, email verification, rate limit và audit log.
+- Job progress store vẫn là in-memory.
+- Background job hiện dùng `Task.Run`, chưa phải queue bền vững.
 - Chưa có test tự động đầy đủ cho toàn bộ core flows.
+- Chưa có CI/CD verify chính thức.
 - Chất lượng AI phụ thuộc model local, tài nguyên máy và chất lượng tài liệu đầu vào.
 - Không nên xem `local-store` hoặc dữ liệu mẫu là runtime source chính.
 
 ---
 
-## 14. Tài liệu liên quan
+## 14. Ưu tiên tiếp theo
+
+Thứ tự nên xử lý tiếp:
+
+1. Polish UI/UX cho dashboard, document detail, question review, learning modes và Slide Studio.
+2. Chuyển job state/progress sang persistent store.
+3. Thay `Task.Run` bằng background worker/queue rõ ràng hơn.
+4. Bổ sung test tự động cho auth, upload, question generation, game/learning và slide generation.
+5. Hoàn thiện security hardening cho auth.
+6. Thêm benchmark/timing log có hệ thống cho OCR, analysis, question và slide pipeline.
+7. Hoàn thiện slide templates và game mode nâng cao.
+
+---
+
+## 15. Tài liệu liên quan
 
 - [Docs Index](./docs/README.md)
 - [Architecture](./docs/guides/ARCHITECTURE.md)
 - [Run Guide](./docs/guides/RUN_GUIDE.md)
 - [Frontend Handoff](./docs/guides/FRONTEND_HANDOFF.md)
 - [Roadmap](./docs/guides/ROADMAP.md)
+- [Agent Context](./docs/agent/PROJECT_CONTEXT.md)
 
 ---
 
-## 15. Trạng thái project
+## 16. Kết luận trạng thái project
 
 Nên xem repo hiện tại như:
 
-- bản MVP+ để demo PBL;
-- nền tảng để tiếp tục polish UI/UX;
-- nền tảng để mở rộng game mode, slide templates, benchmark AI/OCR, auth và persistent jobs.
+- một bản **MVP+ có thể demo end-to-end**;
+- đã vượt qua giai đoạn chỉ có upload/quiz/flashcard đơn giản;
+- đã có auth, workspace, learning progress và slide pipeline mở rộng;
+- chưa phải hệ thống production-ready;
+- cần ưu tiên ổn định job, test, security hardening và polish UI/UX trước khi mở rộng thêm nhiều tính năng mới.
