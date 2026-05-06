@@ -527,7 +527,6 @@ function SlideStudio({ documentId: propDocumentId }) {
       <section className="studio-header-bar card">
         <div className="studio-header-main">
           <button className="button button-secondary studio-back-button" onClick={handleBack}>
-            <span aria-hidden="true">←</span>
             <span>{t('slides.back')}</span>
           </button>
           <div className="studio-title-stack">
@@ -545,21 +544,17 @@ function SlideStudio({ documentId: propDocumentId }) {
 
         <div className="studio-header-actions">
           <button className="button button-secondary" onClick={() => setIsInspectorOpen((current) => !current)}>
-            <span aria-hidden="true">☰</span>
             <span>{isInspectorOpen ? t('slides.hideInspector') : t('slides.showInspector')}</span>
           </button>
           <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
-            <span aria-hidden="true">◐</span>
             <span>{hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}</span>
           </button>
           {deck && (
             <button className="button button-secondary" onClick={() => window.open(slideService.getDeckHtmlUrl(documentId), '_blank', 'noopener,noreferrer')}>
-              <span aria-hidden="true">⇱</span>
               <span>{t('slides.export')}</span>
             </button>
           )}
           <button className="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
-            <span aria-hidden="true">↻</span>
             <span>
               {isGenerating
                 ? t('slides.generating', { percent: activeProgress?.percent || 0 })
@@ -588,7 +583,6 @@ function SlideStudio({ documentId: propDocumentId }) {
                 className={`studio-tab${activeLeftTab === 'outline' ? ' active' : ''}`}
                 onClick={() => setActiveLeftTab('outline')}
               >
-                <span aria-hidden="true">▤</span>
                 <span>{t('slides.outlineTab')}</span>
               </button>
               <button
@@ -596,7 +590,6 @@ function SlideStudio({ documentId: propDocumentId }) {
                 className={`studio-tab${activeLeftTab === 'source' ? ' active' : ''}`}
                 onClick={() => setActiveLeftTab('source')}
               >
-                <span aria-hidden="true">≣</span>
                 <span>{t('slides.sourceTab')}</span>
               </button>
             </div>

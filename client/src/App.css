@@ -8674,6 +8674,42 @@ main {
   opacity: 0.85;
 }
 
+.app-topbar-link-placeholder {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+.app-topbar-link-placeholder:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.folder-studio-action-placeholder {
+  display: none;
+}
+
+.folder-studio-action-section:has(.folder-studio-action-placeholder):not(:has(.folder-studio-action:not(.folder-studio-action-placeholder))) {
+  display: none;
+}
+
+.document-upload-card .alert-info {
+  margin-top: 16px;
+}
+
+.study-mode-switcher,
+.study-sidebar-actions,
+.studio-header-actions,
+.studio-toolbar-actions,
+.folder-card-actions,
+.workspace-dashboard-action-row {
+  flex-wrap: wrap;
+}
+
+.study-mode-switcher-button,
+.studio-header-actions .button,
+.folder-card-actions .button,
+.workspace-dashboard-action-row .button {
+  min-width: 0;
+}
+
 @media (max-width: 1240px) {
   .workspace-dashboard-shortcuts {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8723,5 +8759,19 @@ main {
   .workspace-guide-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .study-compact-header-main,
+  .studio-header-main,
+  .studio-header-actions,
+  .folder-card-actions {
+    align-items: stretch;
+  }
+
+  .study-mode-switcher-button,
+  .studio-header-actions .button,
+  .folder-card-actions .button {
+    width: 100%;
+    justify-content: center;
   }
 }

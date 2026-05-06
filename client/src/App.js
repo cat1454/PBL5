@@ -107,10 +107,6 @@ function AppShell({ user, onLogout }) {
     navigate('/', { state: { openGuide: true, guideChip: 'howToUse' } });
   }, [navigate]);
 
-  const handlePlaceholderClick = useCallback(() => {
-    setIsAccountMenuOpen(false);
-  }, []);
-
   const handleLogout = useCallback(() => {
     setIsAccountMenuOpen(false);
     onLogout();
@@ -153,10 +149,6 @@ function AppShell({ user, onLogout }) {
                   {t('app.nav.admin')}
                 </NavLink>
               )}
-              <button type="button" className="app-topbar-link app-topbar-link-placeholder">
-                {t('app.nav.templates')}
-                <span>{t('app.comingSoonShort')}</span>
-              </button>
               <button type="button" className="app-topbar-link app-topbar-link-placeholder" onClick={handleHelpClick}>
                 {t('app.nav.help')}
               </button>
@@ -211,14 +203,6 @@ function AppShell({ user, onLogout }) {
                     </div>
                   </div>
 
-                  <button type="button" className="app-account-item" onClick={handlePlaceholderClick}>
-                    <span>{t('app.account.profile')}</span>
-                    <small>{t('app.account.placeholder')}</small>
-                  </button>
-                  <button type="button" className="app-account-item" onClick={() => navigate('/settings')}>
-                    <span>{t('app.account.settings')}</span>
-                    <small>{t('app.account.settingsHint')}</small>
-                  </button>
                   <button type="button" className="app-account-item" onClick={handleHelpClick}>
                     <span>{t('app.account.helpGuide')}</span>
                     <small>{t('app.account.helpHint')}</small>
@@ -263,9 +247,6 @@ function AppShell({ user, onLogout }) {
               </NavLink>
               <NavLink to="/workspaces" className={({ isActive }) => (isActive ? 'active' : '')}>
                 {t('app.nav.workspaces')}
-              </NavLink>
-              <NavLink to="/settings" className={({ isActive }) => (isActive ? 'active' : '')}>
-                {t('app.nav.settings')}
               </NavLink>
               {currentUser?.role === 'ADMIN' && (
                 <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -341,13 +322,20 @@ function DashboardPage() {
   const recentSources = useMemo(() => sources.slice(0, MAX_RECENT_SOURCES), [sources]);
 
   const handleUploadSuccess = useCallback((data) => {
+    const uploadState = {
+      uploadNotice: {
+        message: t('upload.success'),
+        description: t('upload.processingStarted'),
+      },
+    };
+
     if (data?.workspaceId) {
-      navigate(`/workspaces/${data.workspaceId}`);
+      navigate(`/workspaces/${data.workspaceId}`, { state: uploadState });
       return;
     }
 
-    navigate('/workspaces');
-  }, [navigate]);
+    navigate('/workspaces', { state: uploadState });
+  }, [navigate, t]);
 
   const openWorkspaces = useCallback(() => {
     navigate('/workspaces');
@@ -1018,16 +1006,8 @@ function buildShortcutCards(vm, t) {
       disabled: false,
     },
     {
-      key: 'templates',
-      icon: '03',
-      title: t('app.dashboard.shortcuts.templates.title'),
-      body: t('app.dashboard.shortcuts.templates.body'),
-      pill: t('app.comingSoon'),
-      disabled: true,
-    },
-    {
       key: 'activity',
-      icon: '04',
+      icon: '03',
       title: t('app.dashboard.shortcuts.activity.title'),
       body: vm.latestSource
         ? t('app.dashboard.shortcuts.activity.body')
@@ -1036,7 +1016,7 @@ function buildShortcutCards(vm, t) {
     },
     {
       key: 'systemStatus',
-      icon: '05',
+      icon: '04',
       title: t('app.dashboard.shortcuts.systemStatus.title'),
       body: vm.processingSource
         ? t('app.dashboard.shortcuts.systemStatus.processing')

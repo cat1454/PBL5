@@ -56,13 +56,15 @@ export const isTerminalProgress = (progressOrStatus) => {
   return TERMINAL_STATUSES.has(String(status || '').toLowerCase());
 };
 
-export const formatEta = (seconds) => {
+export const formatEta = (seconds, options = {}) => {
+  const language = options.language === 'en' ? 'en' : 'vi';
+
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
     return null;
   }
 
   if (seconds <= 0) {
-    return 'Sắp xong...';
+    return language === 'vi' ? 'Sắp xong...' : 'Almost done...';
   }
 
   if (seconds < 60) {
@@ -71,7 +73,9 @@ export const formatEta = (seconds) => {
 
   const minutes = Math.floor(seconds / 60);
   const remain = seconds % 60;
-  return `${minutes}p ${remain}s`;
+  return language === 'vi'
+    ? `${minutes}p ${remain}s`
+    : `${minutes}m ${remain}s`;
 };
 
 export const getSubProgress = (current, total) => {
@@ -82,15 +86,20 @@ export const getSubProgress = (current, total) => {
   return Math.max(0, Math.min(100, Math.round((current / total) * 100)));
 };
 
-export const getProgressCounterLabel = (progress) => {
+export const getProgressCounterLabel = (progress, options = {}) => {
+  const language = options.language === 'en' ? 'en' : 'vi';
+
   if (typeof progress?.current !== 'number' || typeof progress?.total !== 'number' || progress.total <= 0) {
     return null;
   }
 
-  return `${progress.current}/${progress.total} ${progress.unitLabel || 'mục'}`;
+  const defaultUnit = language === 'vi' ? 'mục' : 'items';
+  return `${progress.current}/${progress.total} ${progress.unitLabel || defaultUnit}`;
 };
 
-export const getProgressStageLabel = (progress) => (
-  progress?.stageLabel || progress?.stage || progress?.status || 'Đang chờ'
+export const getProgressStageLabel = (progress, options = {}) => (
+  progress?.stageLabel
+  || progress?.stage
+  || progress?.status
+  || (options.language === 'en' ? 'Queued' : 'Đang chờ')
 );
-

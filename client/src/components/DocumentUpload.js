@@ -12,6 +12,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
+  const [processingNotice, setProcessingNotice] = useState('');
   const isMinimalDark = variant === 'minimal-dark';
 
   const handleFileChange = (event) => {
@@ -48,6 +49,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
     setUploading(true);
     setUploadProgress(0);
     setError('');
+    setProcessingNotice('');
 
     try {
       const result = await documentService.uploadDocument(file, (progressValue) => {
@@ -63,9 +65,11 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
       showToast({
         type: 'success',
         message: t('upload.success'),
+        description: t('upload.processingStarted'),
       });
+      setProcessingNotice(t('upload.processingStarted'));
       setFile(null);
-      event.target.reset();
+      event.currentTarget.reset();
       setUploadProgress(0);
       setUploading(false);
     } catch (err) {
@@ -93,6 +97,7 @@ function DocumentUpload({ onUploadSuccess, variant = 'default' }) {
         {t('upload.subtitle')}
       </p>
       {error && <div className="alert alert-error">{error}</div>}
+      {processingNotice && <div className="alert alert-info">{processingNotice}</div>}
 
       <form onSubmit={handleUpload}>
         <div className={`input-group${isMinimalDark ? ' input-group-minimal-dark' : ''}`}>

@@ -2021,4 +2021,126 @@ translations.en.app = {
   },
 };
 
+translations.vi.app = {
+  ...translations.vi.app,
+  userRole: 'Không gian dạy học',
+  authRestoring: 'Đang khôi phục phiên đăng nhập...',
+  roles: {
+    LEARNER: 'Người học',
+    INSTRUCTOR: 'Giảng viên',
+    ADMIN: 'Quản trị viên',
+  },
+  topbar: {
+    ...(translations.vi.app?.topbar || {}),
+    productTag: 'Không gian học tập với AI',
+  },
+  nav: {
+    ...(translations.vi.app?.nav || {}),
+    dashboard: 'Bảng điều khiển',
+    workspaces: 'Workspaces',
+    help: 'Hướng dẫn',
+    settings: 'Cài đặt',
+  },
+  account: {
+    ...(translations.vi.app?.account || {}),
+    menuLabel: 'Menu tài khoản',
+    avatarAlt: 'Ảnh đại diện của {{name}}',
+    demoRole: 'demo-user · hồ sơ demo',
+    helpGuide: 'Hướng dẫn sử dụng',
+    helpHint: 'Mở hướng dẫn cho luồng demo chính',
+    logout: 'Đăng xuất',
+    logoutHint: 'Thoát khỏi phiên hiện tại',
+  },
+  pageTitle: {
+    ...(translations.vi.app?.pageTitle || {}),
+    dashboard: 'Bảng điều khiển',
+    slides: 'Slide Studio',
+  },
+  dashboard: {
+    ...(translations.vi.app?.dashboard || {}),
+    title: 'Không gian trung tâm để tải tài liệu, theo dõi AI xử lý và tiếp tục học ngay.',
+    subtitle: 'Quản lý tài liệu gần đây, mở Workspace Studio, tạo câu hỏi, tạo slide và quay lại các luồng học tập từ cùng một dashboard.',
+    workspaceTitle: 'Workspace mặc định của demo-user',
+    workspaceSubtitle: 'Giữ nguyên flow workspace-first hiện tại nhưng làm rõ bước tiếp theo cho bản demo.',
+    uploadTitle: 'Nạp thêm tài liệu vào workspace',
+    uploadSubtitle: 'Tài liệu mới sẽ được đưa vào {{workspaceName}} rồi tiếp tục OCR, phân tích AI và các bước học tập bên trong studio.',
+    recentSourcesTitle: 'Tài liệu gần đây',
+    recentSourcesSubtitle: 'Theo dõi file mới nhất, trạng thái xử lý, số câu hỏi hiện có và độ sẵn sàng để học tiếp.',
+    emptyTitle: 'Chưa có tài liệu nào trong workspace này',
+    emptyBody: 'Tải tài liệu đầu tiên để bắt đầu OCR, phân tích AI, question bank và slide deck theo workspace.',
+    emptySourceLabel: 'Chưa có tài liệu',
+    emptySourceHint: 'Upload đầu tiên sẽ xuất hiện tại đây.',
+    status: {
+      ...(translations.vi.app?.dashboard?.status || {}),
+      uploaded: 'Đã tải lên',
+      extracting: 'Đang OCR',
+      analyzing: 'Đang phân tích',
+      completed: 'Hoàn tất',
+      failed: 'Thất bại',
+      unknown: 'Chưa rõ',
+    },
+    stats: {
+      ...(translations.vi.app?.dashboard?.stats || {}),
+      workspace: 'Workspace',
+      sourcesLabel: 'Tài liệu',
+      completedLabel: 'Đã xong',
+      readyLabel: 'Sẵn sàng học',
+    },
+    actions: {
+      ...(translations.vi.app?.dashboard?.actions || {}),
+      upload: 'Tải tài liệu',
+      openWorkspace: 'Mở Workspaces',
+      createSlides: 'Tạo slide nhanh',
+    },
+    highlights: {
+      ...(translations.vi.app?.dashboard?.highlights || {}),
+      workspaceStatus: 'Trạng thái slide deck',
+      workspaceStatusReady: 'Deck workspace đã sẵn sàng để preview hoặc chỉnh sửa tiếp.',
+      workspaceStatusPending: 'Chưa có deck hoặc deck cần tạo lại sau khi bổ sung nguồn học.',
+      recentSource: 'Nguồn gần nhất',
+    },
+    deck: {
+      ...(translations.vi.app?.dashboard?.deck || {}),
+      ready: 'Deck workspace sẵn sàng',
+      stale: 'Deck cần cập nhật lại',
+      notReady: 'Chưa có deck',
+      none: 'Chưa có deck',
+    },
+  },
+};
+
+translations.en.app = {
+  ...translations.en.app,
+  authRestoring: 'Restoring your session...',
+  roles: {
+    LEARNER: 'Learner',
+    INSTRUCTOR: 'Instructor',
+    ADMIN: 'Admin',
+  },
+};
+
+translations.vi.toast = {
+  ...(translations.vi.toast || {}),
+  close: 'Đóng thông báo',
+};
+
+translations.en.toast = {
+  ...(translations.en.toast || {}),
+  close: 'Close notification',
+};
+
+translations.vi.upload = {
+  ...translations.vi.upload,
+  success: 'Tải tệp lên thành công.',
+  processingStarted: 'Tệp đã tải xong. OCR và AI analysis đang tiếp tục trong Workspace, nên bạn hãy theo dõi tiến trình xử lý ở đó.',
+  progressDone: 'Tệp đã tải xong. OCR và AI processing vẫn đang tiếp tục trong Workspace.',
+};
+
+translations.en.upload = {
+  ...translations.en.upload,
+  success: 'File uploaded successfully.',
+  processingStarted: 'The file upload is complete. OCR and AI analysis continue in the workspace, so keep watching processing there.',
+  progressDone: 'The file upload is complete. OCR and AI processing are still running in the workspace.',
+};
+
 export default translations;
