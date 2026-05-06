@@ -683,7 +683,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                 </div>
 
                 {activeProgress && (
-                  <div className="studio-progress-card">
+                  <div className={`studio-progress-card${isGenerating ? ' is-active' : ''}`}>
                     <div className="studio-progress-head">
                       <strong>{getProgressStageLabel(activeProgress)}</strong>
                       <span>{Math.round(activeProgressPercent)}%</span>
@@ -732,7 +732,7 @@ function SlideStudio({ documentId: propDocumentId }) {
           <div className="studio-canvas-body">
             {activeProgress && isGenerating && (
               <div className="studio-canvas-progress-shell">
-                <div className="studio-progress-card studio-progress-card-large">
+                <div className="studio-progress-card studio-progress-card-large is-active">
                   <div className="studio-progress-head">
                     <strong>{getProgressStageLabel(activeProgress)}</strong>
                     <span>{Math.round(activeProgressPercent)}%</span>

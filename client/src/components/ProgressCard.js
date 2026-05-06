@@ -36,6 +36,7 @@ function ProgressCard({
     'progress-card',
     `progress-card-${context}`,
     `progress-status-${normalizedStatus || 'queued'}`,
+    isActiveProgress(progress) ? 'is-active' : '',
     className,
   ].filter(Boolean).join(' ');
 

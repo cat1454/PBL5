@@ -296,14 +296,25 @@ function getSourceElapsedSeconds(source, progressState) {
   return Math.max(0, Math.round((Date.now() - createdAtMs) / 1000));
 }
 
+function isSourceProcessing(source) {
+  const status = Number(source?.status);
+  const progressStatus = String(source?.processingProgress?.status || '').toLowerCase();
+
+  return [0, 1, 2].includes(status)
+    || progressStatus === 'queued'
+    || progressStatus === 'running';
+}
+
 function buildSourceProcessingViewModel(source, language, t) {
   const rawProgress = source?.processingProgress && typeof source.processingProgress === 'object'
     ? source.processingProgress
     : null;
-  const progressState = rawProgress ? normalizeProgressState(rawProgress) : null;
+  const progressState = rawProgress
+    ? normalizeProgressState(rawProgress)
+    : (isSourceProcessing(source) ? normalizeProgressState({ status: 'running' }) : null);
   const isCompleted = source?.status === 3;
   const isFailed = source?.status === 4;
-  const isActive = isActiveProgress(progressState);
+  const isActive = isSourceProcessing(source);
   const stageLabel = progressState?.stageLabel || '';
   const message = progressState?.message || '';
   const stageMessage = [stageLabel, message]
@@ -335,6 +346,43 @@ function buildSourceProcessingViewModel(source, language, t) {
     statusLabel: t('slides.sourceProcessing.statusLabel'),
     failedLabel: t('slides.sourceProcessing.failedLabel'),
   };
+}
+
+function SourceProcessingProgress({ vm, t, compact = false }) {
+  const backendPercent = vm?.hasProgressPercent ? Math.round(vm.progressPercent) : null;
+  const displayedPercent = useAnimatedProgress(vm?.hasProgressPercent ? vm.progressPercent : 0);
+  const progressClasses = [
+    'folder-studio-source-progress',
+    compact ? 'folder-studio-source-progress-compact' : '',
+    vm?.hasProgressPercent ? (vm?.isActive ? 'is-active' : '') : 'indeterminate',
+  ].filter(Boolean).join(' ');
+
+  if (!vm) {
+    return null;
+  }
+
+  return (
+    <div className="folder-studio-source-processing">
+      <div className="folder-studio-source-processing-head">
+        <strong>
+          {vm.hasProgressPercent
+            ? `${backendPercent}%`
+            : t('slides.sourceProcessing.indeterminateLabel')}
+        </strong>
+        <span>{vm.stageMessage}</span>
+      </div>
+      <div className={progressClasses}>
+        <div
+          className="folder-studio-source-progress-fill"
+          style={{ width: vm.hasProgressPercent ? `${displayedPercent}%` : vm.progressWidth }}
+        />
+      </div>
+      <div className="folder-studio-source-live folder-studio-source-live-block">
+        {vm.isActive && <span className="folder-studio-live-hint">{t('slides.sourceProcessing.liveHint')}</span>}
+        <span>{t('slides.sourceProcessing.etaLabel')} {vm.etaLabel}</span>
+      </div>
+    </div>
+  );
 }
 
 function applyTextStyle(block = {}) {
@@ -907,6 +955,55 @@ function FolderStudio() {
     };
   }, [jobId, loadWorkspace, progress, t]);
 
+  const sourceProcessingPollKey = useMemo(
+    () => sources
+      .filter(isSourceProcessing)
+      .map((source) => String(source.id))
+      .sort()
+      .join('|'),
+    [sources]
+  );
+
+  useEffect(() => {
+    if (!sourceProcessingPollKey) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const activeSourceIds = new Set(sourceProcessingPollKey.split('|').filter(Boolean));
+
+    const pollSources = async () => {
+      try {
+        const nextSources = await workspaceService.listSources(workspaceId);
+        if (cancelled) {
+          return;
+        }
+
+        const normalizedSources = Array.isArray(nextSources) ? nextSources : [];
+        setSources(normalizedSources);
+
+        const terminalReached = Array.from(activeSourceIds).some((sourceId) => {
+          const nextSource = normalizedSources.find((source) => String(source.id) === sourceId);
+          return nextSource && !isSourceProcessing(nextSource);
+        });
+
+        if (terminalReached) {
+          await loadWorkspace({ silent: true });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    pollSources();
+    const interval = setInterval(pollSources, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [loadWorkspace, sourceProcessingPollKey, workspaceId]);
+
   const selectedReadySources = useMemo(
     () => sources.filter((source) => source.status === 3 && (source.includeInWorkspaceSlides ?? source.includeInFolderSlides)),
     [sources]
@@ -1279,21 +1376,12 @@ function FolderStudio() {
   };
 
   const handleGenerateDeck = async () => {
-  if (!selectedSource || selectedSource.status !== 3) {
-    setError(language === 'vi'
-      ? 'Cần ít nhất 1 source đã Completed và được chọn cho slide.'
-      : 'At least one completed source must be selected for slide generation.');
-    return;
-  }
+    if (generateDisabledReason) {
+      setError(generateDisabledReason);
+      return;
+    }
 
-  if (!selectedSectionIds.length) {
-    setError(language === 'vi'
-      ? 'Cần chọn ít nhất một chương hoặc mục trước khi tạo slide.'
-      : 'Choose at least one chapter or section before generating slides.');
-    return;
-  }
-
-  try {
+    try {
     setError('');
     const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
       ...brief,
@@ -1322,15 +1410,15 @@ function FolderStudio() {
     });
 
     await loadWorkspace({ silent: true });
-  } catch (err) {
+    } catch (err) {
     console.error(err);
     setError(isSlideSchemaUnavailable(err)
       ? t('slides.errors.schemaUnavailable')
       : (language === 'vi'
         ? 'Không bắt đầu được quá trình sinh slide cấp workspace.'
         : 'Could not start workspace slide generation.'));
-  }
-};
+    }
+  };
 
   const handleRefreshImages = async () => {
     if (!deck || !selectedSlide) {
@@ -1556,26 +1644,44 @@ function FolderStudio() {
       .some((value) => String(value).toLowerCase().includes(normalizedFilter)))
     : sources;
   const runningSourceVm = sourceViewModels.find(({ vm }) => vm.isActive) || null;
-  const topbarProgress = activeProgress && isActiveProgress(activeProgress)
+  const topbarDeckProgress = activeProgress && isActiveProgress(activeProgress)
     ? activeProgress
-    : runningSourceVm?.vm.progressState || null;
+    : null;
+  const topbarProgress = topbarDeckProgress || runningSourceVm?.vm.progressState || null;
   const topbarCounter = getProgressCounterLabel(topbarProgress, { language });
   const topbarEta = topbarProgress && isActiveProgress(topbarProgress)
     ? (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating'))
     : null;
-  const topbarSourceSummary = runningSourceVm
+  const topbarLiveSummary = topbarDeckProgress
     ? [
-        runningSourceVm.vm.statusLabel,
-        runningSourceVm.vm.hasProgressPercent ? `${Math.round(runningSourceVm.vm.progressPercent)}%` : null,
-        runningSourceVm.vm.stageMessage,
-        `${t('slides.sourceProcessing.etaLabel')} ${runningSourceVm.vm.etaLabel}`,
+        t('slides.generationStatus.liveTitle'),
+        `${Math.round(topbarDeckProgress.percent || 0)}%`,
+        topbarDeckProgress.stageLabel || topbarDeckProgress.message || t('slides.generatingSlides'),
       ].filter(Boolean).join(' · ')
-    : null;
+    : runningSourceVm
+      ? [
+          runningSourceVm.vm.statusLabel,
+          runningSourceVm.vm.hasProgressPercent ? `${Math.round(runningSourceVm.vm.progressPercent)}%` : t('slides.sourceProcessing.indeterminateLabel'),
+          runningSourceVm.vm.stageMessage,
+        ].filter(Boolean).join(' · ')
+      : null;
+  const topbarLiveClass = topbarDeckProgress
+    ? 'folder-studio-live folder-studio-live-pill'
+    : 'folder-studio-live folder-studio-live-pill folder-studio-live-source';
   const activeFieldState = selectedDraft?.[activeField] || null;
   const activeHistory = selectedSlide ? (history[selectedSlide.id] || { past: [], future: [] }) : { past: [], future: [] };
   const selectedImage = selectedImageVm?.selectedImage || null;
-  const canGenerate = Boolean(selectedSource && selectedSource.status === 3 && selectedSectionIds.length > 0)
-    && !(activeProgress && isActiveProgress(activeProgress));
+  const deckProgressActive = Boolean(activeProgress && isActiveProgress(activeProgress));
+  const generateDisabledReason = deckProgressActive
+    ? t('slides.folderGenerate.disabledGenerating')
+    : !selectedSource
+      ? t('slides.folderGenerate.disabledNoSource')
+      : selectedSource.status !== 3
+        ? t('slides.folderGenerate.disabledSourceProcessing')
+        : !selectedSectionIds.length
+          ? t('slides.folderGenerate.disabledNoScope')
+          : '';
+  const canGenerate = !generateDisabledReason;
   const selectedSourceDocumentId = selectedSource?.documentId ?? selectedSource?.DocumentId ?? selectedSource?.id ?? null;
   const selectedSourceQuestionsCount = Number(selectedSource?.questionsCount ?? selectedSource?.QuestionsCount ?? 0);
   const selectedSourceHasQuestions = selectedSourceQuestionsCount > 0;
@@ -1721,14 +1827,9 @@ function FolderStudio() {
               {topbarMeta.map((item) => (
                 <span key={item}>{item}</span>
               ))}
-              {topbarSourceSummary && (
-                <span className="folder-studio-live folder-studio-live-source">
-                  {topbarSourceSummary}
-                </span>
-              )}
-              {topbarProgress && !topbarSourceSummary && (
-                <span className="folder-studio-live">
-                  Live: {topbarProgress.stageLabel || topbarProgress.message || (language === 'vi' ? 'Đang xử lý' : 'Processing')}
+              {topbarLiveSummary && (
+                <span className={topbarLiveClass}>
+                  {topbarLiveSummary}
                   {topbarCounter ? ` | ${topbarCounter}` : ''}
                   {topbarEta ? ` | ETA ${topbarEta}` : ''}
                 </span>
@@ -1873,7 +1974,8 @@ function FolderStudio() {
                       </div>
                       {showLive && (
                         <>
-                          <div className="folder-studio-source-processing">
+                          <SourceProcessingProgress vm={sourceVm} t={t} compact />
+                          <div className="folder-studio-source-processing is-legacy-hidden">
                             <div className="folder-studio-source-processing-head">
                               {sourceVm.hasProgressPercent ? <strong>{Math.round(sourceVm.progressPercent)}%</strong> : <strong>{t('slides.sourceProcessing.indeterminateLabel')}</strong>}
                               <span>{sourceVm.stageMessage}</span>
@@ -2090,6 +2192,8 @@ function FolderStudio() {
                     <p>{t('slides.sourceProcessing.emptyBody')}</p>
 
                     <div className="folder-studio-empty-processing-panel">
+                      <SourceProcessingProgress vm={previewProcessingVm} t={t} />
+                      <div className="folder-studio-empty-processing-legacy is-legacy-hidden">
                       <div className="folder-studio-source-meta">
                         <span className="folder-studio-source-badge tone-active">{previewProcessingVm.statusLabel}</span>
                         <span>
@@ -2110,6 +2214,7 @@ function FolderStudio() {
                           {previewProcessingVm.errorMessage}
                         </div>
                       )}
+                      </div>
                     </div>
 
                     <div className="folder-studio-empty-actions">
@@ -2126,9 +2231,13 @@ function FolderStudio() {
                         className="button"
                         onClick={handleGenerateDeck}
                         disabled
+                        title={generateDisabledReason || undefined}
                       >
                         {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
                       </button>
+                      {generateDisabledReason && (
+                        <div className="folder-studio-generate-hint">{generateDisabledReason}</div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -2159,6 +2268,7 @@ function FolderStudio() {
                         className="button"
                         onClick={handleGenerateDeck}
                         disabled={!canGenerate}
+                        title={generateDisabledReason || undefined}
                       >
                         {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
                       </button>
@@ -2331,13 +2441,16 @@ function FolderStudio() {
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Tạo mới' : 'Create'}</div>
-              <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate}>
+              <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate} title={generateDisabledReason || undefined}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Tạo slide mới từ nội dung' : 'Generate slides from content'}</strong>
-                  <span>{language === 'vi' ? `${selectedReadySources.length} source ready đang được chọn cho workspace` : `${selectedReadySources.length} ready sources selected for this workspace`}</span>
+                  <span>{generateDisabledReason || (language === 'vi' ? `${selectedReadySources.length} source ready đang được chọn cho workspace` : `${selectedReadySources.length} ready sources selected for this workspace`)}</span>
                 </span>
-                <span className="folder-studio-action-badge">AI</span>
+                <span className="folder-studio-action-badge">{canGenerate ? 'AI' : 'WAIT'}</span>
               </button>
+              {generateDisabledReason && (
+                <div className="folder-studio-generate-hint">{generateDisabledReason}</div>
+              )}
               <button
                 type="button"
                 className="folder-studio-action"
