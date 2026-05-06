@@ -4,12 +4,14 @@ import {
   documentService,
   getApiErrorMessage,
   isApiJobNotFound,
+  isSlideSchemaUnavailable,
   questionService,
   slideService,
   workspaceService,
 } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
+import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -346,11 +348,13 @@ function applyTextStyle(block = {}) {
   };
 }
 function WorkspaceDeckProgressCard({ progress, language }) {
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  const displayedPercent = useAnimatedProgress(percent);
+
   if (!progress) {
     return null;
   }
 
-  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
   const counterLabel = getProgressCounterLabel(progress, { language });
   const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
 
@@ -370,7 +374,7 @@ function WorkspaceDeckProgressCard({ progress, language }) {
       <div className="workspace-generate-progress-track">
         <div
           className="workspace-generate-progress-fill"
-          style={{ width: `${percent}%` }}
+          style={{ width: `${displayedPercent}%` }}
         />
       </div>
 
@@ -391,11 +395,13 @@ function WorkspaceDeckProgressCard({ progress, language }) {
 }
 
 function WorkspaceQuestionProgressCard({ progress, language }) {
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  const displayedPercent = useAnimatedProgress(percent);
+
   if (!progress) {
     return null;
   }
 
-  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
   const counterLabel = getProgressCounterLabel(progress, { language });
   const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
 
@@ -415,7 +421,7 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
       <div className="workspace-generate-progress-track">
         <div
           className="workspace-generate-progress-fill"
-          style={{ width: `${percent}%` }}
+          style={{ width: `${displayedPercent}%` }}
         />
       </div>
 
@@ -1318,9 +1324,11 @@ function FolderStudio() {
     await loadWorkspace({ silent: true });
   } catch (err) {
     console.error(err);
-    setError(language === 'vi'
-      ? 'Không bắt đầu được quá trình sinh slide cấp workspace.'
-      : 'Could not start workspace slide generation.');
+    setError(isSlideSchemaUnavailable(err)
+      ? t('slides.errors.schemaUnavailable')
+      : (language === 'vi'
+        ? 'Không bắt đầu được quá trình sinh slide cấp workspace.'
+        : 'Could not start workspace slide generation.'));
   }
 };
 

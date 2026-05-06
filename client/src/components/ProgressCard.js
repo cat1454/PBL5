@@ -6,6 +6,7 @@ import {
   getSubProgress,
   isActiveProgress,
 } from '../services/progress';
+import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useLanguage } from '../context/LanguageContext';
 
 function ProgressCard({
@@ -17,6 +18,8 @@ function ProgressCard({
   className = '',
 }) {
   const { language, t } = useLanguage();
+  const backendPercent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  const displayedPercent = useAnimatedProgress(backendPercent);
 
   if (!progress) {
     return null;
@@ -44,7 +47,7 @@ function ProgressCard({
           <h3 className="progress-card-heading">{stageLabel}</h3>
         </div>
         <div className="progress-card-summary">
-          <strong>{Math.max(0, Math.min(100, progress.percent || 0))}%</strong>
+          <strong>{Math.round(backendPercent)}%</strong>
           <span>{progress.status || 'queued'}</span>
         </div>
       </div>
@@ -58,7 +61,7 @@ function ProgressCard({
       <div className="generation-progress-bar">
         <div
           className="generation-progress-fill"
-          style={{ width: `${Math.max(0, Math.min(100, progress.percent || 0))}%` }}
+          style={{ width: `${Math.max(0, Math.min(100, displayedPercent))}%` }}
         ></div>
       </div>
 

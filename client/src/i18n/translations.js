@@ -2143,4 +2143,14 @@ translations.en.upload = {
   progressDone: 'The file upload is complete. OCR and AI processing are still running in the workspace.',
 };
 
+translations.vi.slides.errors = {
+  ...translations.vi.slides.errors,
+  schemaUnavailable: 'Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.',
+};
+
+translations.en.slides.errors = {
+  ...translations.en.slides.errors,
+  schemaUnavailable: 'Slide schema is not ready. Run the migration/backend update before creating a deck.',
+};
+
 export default translations;

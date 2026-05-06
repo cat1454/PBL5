@@ -479,6 +479,25 @@ public class SlidesController : AuthenticatedControllerBase
                     UpdateJob(jobId, state =>
                     {
                         ApplyGeneratorProgress(state, update, 4, 6, index + 1, slideItems.Count);
+
+                        state.Percent = Math.Max(
+                            state.Percent,
+                            MapSlideProgress(
+                                completedSlides: index,
+                                totalSlides: slideItems.Count,
+                                currentSlidePercent: update.Percent,
+                                startPercent: 30,
+                                endPercent: 90));
+                        state.Stage = "generating-slides";
+                        state.StageLabel = "Dang sinh slide";
+                        state.Message = $"Dang tao slide {index + 1}/{slideItems.Count}";
+                        state.Detail = string.IsNullOrWhiteSpace(update.Detail)
+                            ? (string.IsNullOrWhiteSpace(update.Message) ? outlineSlide.Heading : update.Message)
+                            : update.Detail;
+                        state.Current = index + 1;
+                        state.Total = slideItems.Count;
+                        state.UnitLabel = "slide";
+                        UpdateEta(state);
                     });
                 });
 
@@ -508,6 +527,22 @@ public class SlidesController : AuthenticatedControllerBase
                 item.Status = content.SuggestedStatus;
                 if (item.Status == SlideItemStatus.Completed)
                 {
+                    UpdateJob(jobId, state =>
+                    {
+                        state.Percent = Math.Max(
+                            state.Percent,
+                            MapSlideProgress(index, slideItems.Count, 96, 30, 90));
+                        state.Stage = "image-sourcing";
+                        state.StageLabel = "Dang xu ly media";
+                        state.Message = $"Dang tim/chon media cho slide {index + 1}/{slideItems.Count}";
+                        state.Detail = item.Heading;
+                        state.Current = index + 1;
+                        state.Total = slideItems.Count;
+                        state.UnitLabel = "slide";
+                        state.StageIndex = 5;
+                        state.StageCount = 6;
+                        UpdateEta(state);
+                    });
                     await slideImageService.SourceImagesForItemAsync(item);
                 }
                 await slideDeckRepository.UpdateItemAsync(item);
@@ -551,6 +586,30 @@ public class SlidesController : AuthenticatedControllerBase
                 state.EstimatedRemainingSeconds = 0;
                 UpdateEta(state);
             });
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            _logger.LogError(ex, "Slide schema is unavailable for job {JobId}", jobId);
+            if (persistedDeck != null)
+            {
+                try
+                {
+                    persistedDeck.Status = SlideDeckStatus.Failed;
+                    persistedDeck.UpdatedAt = DateTime.UtcNow;
+                    using var failureScope = _scopeFactory.CreateScope();
+                    var slideDeckRepository = failureScope.ServiceProvider.GetRequiredService<ISlideDeckRepository>();
+                    await slideDeckRepository.UpdateDeckAsync(persistedDeck);
+                }
+                catch (Exception updateEx)
+                {
+                    _logger.LogWarning(updateEx, "Could not mark slide deck {DeckId} as failed", persistedDeck.Id);
+                }
+            }
+
+            FailJob(
+                jobId,
+                ex.Message,
+                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.");
         }
         catch (Exception ex)
         {
@@ -1321,6 +1380,29 @@ public class SlidesController : AuthenticatedControllerBase
 
         var ratio = Math.Clamp(current / (double)total, 0d, 1d);
         return startPercent + (int)Math.Round((endPercent - startPercent) * ratio);
+    }
+
+    private static int MapSlideProgress(
+        int completedSlides,
+        int totalSlides,
+        int currentSlidePercent,
+        int startPercent = 30,
+        int endPercent = 90)
+    {
+        var safeStart = Math.Clamp(startPercent, 0, 100);
+        var safeEnd = Math.Clamp(endPercent, safeStart, 100);
+
+        if (totalSlides <= 0)
+        {
+            return safeStart;
+        }
+
+        var clampedCurrent = Math.Clamp(currentSlidePercent, 0, 100);
+        var clampedCompleted = Math.Clamp(completedSlides, 0, totalSlides);
+        var progressUnits = clampedCompleted + clampedCurrent / 100d;
+        var ratio = Math.Clamp(progressUnits / totalSlides, 0d, 1d);
+
+        return safeStart + (int)Math.Round((safeEnd - safeStart) * ratio);
     }
 
     private static void UpdateEta(SlideGenerationJobState state)

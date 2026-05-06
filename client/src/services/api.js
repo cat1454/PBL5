@@ -104,6 +104,18 @@ export function isApiJobNotFound(error) {
   return message.includes('job not found');
 }
 
+export function isSlideSchemaUnavailable(error) {
+  const message = getApiErrorMessage(error, '').toLowerCase();
+
+  return message.includes('slide schema')
+    || message.includes('slide_decks')
+    || message.includes('slide_items')
+    || message.includes('image_plan')
+    || message.includes('image_candidates')
+    || message.includes('selected_image_key')
+    || message.includes('editor_state');
+}
+
 export const authService = {
   register: async (payload) => {
     const response = await apiClient.post('/auth/register', payload);
