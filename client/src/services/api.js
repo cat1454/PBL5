@@ -397,6 +397,30 @@ export const learningService = {
     const response = await apiClient.get(`/learning/progress/summary/${documentId}`);
     return response.data;
   },
+
+  exportAttemptsCsv: async (filters = {}) => {
+    const response = await apiClient.get('/learning/export/attempts.csv', {
+      params: filters,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  exportProgressCsv: async (filters = {}) => {
+    const response = await apiClient.get('/learning/export/progress.csv', {
+      params: filters,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  exportTestResultsCsv: async (filters = {}) => {
+    const response = await apiClient.get('/learning/export/test-results.csv', {
+      params: filters,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 export const gameService = {
