@@ -2,8 +2,13 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.API.Controllers;
@@ -16,15 +21,18 @@ public class LearningController : AuthenticatedControllerBase
     private readonly IDocumentRepository _documentRepository;
     private readonly IQuestionRepository _questionRepository;
     private readonly ILearningProgressService _learningProgressService;
+    private readonly ApplicationDbContext _dbContext;
 
     public LearningController(
         IDocumentRepository documentRepository,
         IQuestionRepository questionRepository,
-        ILearningProgressService learningProgressService)
+        ILearningProgressService learningProgressService,
+        ApplicationDbContext dbContext)
     {
         _documentRepository = documentRepository;
         _questionRepository = questionRepository;
         _learningProgressService = learningProgressService;
+        _dbContext = dbContext;
     }
 
     [HttpPost("attempts")]
@@ -147,6 +155,28 @@ public class LearningController : AuthenticatedControllerBase
             return BadRequest("testSessionId is required.");
         }
 
+        var testSession = await _dbContext.LearningTestResults
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                result => result.UserId == CurrentUserIdAsString && result.TestSessionId == request.TestSessionId,
+                cancellationToken);
+        if (testSession == null)
+        {
+            return NotFound("Test session not found.");
+        }
+
+        var document = await _documentRepository.GetByIdAsync(testSession.DocumentId);
+        if (document == null)
+        {
+            return NotFound("Document not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         var testSessionQuestions = request.Answers.Select(answer => answer.QuestionId).ToList();
         var documentQuestions = (await _questionRepository.GetByIdsAsync(testSessionQuestions))
             .ToDictionary(question => question.Id);
@@ -162,6 +192,11 @@ public class LearningController : AuthenticatedControllerBase
             if (!documentQuestions.TryGetValue(answer.QuestionId, out var question))
             {
                 return NotFound($"Question {answer.QuestionId} not found for this document.");
+            }
+
+            if (question.DocumentId != testSession.DocumentId)
+            {
+                return BadRequest($"Question {answer.QuestionId} does not belong to this test session.");
             }
 
             var isCorrect = ResolveCorrectness(question, LearningMode.Test, answer.SelectedAnswer, null);
@@ -197,19 +232,244 @@ public class LearningController : AuthenticatedControllerBase
             return BadRequest(ex.Message);
         }
 
-        var document = await _documentRepository.GetByIdAsync(result.DocumentId);
-        if (document == null)
-        {
-            return NotFound("Document not found.");
-        }
+        return Ok(result);
+    }
 
-        var authResult = EnsureOwnerAccess(document.UploadedBy);
+    [HttpGet("export/attempts.csv")]
+    public async Task<IActionResult> ExportAttemptsCsv(
+        [FromQuery] LearningExportQuery query,
+        CancellationToken cancellationToken)
+    {
+        var authResult = await EnsureExportAccessAsync(query.DocumentId);
         if (authResult != null)
         {
             return authResult;
         }
 
-        return Ok(result);
+        var attemptsQuery = _dbContext.LearningAttempts
+            .AsNoTracking()
+            .Where(attempt => attempt.UserId == CurrentUserIdAsString);
+
+        if (query.DocumentId.HasValue)
+        {
+            attemptsQuery = attemptsQuery.Where(attempt => attempt.DocumentId == query.DocumentId.Value);
+        }
+
+        var fromDate = NormalizeUtc(query.FromDate);
+        var toDate = NormalizeUtc(query.ToDate);
+
+        if (fromDate.HasValue)
+        {
+            attemptsQuery = attemptsQuery.Where(attempt => attempt.CreatedAt >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            attemptsQuery = attemptsQuery.Where(attempt => attempt.CreatedAt <= toDate.Value);
+        }
+
+        if (query.Mode.HasValue)
+        {
+            attemptsQuery = attemptsQuery.Where(attempt => attempt.Mode == query.Mode.Value);
+        }
+
+        var attempts = await attemptsQuery
+            .OrderBy(attempt => attempt.CreatedAt)
+            .ThenBy(attempt => attempt.Id)
+            .ToListAsync(cancellationToken);
+
+        var csv = BuildCsv(
+            new[]
+            {
+                "attemptId",
+                "userId",
+                "documentId",
+                "questionId",
+                "mode",
+                "selectedAnswer",
+                "isCorrect",
+                "responseTimeMs",
+                "createdAt",
+                "testResultId"
+            },
+            attempts.Select(attempt => new object?[]
+            {
+                attempt.Id,
+                attempt.UserId,
+                attempt.DocumentId,
+                attempt.QuestionId,
+                attempt.Mode.ToString(),
+                attempt.SelectedAnswer,
+                attempt.IsCorrect,
+                attempt.ResponseTimeMs,
+                attempt.CreatedAt,
+                attempt.TestResultId
+            }));
+
+        return CsvFile(csv, "learning-attempts.csv");
+    }
+
+    [HttpGet("export/progress.csv")]
+    public async Task<IActionResult> ExportProgressCsv(
+        [FromQuery] LearningExportQuery query,
+        CancellationToken cancellationToken)
+    {
+        var authResult = await EnsureExportAccessAsync(query.DocumentId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var progressQuery = _dbContext.LearningProgresses
+            .AsNoTracking()
+            .Where(progress => progress.UserId == CurrentUserIdAsString);
+
+        if (query.DocumentId.HasValue)
+        {
+            progressQuery = progressQuery.Where(progress => progress.DocumentId == query.DocumentId.Value);
+        }
+
+        var fromDate = NormalizeUtc(query.FromDate);
+        var toDate = NormalizeUtc(query.ToDate);
+
+        if (fromDate.HasValue)
+        {
+            progressQuery = progressQuery.Where(progress => progress.UpdatedAt >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            progressQuery = progressQuery.Where(progress => progress.UpdatedAt <= toDate.Value);
+        }
+
+        var progresses = await progressQuery
+            .OrderBy(progress => progress.DocumentId)
+            .ThenBy(progress => progress.QuestionId)
+            .ToListAsync(cancellationToken);
+
+        var csv = BuildCsv(
+            new[]
+            {
+                "progressId",
+                "userId",
+                "documentId",
+                "questionId",
+                "attemptCount",
+                "correctCount",
+                "wrongCount",
+                "currentStreak",
+                "bestStreak",
+                "lastReviewedAt",
+                "memoryScore",
+                "masteryScore",
+                "level",
+                "updatedAt"
+            },
+            progresses.Select(progress => new object?[]
+            {
+                progress.Id,
+                progress.UserId,
+                progress.DocumentId,
+                progress.QuestionId,
+                progress.AttemptCount,
+                progress.CorrectCount,
+                progress.WrongCount,
+                progress.CurrentStreak,
+                progress.BestStreak,
+                progress.LastReviewedAt,
+                progress.MemoryScore,
+                progress.MasteryScore,
+                progress.Level.ToString(),
+                progress.UpdatedAt
+            }));
+
+        return CsvFile(csv, "learning-progress.csv");
+    }
+
+    [HttpGet("export/test-results.csv")]
+    public async Task<IActionResult> ExportTestResultsCsv(
+        [FromQuery] LearningExportQuery query,
+        CancellationToken cancellationToken)
+    {
+        var authResult = await EnsureExportAccessAsync(query.DocumentId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var resultsQuery = _dbContext.LearningTestResults
+            .AsNoTracking()
+            .Where(result => result.UserId == CurrentUserIdAsString);
+
+        if (query.DocumentId.HasValue)
+        {
+            resultsQuery = resultsQuery.Where(result => result.DocumentId == query.DocumentId.Value);
+        }
+
+        var fromDate = NormalizeUtc(query.FromDate);
+        var toDate = NormalizeUtc(query.ToDate);
+
+        if (fromDate.HasValue)
+        {
+            resultsQuery = resultsQuery.Where(result => result.CreatedAt >= fromDate.Value);
+        }
+
+        if (toDate.HasValue)
+        {
+            resultsQuery = resultsQuery.Where(result => result.CreatedAt <= toDate.Value);
+        }
+
+        if (query.TestType.HasValue)
+        {
+            resultsQuery = resultsQuery.Where(result => result.TestType == query.TestType.Value);
+        }
+
+        var results = await resultsQuery
+            .OrderBy(result => result.CreatedAt)
+            .ThenBy(result => result.Id)
+            .ToListAsync(cancellationToken);
+
+        var csv = BuildCsv(
+            new[]
+            {
+                "testResultId",
+                "testSessionId",
+                "userId",
+                "documentId",
+                "testType",
+                "status",
+                "totalQuestions",
+                "correctCount",
+                "wrongCount",
+                "score",
+                "startedAt",
+                "submittedAt",
+                "durationMs",
+                "masteryScoreAfterTest",
+                "memoryScoreAfterTest",
+                "createdAt"
+            },
+            results.Select(result => new object?[]
+            {
+                result.Id,
+                result.TestSessionId,
+                result.UserId,
+                result.DocumentId,
+                result.TestType.ToString(),
+                result.Status.ToString(),
+                result.TotalQuestions,
+                result.CorrectCount,
+                result.WrongCount,
+                result.Score,
+                result.StartedAt,
+                result.SubmittedAt,
+                result.DurationMs,
+                ExtractSnapshotNumber(result.ResultSnapshotJson, "masteryScoreAfterTest"),
+                ExtractSnapshotNumber(result.ResultSnapshotJson, "memoryScoreAfterTest"),
+                result.CreatedAt
+            }));
+
+        return CsvFile(csv, "learning-test-results.csv");
     }
 
     [HttpGet("tests/document/{documentId:int}")]
@@ -389,6 +649,112 @@ public class LearningController : AuthenticatedControllerBase
             isUnknown = !question.VerifierScore.HasValue
         };
     }
+
+    private async Task<IActionResult?> EnsureExportAccessAsync(int? documentId)
+    {
+        if (CurrentUserId == null || string.IsNullOrWhiteSpace(CurrentUserIdAsString))
+        {
+            return Unauthorized();
+        }
+
+        if (!documentId.HasValue)
+        {
+            return null;
+        }
+
+        var document = await _documentRepository.GetByIdAsync(documentId.Value);
+        if (document == null)
+        {
+            return NotFound("Document not found.");
+        }
+
+        return EnsureOwnerAccess(document.UploadedBy);
+    }
+
+    private FileContentResult CsvFile(string csv, string fileName)
+    {
+        var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(csv);
+        return File(bytes, "text/csv; charset=utf-8", fileName);
+    }
+
+    private static string BuildCsv(IEnumerable<string> headers, IEnumerable<IEnumerable<object?>> rows)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine(string.Join(",", headers.Select(EscapeCsvValue)));
+
+        foreach (var row in rows)
+        {
+            builder.AppendLine(string.Join(",", row.Select(EscapeCsvValue)));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string EscapeCsvValue(object? value)
+    {
+        if (value == null)
+        {
+            return string.Empty;
+        }
+
+        var text = value switch
+        {
+            DateTime dateTime => dateTime.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            DateTimeOffset dateTimeOffset => dateTimeOffset.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
+            double number => number.ToString(CultureInfo.InvariantCulture),
+            float number => number.ToString(CultureInfo.InvariantCulture),
+            decimal number => number.ToString(CultureInfo.InvariantCulture),
+            bool boolean => boolean ? "true" : "false",
+            _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty
+        };
+
+        if (text.Contains('"') || text.Contains(',') || text.Contains('\n') || text.Contains('\r'))
+        {
+            return $"\"{text.Replace("\"", "\"\"")}\"";
+        }
+
+        return text;
+    }
+
+    private static double? ExtractSnapshotNumber(string? snapshotJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotJson);
+            if (document.RootElement.TryGetProperty(propertyName, out var property)
+                && property.ValueKind == JsonValueKind.Number
+                && property.TryGetDouble(out var value))
+            {
+                return value;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static DateTime? NormalizeUtc(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        return value.Value.Kind switch
+        {
+            DateTimeKind.Utc => value.Value,
+            DateTimeKind.Local => value.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+        };
+    }
 }
 
 public class StartLearningTestRequest
@@ -420,4 +786,13 @@ public class SubmitLearningTestAnswerRequest
     public int QuestionId { get; set; }
     public string? SelectedAnswer { get; set; }
     public int? ResponseTimeMs { get; set; }
+}
+
+public class LearningExportQuery
+{
+    public int? DocumentId { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+    public LearningMode? Mode { get; set; }
+    public LearningTestType? TestType { get; set; }
 }
