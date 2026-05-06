@@ -33,6 +33,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [selectedSlideId, setSelectedSlideId] = useState(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [canvasZoom, setCanvasZoom] = useState('fit');
+  const [exportingFormat, setExportingFormat] = useState('');
 
   const audienceOptions = t('slides.options.audiences');
   const toneOptions = t('slides.options.tones');
@@ -525,11 +526,88 @@ function SlideStudio({ documentId: propDocumentId }) {
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide, t) : null;
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
+  const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
 
   const handleSelectSlide = (item) => {
     setSelectedSlideId(item.id);
     if (slideRefs.current[item.id]) {
       slideRefs.current[item.id].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  };
+
+  const handleDownloadHtml = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    try {
+      setExportingFormat('html');
+      const result = await slideService.exportDeckHtml(deck.id);
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.htmlExported'),
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      const message = getApiErrorMessage(err, t('slides.errors.exportFailed'));
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleOpenPrint = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast({ type: 'error', message: t('slides.errors.printBlocked') });
+      return;
+    }
+    printWindow.opener = null;
+
+    try {
+      setExportingFormat('print');
+      const blob = await slideService.getDeckPrintHtml(deck.id);
+      const url = window.URL.createObjectURL(blob);
+      printWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      showToast({ type: 'success', message: t('slides.feedback.printOpened') });
+    } catch (err) {
+      console.error(err);
+      printWindow.close();
+      const message = getApiErrorMessage(err, t('slides.errors.exportFailed'));
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleDownloadPptx = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    try {
+      setExportingFormat('pptx');
+      const result = await slideService.exportDeckPptx(deck.id);
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.pptxExported'),
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      const message = getApiErrorMessage(err, t('slides.errors.exportFailed'));
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
     }
   };
 
@@ -560,11 +638,15 @@ function SlideStudio({ documentId: propDocumentId }) {
           <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
             <span>{hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}</span>
           </button>
-          {deck && (
-            <button className="button button-secondary" onClick={() => window.open(slideService.getDeckHtmlUrl(documentId), '_blank', 'noopener,noreferrer')}>
-              <span>{t('slides.export')}</span>
-            </button>
-          )}
+          <button className="button button-secondary" onClick={handleDownloadHtml} disabled={isExportDisabled}>
+            <span>{exportingFormat === 'html' ? t('slides.exportingHtml') : t('slides.downloadHtml')}</span>
+          </button>
+          <button className="button button-secondary" onClick={handleOpenPrint} disabled={isExportDisabled}>
+            <span>{exportingFormat === 'print' ? t('slides.openingPrint') : t('slides.printPdf')}</span>
+          </button>
+          <button className="button button-secondary" onClick={handleDownloadPptx} disabled={isExportDisabled}>
+            <span>{exportingFormat === 'pptx' ? t('slides.exportingPptx') : t('slides.downloadPptx')}</span>
+          </button>
           <button className="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
             <span>
               {isGenerating

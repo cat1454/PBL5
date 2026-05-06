@@ -530,6 +530,7 @@ function FolderStudio() {
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState('');
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
@@ -1662,6 +1663,99 @@ function FolderStudio() {
     });
   };
 
+  const isExportDisabled = !deck || isGeneratingDeck || Boolean(exportingFormat);
+
+  const handleDownloadHtml = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    try {
+      setExportingFormat('html');
+      const result = await slideService.exportDeckHtml(deck.id);
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Đã tải file HTML.' : 'HTML file downloaded.',
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      const message = getApiErrorMessage(
+        err,
+        language === 'vi' ? 'Không thể xuất deck.' : 'Could not export the deck.'
+      );
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleOpenPrint = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast({
+        type: 'error',
+        message: language === 'vi' ? 'Trình duyệt đã chặn tab in.' : 'The browser blocked the print tab.',
+      });
+      return;
+    }
+    printWindow.opener = null;
+
+    try {
+      setExportingFormat('print');
+      const blob = await slideService.getDeckPrintHtml(deck.id);
+      const url = window.URL.createObjectURL(blob);
+      printWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Đã mở chế độ In / Lưu PDF.' : 'Print / Save as PDF view opened.',
+      });
+    } catch (err) {
+      console.error(err);
+      printWindow.close();
+      const message = getApiErrorMessage(
+        err,
+        language === 'vi' ? 'Không thể mở chế độ in.' : 'Could not open the print view.'
+      );
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleDownloadPptx = async () => {
+    if (!deck || isExportDisabled) {
+      return;
+    }
+
+    try {
+      setExportingFormat('pptx');
+      const result = await slideService.exportDeckPptx(deck.id);
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Đã tải file PPTX.' : 'PPTX file downloaded.',
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      const message = getApiErrorMessage(
+        err,
+        language === 'vi' ? 'Không thể xuất PPTX.' : 'Could not export PPTX.'
+      );
+      setError(message);
+      showToast({ type: 'error', message });
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
   const slideItems = deck?.items || [];
   const normalizedFilter = filterText.trim().toLowerCase();
   const filteredSources = normalizedFilter
@@ -1875,19 +1969,30 @@ function FolderStudio() {
               {uploading ? (language === 'vi' ? 'Đang thêm...' : 'Adding...') : (language === 'vi' ? 'Thêm nguồn' : 'Add source')}
             </button>
             <div className="folder-studio-avatar">GV</div>
-            <a
-              className={`folder-studio-mini-primary${!deck ? ' is-disabled' : ''}`}
-              href={deck ? slideService.getFolderDeckHtmlUrl(workspaceId) : undefined}
-              target={deck ? '_blank' : undefined}
-              rel={deck ? 'noreferrer' : undefined}
-              onClick={(event) => {
-                if (!deck) {
-                  event.preventDefault();
-                }
-              }}
+            <button
+              type="button"
+              className="folder-studio-mini-primary"
+              onClick={handleDownloadHtml}
+              disabled={isExportDisabled}
             >
-              HTML / PDF
-            </a>
+              {exportingFormat === 'html' ? 'HTML...' : 'HTML'}
+            </button>
+            <button
+              type="button"
+              className="folder-studio-mini-primary"
+              onClick={handleOpenPrint}
+              disabled={isExportDisabled}
+            >
+              {exportingFormat === 'print' ? 'Print...' : (language === 'vi' ? 'In PDF' : 'Print PDF')}
+            </button>
+            <button
+              type="button"
+              className="folder-studio-mini-primary"
+              onClick={handleDownloadPptx}
+              disabled={isExportDisabled}
+            >
+              {exportingFormat === 'pptx' ? 'PPTX...' : 'PPTX'}
+            </button>
           </div>
         </div>
 
@@ -2647,29 +2752,41 @@ function FolderStudio() {
                 </span>
                 <span className="folder-studio-action-badge">Save</span>
               </button>
-              <a
-                className={`folder-studio-action${!deck ? ' is-disabled' : ''}`}
-                href={deck ? slideService.getFolderDeckHtmlUrl(workspaceId) : undefined}
-                target={deck ? '_blank' : undefined}
-                rel={deck ? 'noreferrer' : undefined}
-                onClick={(event) => {
-                  if (!deck) {
-                    event.preventDefault();
-                  }
-                }}
+              <button
+                type="button"
+                className="folder-studio-action"
+                onClick={handleDownloadHtml}
+                disabled={isExportDisabled}
               >
                 <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Tải xuống HTML / PDF' : 'Download HTML / PDF'}</strong>
-                  <span>{language === 'vi' ? 'Xuất deck cấp workspace để preview hoặc in PDF từ browser' : 'Export the workspace deck for preview or browser-based PDF printing'}</span>
+                  <strong>{language === 'vi' ? 'Tải HTML' : 'Download HTML'}</strong>
+                  <span>{language === 'vi' ? 'Tải deck thành file .html độc lập.' : 'Download the deck as a standalone .html file.'}</span>
                 </span>
-                <span className="folder-studio-action-badge">Export</span>
-              </a>
-              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint')}>
+                <span className="folder-studio-action-badge">{exportingFormat === 'html' ? '...' : 'HTML'}</span>
+              </button>
+              <button
+                type="button"
+                className="folder-studio-action"
+                onClick={handleOpenPrint}
+                disabled={isExportDisabled}
+              >
                 <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint'}</strong>
-                  <span>{language === 'vi' ? 'Cho phase xuất file pptx sau này' : 'Reserved for a future PPTX export phase'}</span>
+                  <strong>{language === 'vi' ? 'In / Lưu PDF' : 'Print / Save as PDF'}</strong>
+                  <span>{language === 'vi' ? 'Mở bản in thân thiện để lưu PDF từ browser.' : 'Open the print-friendly view for browser PDF saving.'}</span>
                 </span>
-                <span className="folder-studio-action-badge">Soon</span>
+                <span className="folder-studio-action-badge">{exportingFormat === 'print' ? '...' : 'PDF'}</span>
+              </button>
+              <button
+                type="button"
+                className="folder-studio-action"
+                onClick={handleDownloadPptx}
+                disabled={isExportDisabled}
+              >
+                <span className="folder-studio-action-copy">
+                  <strong>{language === 'vi' ? 'Tải PPTX' : 'Download PPTX'}</strong>
+                  <span>{language === 'vi' ? 'Tải file PowerPoint có title, body và notes cơ bản.' : 'Download a basic PowerPoint file with title, body, and notes.'}</span>
+                </span>
+                <span className="folder-studio-action-badge">{exportingFormat === 'pptx' ? '...' : 'PPTX'}</span>
               </button>
               <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Chia sẻ liên kết' : 'Share link')}>
                 <span className="folder-studio-action-copy">

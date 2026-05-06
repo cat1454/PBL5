@@ -53,6 +53,9 @@ Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có �
   - chọn phạm vi section/source trước khi sinh slide;
   - poll progress khi generate slide;
   - preview HTML;
+  - export HTML file;
+  - Print / Save as PDF qua browser print flow;
+  - export PPTX basic;
   - chỉnh sửa slide item;
   - refresh/select image candidate cho slide.
 - Workspace/Folder flow:
@@ -424,7 +427,8 @@ http://localhost:3000
 7. Tìm/chọn media cho slide nếu image pipeline bật.
 8. Lưu `SlideDeck` + `SlideItem`.
 9. Render HTML để preview.
-10. Cho phép chỉnh sửa slide item và chọn lại image candidate.
+10. Export HTML, Print / Save as PDF và PPTX basic theo deck.
+11. Cho phép chỉnh sửa slide item và chọn lại image candidate.
 
 ---
 
@@ -528,6 +532,9 @@ GET    /api/slides/document/{documentId}
 GET    /api/slides/document/{documentId}/html
 GET    /api/slides/folders/{folderId}
 GET    /api/slides/folders/{folderId}/html
+GET    /api/slides/{deckId}/export/html
+GET    /api/slides/{deckId}/export/print
+GET    /api/slides/{deckId}/export/pptx
 PUT    /api/slides/{deckId}/items/{itemId}
 POST   /api/slides/{deckId}/items/{itemId}/images/refresh
 POST   /api/slides/{deckId}/items/{itemId}/images/select

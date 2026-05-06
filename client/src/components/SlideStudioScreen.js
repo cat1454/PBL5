@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ProgressCard from './ProgressCard';
 import { useToast } from './common/ToastProvider';
-import { documentService, isApiNotFound, slideService } from '../services/api';
+import { documentService, getApiErrorMessage, isApiNotFound, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const THEME_OPTIONS = [
@@ -59,6 +59,7 @@ function SlideStudioScreen() {
   const [deckBrief, setDeckBrief] = useState(DEFAULT_BRIEF);
   const [briefDirty, setBriefDirty] = useState(false);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState('');
 
   const loadDocument = useCallback(async () => {
     try {
@@ -330,6 +331,76 @@ function SlideStudioScreen() {
     }
   };
 
+  const handleDownloadHtml = async () => {
+    if (!deck || exportingFormat || isActiveProgress(activeProgress)) {
+      return;
+    }
+
+    try {
+      setExportingFormat('html');
+      const result = await slideService.exportDeckHtml(deck.id);
+      showToast({
+        type: 'success',
+        message: 'Da tai file HTML.',
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(getApiErrorMessage(err, 'Khong the xuat HTML.'));
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleOpenPrint = async () => {
+    if (!deck || exportingFormat || isActiveProgress(activeProgress)) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError('Trinh duyet da chan tab in. Hay cho phep popup va thu lai.');
+      return;
+    }
+    printWindow.opener = null;
+
+    try {
+      setExportingFormat('print');
+      const blob = await slideService.getDeckPrintHtml(deck.id);
+      const url = window.URL.createObjectURL(blob);
+      printWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      showToast({ type: 'success', message: 'Da mo ban In / Luu PDF.' });
+    } catch (err) {
+      console.error(err);
+      printWindow.close();
+      setError(getApiErrorMessage(err, 'Khong the mo ban in.'));
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
+  const handleDownloadPptx = async () => {
+    if (!deck || exportingFormat || isActiveProgress(activeProgress)) {
+      return;
+    }
+
+    try {
+      setExportingFormat('pptx');
+      const result = await slideService.exportDeckPptx(deck.id);
+      showToast({
+        type: 'success',
+        message: 'Da tai file PPTX.',
+        description: result.filename,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(getApiErrorMessage(err, 'Khong the xuat PPTX.'));
+    } finally {
+      setExportingFormat('');
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -340,6 +411,7 @@ function SlideStudioScreen() {
   }
 
   const canGenerate = documentMeta?.status === 3;
+  const isExportDisabled = !deck || exportingFormat || isActiveProgress(activeProgress);
   const outlineSlides = deck?.outline?.slides || [];
   const themeMeta = getThemeMeta(deckBrief.themeKey);
   const allPreviewItems = deck?.items || [];
@@ -486,11 +558,15 @@ function SlideStudioScreen() {
               <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
                 {hideLowConfidence ? 'Hiện tất cả slide' : 'Ẩn slide điểm thấp'}
               </button>
-              {deck && (
-                <button className="button button-secondary" onClick={() => window.open(slideService.getDeckHtmlUrl(documentId), '_blank', 'noopener,noreferrer')}>
-                  Export HTML/PDF
-                </button>
-              )}
+              <button className="button button-secondary" onClick={handleDownloadHtml} disabled={isExportDisabled}>
+                {exportingFormat === 'html' ? 'Dang tai HTML...' : 'Tai HTML'}
+              </button>
+              <button className="button button-secondary" onClick={handleOpenPrint} disabled={isExportDisabled}>
+                {exportingFormat === 'print' ? 'Dang mo ban in...' : 'In / Luu PDF'}
+              </button>
+              <button className="button button-secondary" onClick={handleDownloadPptx} disabled={isExportDisabled}>
+                {exportingFormat === 'pptx' ? 'Dang tai PPTX...' : 'Tai PPTX'}
+              </button>
             </div>
           </section>
 

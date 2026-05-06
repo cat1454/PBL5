@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.API.Services;
@@ -29,6 +30,7 @@ public class SlidesController : AuthenticatedControllerBase
     private readonly IFolderProjectRepository _folderProjectRepository;
     private readonly ISlideDeckRepository _slideDeckRepository;
     private readonly ISlideGenerator _slideGenerator;
+    private readonly ISlideExportService _slideExportService;
     private readonly ISlideImageService _slideImageService;
     private readonly ISlideGenerationJobStore _jobStore;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -39,6 +41,7 @@ public class SlidesController : AuthenticatedControllerBase
         IFolderProjectRepository folderProjectRepository,
         ISlideDeckRepository slideDeckRepository,
         ISlideGenerator slideGenerator,
+        ISlideExportService slideExportService,
         ISlideImageService slideImageService,
         ISlideGenerationJobStore jobStore,
         IServiceScopeFactory scopeFactory,
@@ -48,6 +51,7 @@ public class SlidesController : AuthenticatedControllerBase
         _folderProjectRepository = folderProjectRepository;
         _slideDeckRepository = slideDeckRepository;
         _slideGenerator = slideGenerator;
+        _slideExportService = slideExportService;
         _slideImageService = slideImageService;
         _jobStore = jobStore;
         _scopeFactory = scopeFactory;
@@ -184,6 +188,73 @@ public class SlidesController : AuthenticatedControllerBase
 
             var html = _slideGenerator.RenderDeckHtml(deck, deck.Items.OrderBy(item => item.SlideIndex).ToList());
             return Content(html, "text/html; charset=utf-8");
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpGet("{deckId:int}/export/html")]
+    public async Task<IActionResult> ExportDeckHtml(int deckId)
+    {
+        try
+        {
+            var access = await GetDeckForExportAsync(deckId);
+            if (access.ErrorResult != null || access.Deck == null)
+            {
+                return access.ErrorResult ?? NotFound("Slide deck not found");
+            }
+
+            var items = access.Deck.Items.OrderBy(item => item.SlideIndex).ToList();
+            var html = _slideExportService.RenderHtmlFile(access.Deck, items);
+            var bytes = Encoding.UTF8.GetBytes(html);
+            return File(bytes, "text/html; charset=utf-8", BuildExportFileName(access.Deck, "html"));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpGet("{deckId:int}/export/print")]
+    public async Task<IActionResult> ExportDeckPrintView(int deckId)
+    {
+        try
+        {
+            var access = await GetDeckForExportAsync(deckId);
+            if (access.ErrorResult != null || access.Deck == null)
+            {
+                return access.ErrorResult ?? NotFound("Slide deck not found");
+            }
+
+            var items = access.Deck.Items.OrderBy(item => item.SlideIndex).ToList();
+            var html = _slideExportService.RenderPrintHtml(access.Deck, items);
+            return Content(html, "text/html; charset=utf-8");
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpGet("{deckId:int}/export/pptx")]
+    public async Task<IActionResult> ExportDeckPptx(int deckId)
+    {
+        try
+        {
+            var access = await GetDeckForExportAsync(deckId);
+            if (access.ErrorResult != null || access.Deck == null)
+            {
+                return access.ErrorResult ?? NotFound("Slide deck not found");
+            }
+
+            var items = access.Deck.Items.OrderBy(item => item.SlideIndex).ToList();
+            var pptx = _slideExportService.BuildPptx(access.Deck, items);
+            return File(
+                pptx,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                BuildExportFileName(access.Deck, "pptx"));
         }
         catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
         {
@@ -608,13 +679,8 @@ public class SlidesController : AuthenticatedControllerBase
 
             FailJob(
                 jobId,
-<<<<<<< HEAD
                 ex.Message,
                 "Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.");
-=======
-                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.",
-                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.");
->>>>>>> 17ae681 (fix(slides): address progress polling review comments)
         }
         catch (Exception ex)
         {
@@ -1792,9 +1858,58 @@ public class SlidesController : AuthenticatedControllerBase
         return EnsureOwnerAccess(ownerUserId);
     }
 
+    private async Task<DeckExportAccessResult> GetDeckForExportAsync(int deckId)
+    {
+        var deck = await _slideDeckRepository.GetByIdAsync(deckId);
+        if (deck == null)
+        {
+            return new DeckExportAccessResult(null, NotFound("Slide deck not found"));
+        }
+
+        var ownerUserId = deck.Document?.UploadedBy ?? deck.FolderProject?.UploadedBy;
+        var authResult = EnsureOwnerAccess(ownerUserId);
+        return authResult == null
+            ? new DeckExportAccessResult(deck, null)
+            : new DeckExportAccessResult(null, authResult);
+    }
+
+    private static string BuildExportFileName(SlideDeck deck, string extension)
+    {
+        var rawTitle = string.IsNullOrWhiteSpace(deck.Title)
+            ? $"slide-deck-{deck.Id}"
+            : deck.Title.Trim();
+        var builder = new StringBuilder(rawTitle.Length);
+
+        foreach (var character in rawTitle.ToLowerInvariant())
+        {
+            builder.Append(char.IsLetterOrDigit(character) ? character : '-');
+        }
+
+        var safeTitle = builder.ToString();
+        while (safeTitle.Contains("--", StringComparison.Ordinal))
+        {
+            safeTitle = safeTitle.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        safeTitle = safeTitle.Trim('-');
+        if (string.IsNullOrWhiteSpace(safeTitle))
+        {
+            safeTitle = $"slide-deck-{deck.Id}";
+        }
+
+        if (safeTitle.Length > 80)
+        {
+            safeTitle = safeTitle[..80].Trim('-');
+        }
+
+        return $"{safeTitle}.{extension.TrimStart('.')}";
+    }
+
     private Task<FolderProject?> GetFolderAsync(int folderId)
         => _folderProjectRepository.GetByIdAsync(folderId);
 }
+
+internal sealed record DeckExportAccessResult(SlideDeck? Deck, IActionResult? ErrorResult);
 
 public class GenerateSlidesRequest
 {
