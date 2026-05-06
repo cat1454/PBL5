@@ -222,11 +222,15 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
         });
 
         return slideLayoutPart;
-    }
-
+    
     private static P.CommonSlideData CreateCommonSlideData(string name)
     {
-        return new P.CommonSlideData(new P.ShapeTree(
+        return new P.CommonSlideData(CreateShapeTree(name));
+    }
+
+    private static P.ShapeTree CreateShapeTree(string name)
+    {
+        return new P.ShapeTree(
             new P.NonVisualGroupShapeProperties(
                 new P.NonVisualDrawingProperties { Id = 1U, Name = name },
                 new P.NonVisualGroupShapeDrawingProperties(),
@@ -235,7 +239,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
                 new A.Offset { X = 0, Y = 0 },
                 new A.Extents { Cx = 0, Cy = 0 },
                 new A.ChildOffset { X = 0, Y = 0 },
-                new A.ChildExtents { Cx = 0, Cy = 0 }))));
+                new A.ChildExtents { Cx = 0, Cy = 0 })));
     }
 
     private static void AddPptxSlide(
@@ -254,7 +258,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
         var slidePart = presentationPart.AddNewPart<SlidePart>();
         slidePart.AddPart(slideLayoutPart);
 
-        var shapeTree = CreateCommonSlideData($"Slide {nextSlideId}").ShapeTree!;
+        var shapeTree = CreateShapeTree($"Slide {nextSlideId}");
         var isTitle = string.Equals(slideType, "Title", StringComparison.OrdinalIgnoreCase) && !slideIndex.HasValue;
         var shapeId = 2U;
 
