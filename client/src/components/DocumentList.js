@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
-import { documentService, questionService, slideService } from '../services/api';
+import { documentService, getApiErrorMessage, questionService, slideService } from '../services/api';
 import { isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -103,6 +103,7 @@ function DocumentList() {
   const [slideGenerating, setSlideGenerating] = useState({});
   const [slideDecks, setSlideDecks] = useState({});
   const [slideDeckAvailability, setSlideDeckAvailability] = useState({});
+  const [exportingDeck, setExportingDeck] = useState(null);
   const [showAnalysis, setShowAnalysis] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -402,6 +403,65 @@ function DocumentList() {
     }
   };
 
+  const handleDownloadDeckHtml = async (deck) => {
+    if (!deck || exportingDeck) {
+      return;
+    }
+
+    try {
+      setExportingDeck(`${deck.id}:html`);
+      const result = await slideService.exportDeckHtml(deck.id);
+      showToast({
+        type: 'success',
+        message: 'Đã tải file HTML.',
+        description: result.filename,
+      });
+    } catch (err) {
+      showToast({
+        type: 'error',
+        message: getApiErrorMessage(err, 'Không thể xuất HTML.'),
+      });
+    } finally {
+      setExportingDeck(null);
+    }
+  };
+
+  const handleOpenDeckPrint = async (deck) => {
+    if (!deck || exportingDeck) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast({
+        type: 'error',
+        message: 'Trinh duyet da chan tab in. Hay cho phep popup va thu lai.',
+      });
+      return;
+    }
+    printWindow.opener = null;
+
+    try {
+      setExportingDeck(`${deck.id}:print`);
+      const blob = await slideService.getDeckPrintHtml(deck.id);
+      const url = window.URL.createObjectURL(blob);
+      printWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      showToast({
+        type: 'success',
+        message: 'Da mo ban In / Luu PDF.',
+      });
+    } catch (err) {
+      printWindow.close();
+      showToast({
+        type: 'error',
+        message: getApiErrorMessage(err, 'Khong the mo ban in.'),
+      });
+    } finally {
+      setExportingDeck(null);
+    }
+  };
+
   const handleDelete = async (documentId) => {
     if (window.confirm('Are you sure you want to delete this document?')) {
       try {
@@ -685,7 +745,7 @@ function DocumentList() {
       : selectedQuestionRunning
         ? 'Question bank đang được tạo. Quiz và Flashcards sẽ sẵn sàng ngay sau khi pipeline hoàn tất.'
         : selectedSlideDeck
-          ? 'Deck slide đã sẵn sàng. Bạn có thể tiếp tục mở Studio, export HTML/PDF hoặc nối các luồng xuất bản sau này.'
+          ? 'Deck slide đã sẵn sàng. Bạn có thể tiếp tục mở Studio, tải HTML hoặc mở bản in để lưu PDF.'
           : selectedQuestionsReady
             ? 'Question bank đã sẵn sàng. Đây là lúc thuận lợi để nối tiếp luồng quiz, flashcards và đánh giá nhanh.'
             : 'Co the bat dau bang cach tạo slide deck, tạo bộ câu hỏi hoac mo bang phân tích chi tiet.';
@@ -897,10 +957,17 @@ function DocumentList() {
         />,
         <ActionButton
           key="slides-export"
-          label="Xuất HTML / PDF"
-          detail="Mở bản export hiện có của slide deck."
-          disabled={!sharedProps.hasDeck}
-          onClick={() => window.open(slideService.getDeckHtmlUrl(selectedDocument.id), '_blank', 'noopener,noreferrer')}
+          label="Tải HTML"
+          detail="Tải file HTML độc lập của slide deck."
+          disabled={!sharedProps.hasDeck || Boolean(exportingDeck)}
+          onClick={() => handleDownloadDeckHtml(selectedSlideDeck)}
+        />,
+        <ActionButton
+          key="slides-print"
+          label="In / Lưu PDF"
+          detail="Mở bản in thân thiện để lưu PDF từ browser."
+          disabled={!sharedProps.hasDeck || Boolean(exportingDeck)}
+          onClick={() => handleOpenDeckPrint(selectedSlideDeck)}
         />,
       );
     }

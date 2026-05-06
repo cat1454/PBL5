@@ -6,6 +6,31 @@ const apiClient = axios.create({
   baseURL: API_BASE_URL,
 });
 
+function getFilenameFromContentDisposition(disposition, fallback) {
+  if (!disposition || typeof disposition !== 'string') {
+    return fallback;
+  }
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/"/g, '').trim());
+  }
+
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return filenameMatch?.[1]?.trim() || fallback;
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
+
 let authToken = '';
 let onUnauthorized = null;
 
@@ -544,6 +569,39 @@ export const slideService = {
   selectSlideItemImage: async (deckId, itemId, candidateKey) => {
     const response = await apiClient.post(`/slides/${deckId}/items/${itemId}/images/select`, {
       candidateKey,
+    });
+    return response.data;
+  },
+
+  exportDeckHtml: async (deckId) => {
+    const response = await apiClient.get(`/slides/${deckId}/export/html`, {
+      responseType: 'blob',
+    });
+    const filename = getFilenameFromContentDisposition(
+      response.headers?.['content-disposition'],
+      `slide-deck-${deckId}.html`
+    );
+    triggerBlobDownload(response.data, filename);
+    return { filename };
+  },
+
+  exportDeckPptx: async (deckId) => {
+    const response = await apiClient.get(`/slides/${deckId}/export/pptx`, {
+      responseType: 'blob',
+    });
+    const filename = getFilenameFromContentDisposition(
+      response.headers?.['content-disposition'],
+      `slide-deck-${deckId}.pptx`
+    );
+    triggerBlobDownload(response.data, filename);
+    return { filename };
+  },
+
+  getDeckPrintUrl: (deckId) => `${API_BASE_URL}/slides/${deckId}/export/print`,
+
+  getDeckPrintHtml: async (deckId) => {
+    const response = await apiClient.get(`/slides/${deckId}/export/print`, {
+      responseType: 'blob',
     });
     return response.data;
   },

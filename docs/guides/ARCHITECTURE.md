@@ -216,4 +216,6 @@ Gan nhat nen uu tien:
    - AI tao slide schema
    - backend render HTML
    - frontend preview
-   - export PDF
+   - export HTML file
+   - Print / Save as PDF qua browser
+   - PPTX basic
