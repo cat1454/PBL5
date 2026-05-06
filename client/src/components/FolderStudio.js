@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { documentService, questionService, slideService, workspaceService } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import {
+  documentService,
+  getApiErrorMessage,
+  isApiJobNotFound,
+  questionService,
+  slideService,
+  workspaceService,
+} from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import { useToast } from './common/ToastProvider';
@@ -428,8 +434,20 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
     </div>
   );
 }
+
+function getQuestionCountFromCollection(payload) {
+  if (Array.isArray(payload)) {
+    return payload.length;
+  }
+
+  if (Array.isArray(payload?.questions)) {
+    return payload.questions.length;
+  }
+
+  return 0;
+}
+
 function FolderStudio() {
-  const { currentUser } = useAuth();
   const { t, language } = useLanguage();
   const { showToast } = useToast();
   const { workspaceId } = useParams();
@@ -452,6 +470,7 @@ function FolderStudio() {
   const [generationError, setGenerationError] = useState('');
   const [questionProgress, setQuestionProgress] = useState(null);
   const [questionError, setQuestionError] = useState('');
+  const [isAnalyzingStructure, setIsAnalyzingStructure] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -676,9 +695,11 @@ function FolderStudio() {
           scopePolicy: deckData.outline.brief.scopePolicy || current.scopePolicy,
         }));
       }
+
+      return { folderData, sourceData, deckData };
     } catch (err) {
       console.error(err);
-      setError(language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.');
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.'));
       return null;
     } finally {
       if (!silent) {
@@ -807,7 +828,6 @@ function FolderStudio() {
         }
 
         setProgress(nextProgress);
-        await loadWorkspace({ silent: true });
 
         if (nextProgress.status === 'completed') {
           setGenerationError('');
@@ -825,13 +845,37 @@ function FolderStudio() {
 
         if (nextProgress.status === 'failed') {
           setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
+          await loadWorkspace({ silent: true });
         } else {
           setGenerationError('');
         }
       } catch (err) {
         console.error(err);
-        if (!cancelled) {
-          setGenerationError(t('slides.generationStatus.pollFailed'));
+        if (cancelled) {
+          return;
+        }
+
+        const refreshedWorkspace = await loadWorkspace({ silent: true });
+        if (cancelled) {
+          return;
+        }
+
+        if (isApiJobNotFound(err)) {
+          const persistedProgress = refreshedWorkspace?.deckData?.generationProgress
+            ? normalizeProgressState(refreshedWorkspace.deckData.generationProgress)
+            : null;
+
+          if (!persistedProgress || isTerminalProgress(persistedProgress)) {
+            setProgress(persistedProgress);
+            setJobId(persistedProgress?.jobId || null);
+            setGenerationError('');
+            return;
+          }
+        }
+
+        setGenerationError(getApiErrorMessage(err, t('slides.generationStatus.pollFailed')));
+        if (refreshedWorkspace?.deckData?.generationProgress) {
+          setProgress(normalizeProgressState(refreshedWorkspace.deckData.generationProgress));
         }
       }
     };
@@ -1081,7 +1125,7 @@ function FolderStudio() {
       setUploading(true);
       setError('');
       for (const file of files) {
-        await workspaceService.uploadSource(workspaceId, file, String(currentUser?.id || ''));
+        await workspaceService.uploadSource(workspaceId, file);
       }
 
       showToast({
@@ -1091,7 +1135,7 @@ function FolderStudio() {
       await loadWorkspace({ silent: true });
     } catch (err) {
       console.error(err);
-      setError(language === 'vi' ? 'Không upload được source cho workspace này.' : 'Could not upload sources for this workspace.');
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không upload được source cho workspace này.' : 'Could not upload sources for this workspace.'));
     } finally {
       setUploading(false);
     }
@@ -1145,21 +1189,24 @@ function FolderStudio() {
   };
 
   const handleAnalyzeStructure = async () => {
-    if (!selectedSource) {
+    if (!selectedSource || isAnalyzingStructure) {
       return;
     }
 
     try {
+      setIsAnalyzingStructure(true);
       setError('');
       await documentService.analyzeStructure(selectedSource.id);
       await loadWorkspace({ silent: true });
       showToast({
         type: 'success',
-        message: language === 'vi' ? 'Đã cập nhật cấu trúc tài liệu.' : 'Document structure updated.',
+        message: language === 'vi' ? '?? c?p nh?t c?u tr?c t?i li?u.' : 'Document structure updated.',
       });
     } catch (err) {
       console.error(err);
-      setError(language === 'vi' ? 'Không phân tích lại được cấu trúc tài liệu này.' : 'Could not re-analyze this document structure.');
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Kh?ng ph?n t?ch l?i ???c c?u tr?c t?i li?u n?y.' : 'Could not re-analyze this document structure.'));
+    } finally {
+      setIsAnalyzingStructure(false);
     }
   };
 
@@ -1300,9 +1347,9 @@ function FolderStudio() {
     setQuestionProgress(normalizeProgressState({
       status: 'queued',
       stage: 'queued',
-      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
+      stageLabel: language === 'vi' ? 'Ch? x? l?' : 'Queued',
       message: language === 'vi'
-        ? 'Đã tạo job sinh câu hỏi cho source đã chọn.'
+        ? '?? t?o job sinh c?u h?i cho source ?? ch?n.'
         : 'Created a question generation job for the selected source.',
       percent: 0,
       documentId: selectedSourceDocumentId,
@@ -1310,39 +1357,84 @@ function FolderStudio() {
 
     showToast({
       type: 'info',
-      message: language === 'vi' ? 'Đã bắt đầu tạo bộ câu hỏi.' : 'Started generating the question bank.',
+      message: language === 'vi' ? '?? b?t ??u t?o b? c?u h?i.' : 'Started generating the question bank.',
       description: language === 'vi'
-        ? 'Tiến trình sẽ hiển thị ngay trong action panel.'
+        ? 'Ti?n tr?nh s? hi?n th? ngay trong action panel.'
         : 'Progress will continue in the action panel.',
     });
 
     try {
       const startResult = await questionService.startGenerateQuestions(selectedSourceDocumentId, 5);
       const nextJobId = startResult?.jobId;
+      if (!nextJobId) {
+        throw new Error(language === 'vi'
+          ? 'Kh?ng t?o ???c m? ti?n tr?nh cho question bank.'
+          : 'Could not create a progress job for the question bank.');
+      }
+
       const timeoutAt = Date.now() + (5 * 60 * 1000);
-      let latestQuestions = [];
 
       while (Date.now() < timeoutAt) {
-        const nextProgress = normalizeProgressState(
-          await questionService.getGenerateProgress(nextJobId),
-          { documentId: selectedSourceDocumentId, jobId: nextJobId }
-        );
+        let nextProgress;
+
+        try {
+          nextProgress = normalizeProgressState(
+            await questionService.getGenerateProgress(nextJobId),
+            { documentId: selectedSourceDocumentId, jobId: nextJobId }
+          );
+        } catch (progressError) {
+          if (!isApiJobNotFound(progressError)) {
+            throw progressError;
+          }
+
+          const workspaceSnapshot = await loadWorkspace({ silent: true });
+          const refreshedSource = (workspaceSnapshot?.sourceData || []).find((source) => Number(source.id) === Number(selectedSourceDocumentId));
+          const persistedCount = Number(refreshedSource?.questionsCount ?? refreshedSource?.QuestionsCount ?? 0);
+          const fallbackQuestions = persistedCount > 0
+            ? null
+            : await questionService.getQuestionsByDocument(selectedSourceDocumentId);
+          const recoveredCount = persistedCount > 0 ? persistedCount : getQuestionCountFromCollection(fallbackQuestions);
+
+          if (recoveredCount > 0) {
+            setQuestionProgress(normalizeProgressState(questionProgress, {
+              documentId: selectedSourceDocumentId,
+              jobId: nextJobId,
+              status: 'completed',
+              percent: 100,
+              questionsGenerated: recoveredCount,
+              message: language === 'vi'
+                ? 'Kh?i ph?c question bank sau khi m?t ti?n tr?nh.'
+                : 'Recovered the question bank after progress tracking was lost.',
+            }));
+            setQuestionError('');
+            showToast({
+              type: 'success',
+              message: language === 'vi'
+                ? `?? kh?i ph?c question bank (${recoveredCount} c?u).`
+                : `Recovered question bank (${recoveredCount} questions).`,
+            });
+            navigate(`/study/${selectedSourceDocumentId}`);
+            return;
+          }
+
+          throw new Error(language === 'vi'
+            ? 'M?t ti?n tr?nh t?o c?u h?i. H?y th? l?i.'
+            : 'Question generation progress was lost. Please try again.');
+        }
 
         setQuestionProgress(nextProgress);
 
         if (nextProgress.status === 'completed') {
-          latestQuestions = await questionService.getQuestionsByDocument(selectedSourceDocumentId);
-          const generatedCount = Array.isArray(latestQuestions)
-            ? latestQuestions.length
-            : (Array.isArray(latestQuestions?.questions) ? latestQuestions.questions.length : (nextProgress.questionsGenerated || 0));
+          const latestQuestions = await questionService.getQuestionsByDocument(selectedSourceDocumentId);
+          const generatedCount = getQuestionCountFromCollection(latestQuestions) || nextProgress.questionsGenerated || 0;
           await loadWorkspace({ silent: true });
           showToast({
             type: 'success',
             message: language === 'vi'
-              ? `Đã tạo xong bộ câu hỏi (${generatedCount} câu).`
+              ? `?? t?o xong b? c?u h?i (${generatedCount} c?u).`
               : `Question bank ready (${generatedCount} questions).`,
           });
-          navigate(`/study/${selectedSourceDocumentId}/quiz`);
+          navigate(`/study/${selectedSourceDocumentId}`);
           return;
         }
 
@@ -1354,22 +1446,32 @@ function FolderStudio() {
       }
 
       throw new Error(language === 'vi'
-        ? 'Hết thời gian chờ tiến trình tạo câu hỏi.'
+        ? 'H?t th?i gian ch? ti?n tr?nh t?o c?u h?i.'
         : 'Timed out while waiting for question generation progress.');
     } catch (err) {
       console.error(err);
-      const nextError = err?.message || (language === 'vi'
-        ? 'Không thể tạo question bank lúc này.'
+      const nextError = getApiErrorMessage(err, language === 'vi'
+        ? 'Kh?ng th? t?o question bank l?c n?y.'
         : 'Could not generate the question bank right now.');
       setQuestionError(nextError);
+      setQuestionProgress((current) => (
+        current?.status === 'completed'
+          ? current
+          : normalizeProgressState(current, {
+            documentId: selectedSourceDocumentId,
+            status: 'failed',
+            error: nextError,
+            message: nextError,
+          })
+      ));
       showToast({
         type: 'error',
-        message: language === 'vi' ? 'Không tạo được câu hỏi.' : 'Could not generate questions.',
+        message: language === 'vi' ? 'Kh?ng t?o ???c c?u h?i.' : 'Could not generate questions.',
         description: nextError,
       });
     } finally {
       setQuestionProgress((current) => (
-        current?.status === 'completed' ? current : null
+        current?.status === 'completed' || current?.status === 'failed' ? current : null
       ));
     }
   };
@@ -1409,7 +1511,7 @@ function FolderStudio() {
       navigate('/workspaces');
     } catch (err) {
       console.error(err);
-      setError(language === 'vi' ? 'Không xóa được workspace.' : 'Could not delete the workspace.');
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không xóa được workspace.' : 'Could not delete the workspace.'));
     }
   };
 
@@ -1462,20 +1564,23 @@ function FolderStudio() {
   const streakModeHint = !selectedSourceHasQuestions
     ? t('slides.studyActions.streakHint')
     : '';
+  const questionActionTitle = selectedSourceHasQuestions
+    ? (language === 'vi' ? 'T?o l?i question bank' : 'Regenerate question bank')
+    : (language === 'vi' ? 'T?o c?u h?i ?n t?p' : 'Generate review questions');
   const questionActionDetail = !selectedSource
     ? (language === 'vi'
-      ? 'Chọn một source Completed để tạo question bank.'
+      ? 'Ch?n m?t source Completed ?? t?o question bank.'
       : 'Select a completed source to generate a question bank.')
     : selectedSource.status !== 3
       ? (language === 'vi'
-        ? 'Source này vẫn đang xử lý. Hoàn tất xong mới tạo được câu hỏi.'
+        ? 'Source n?y v?n ?ang x? l?. Ho?n t?t xong m?i t?o ???c c?u h?i.'
         : 'This source is still processing. Wait until it is completed.')
       : selectedSourceHasQuestions
         ? (language === 'vi'
-          ? `${selectedSourceQuestionsCount} câu hỏi đã sẵn sàng cho source này`
-          : `${selectedSourceQuestionsCount} questions are already ready for this source`)
+          ? `T?o l?i s? thay th? b? question bank hi?n t?i (${selectedSourceQuestionsCount} c?u).`
+          : `Regenerating will replace the active question bank (${selectedSourceQuestionsCount} questions).`)
         : (language === 'vi'
-          ? 'Sinh quiz và flow ôn tập từ source đang chọn'
+          ? 'Sinh quiz v? flow ?n t?p t? source ?ang ch?n'
           : 'Generate quiz-ready review questions from the selected source');
 
   useEffect(() => {
@@ -2219,7 +2324,7 @@ function FolderStudio() {
                 disabled={!canGenerateQuestions}
               >
                 <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions'}</strong>
+                  <strong>{questionActionTitle}</strong>
                   <span>{questionActionDetail}</span>
                 </span>
                 <span className="folder-studio-action-badge">
@@ -2460,8 +2565,8 @@ function FolderStudio() {
               <button type="button" onClick={handleClearSections} disabled={!selectedSectionIds.length}>
                 {t('slides.scopePicker.clear')}
               </button>
-              <button type="button" onClick={handleAnalyzeStructure}>
-                {t('slides.scopePicker.analyzeAgain')}
+              <button type="button" onClick={handleAnalyzeStructure} disabled={isAnalyzingStructure}>
+                {isAnalyzingStructure ? (language === 'vi' ? '?ang ph?n t?ch...' : 'Analyzing...') : t('slides.scopePicker.analyzeAgain')}
               </button>
             </div>
 

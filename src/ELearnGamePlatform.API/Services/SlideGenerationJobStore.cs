@@ -4,8 +4,8 @@ namespace ELearnGamePlatform.API.Services;
 
 public interface ISlideGenerationJobStore
 {
-    string CreateJob(int documentId, int desiredSlideCount);
-    string CreateFolderJob(int folderProjectId, int desiredSlideCount);
+    string CreateJob(int documentId, int desiredSlideCount, string createdByUserId);
+    string CreateFolderJob(int folderProjectId, int desiredSlideCount, string createdByUserId);
     bool TryGetJob(string jobId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForDocument(int documentId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
@@ -18,7 +18,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
     private readonly ConcurrentDictionary<int, string> _latestJobByDocument = new();
     private readonly ConcurrentDictionary<int, string> _latestJobByFolder = new();
 
-    public string CreateJob(int documentId, int desiredSlideCount)
+    public string CreateJob(int documentId, int desiredSlideCount, string createdByUserId)
     {
         var now = DateTime.UtcNow;
         var jobId = Guid.NewGuid().ToString("N");
@@ -27,6 +27,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             JobId = jobId,
             DocumentId = documentId,
             DesiredSlideCount = desiredSlideCount,
+            CreatedByUserId = createdByUserId,
             Status = "queued",
             Percent = 0,
             Stage = "queued",
@@ -42,7 +43,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         return jobId;
     }
 
-    public string CreateFolderJob(int folderProjectId, int desiredSlideCount)
+    public string CreateFolderJob(int folderProjectId, int desiredSlideCount, string createdByUserId)
     {
         var now = DateTime.UtcNow;
         var jobId = Guid.NewGuid().ToString("N");
@@ -51,6 +52,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             JobId = jobId,
             FolderProjectId = folderProjectId,
             DesiredSlideCount = desiredSlideCount,
+            CreatedByUserId = createdByUserId,
             Status = "queued",
             Percent = 0,
             Stage = "queued",
@@ -116,6 +118,7 @@ public class SlideGenerationJobState
     public int? DocumentId { get; set; }
     public int? FolderProjectId { get; set; }
     public int DesiredSlideCount { get; set; }
+    public string CreatedByUserId { get; set; } = string.Empty;
     public int? SlideDeckId { get; set; }
     public string Status { get; set; } = "queued";
     public int Percent { get; set; }

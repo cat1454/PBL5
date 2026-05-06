@@ -50,9 +50,18 @@ export function getApiErrorMessage(error, fallback = 'Request failed.') {
   }
 
   if (data && typeof data === 'object') {
-    const candidate = data.message || data.error || data.title;
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate;
+    const candidates = [
+      data.message,
+      data.error,
+      data.title,
+      data.detail,
+      data.reason,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate;
+      }
     }
 
     if (data.errors && typeof data.errors === 'object') {
@@ -67,8 +76,32 @@ export function getApiErrorMessage(error, fallback = 'Request failed.') {
   return error?.message || fallback;
 }
 
+export function getApiErrorCode(error) {
+  const data = error?.response?.data;
+  const code = data?.code || data?.errorCode || data?.error_key;
+  return typeof code === 'string' ? code.trim() : '';
+}
+
 export function isApiNotFound(error) {
   return error?.response?.status === 404;
+}
+
+export function isApiForbidden(error) {
+  return error?.response?.status === 403;
+}
+
+export function isApiJobNotFound(error) {
+  if (!isApiNotFound(error)) {
+    return false;
+  }
+
+  const code = getApiErrorCode(error).toLowerCase();
+  if (code === 'job_not_found') {
+    return true;
+  }
+
+  const message = getApiErrorMessage(error, '').toLowerCase();
+  return message.includes('job not found');
 }
 
 export const authService = {
@@ -145,11 +178,10 @@ export const documentService = {
 };
 
 export const folderService = {
-  createFolder: async ({ name, description, userId }) => {
+  createFolder: async ({ name, description }) => {
     const response = await apiClient.post('/folders', {
       name,
       description,
-      userId,
     });
     return response.data;
   },
@@ -168,10 +200,9 @@ export const folderService = {
     await apiClient.delete(`/folders/${id}`);
   },
 
-  uploadSource: async (folderId, file, userId, onProgress) => {
+  uploadSource: async (folderId, file, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId || '');
 
     const response = await apiClient.post(`/folders/${folderId}/sources/upload`, formData, {
       headers: {
@@ -201,11 +232,10 @@ export const folderService = {
 };
 
 export const workspaceService = {
-  create: async ({ name, description, userId }) => {
+  create: async ({ name, description }) => {
     const response = await apiClient.post('/workspaces', {
       name,
       description,
-      userId,
     });
     return response.data;
   },
@@ -229,10 +259,9 @@ export const workspaceService = {
     await apiClient.delete(`/workspaces/${workspaceId}`);
   },
 
-  uploadSource: async (workspaceId, file, userId, onProgress) => {
+  uploadSource: async (workspaceId, file, onProgress) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', userId || '');
 
     const response = await apiClient.post(`/workspaces/${workspaceId}/sources/upload`, formData, {
       headers: {

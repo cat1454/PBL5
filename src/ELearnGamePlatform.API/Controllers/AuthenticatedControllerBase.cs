@@ -10,35 +10,27 @@ public abstract class AuthenticatedControllerBase : ControllerBase
 
     protected string CurrentUserIdAsString => CurrentUserId?.ToString() ?? string.Empty;
 
+    protected string CurrentUserRole => User.GetCurrentUserRole()?.Trim() ?? string.Empty;
+
     protected bool IsAdmin =>
-        string.Equals(User.GetCurrentUserRole(), UserRole.Admin.ToString(), StringComparison.OrdinalIgnoreCase)
-        || string.Equals(User.GetCurrentUserRole(), UserRole.Admin.ToString().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase);
+        string.Equals(CurrentUserRole, UserRole.Admin.ToString(), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(CurrentUserRole, UserRole.Admin.ToString().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase);
 
     protected IActionResult? EnsureCurrentUserMatches(string? userId)
     {
-        if (IsAdmin)
-        {
-            return null;
-        }
-
         if (CurrentUserId == null || !string.Equals(userId?.Trim(), CurrentUserIdAsString, StringComparison.Ordinal))
         {
-            return Forbid();
+            return ApiForbidden("resource_forbidden", "You do not have permission to access another user's data.");
         }
 
         return null;
     }
 
-    protected IActionResult? EnsureOwnerOrAdmin(string? ownerUserId)
+    protected IActionResult? EnsureOwnerAccess(string? ownerUserId)
     {
-        if (IsAdmin)
-        {
-            return null;
-        }
-
         if (CurrentUserId == null || !string.Equals(ownerUserId?.Trim(), CurrentUserIdAsString, StringComparison.Ordinal))
         {
-            return Forbid();
+            return ApiForbidden("resource_forbidden", "You do not have permission to access this resource.");
         }
 
         return null;
@@ -52,6 +44,9 @@ public abstract class AuthenticatedControllerBase : ControllerBase
 
     protected IActionResult ApiConflict(string code, string message)
         => Conflict(ApiErrorResponse.Create(code, message));
+
+    protected IActionResult ApiForbidden(string code, string message)
+        => StatusCode(StatusCodes.Status403Forbidden, ApiErrorResponse.Create(code, message));
 
     protected IActionResult ApiServerError(string code, string message)
         => StatusCode(StatusCodes.Status500InternalServerError, ApiErrorResponse.Create(code, message));

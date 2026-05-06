@@ -41,7 +41,7 @@ public class GamesController : AuthenticatedControllerBase
                 return ApiNotFound("document_not_found", "Document not found");
             }
 
-            var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+            var authResult = EnsureOwnerAccess(document.UploadedBy);
             if (authResult != null)
             {
                 return authResult;
@@ -101,7 +101,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("game_session_not_found", "Game session not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        var authResult = EnsureOwnerAccess(session.UserId);
         if (authResult != null)
         {
             return authResult;
@@ -137,7 +137,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("game_session_not_found", "Game session not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        var authResult = EnsureOwnerAccess(session.UserId);
         if (authResult != null)
         {
             return authResult;
@@ -165,7 +165,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("game_session_not_found", "Game session not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(session.UserId);
+        var authResult = EnsureOwnerAccess(session.UserId);
         if (authResult != null)
         {
             return authResult;
@@ -284,7 +284,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("document_not_found", "Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -310,7 +310,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("document_not_found", "Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -346,7 +346,7 @@ public class GamesController : AuthenticatedControllerBase
             return ApiNotFound("document_not_found", "Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -526,7 +526,6 @@ public class GamesController : AuthenticatedControllerBase
 public class CreateGameSessionRequest
 {
     public required int DocumentId { get; set; }
-    public string? UserId { get; set; }
     public GameType GameType { get; set; } = GameType.Quiz;
     public int QuestionCount { get; set; } = 10;
 }
