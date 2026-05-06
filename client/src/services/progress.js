@@ -9,6 +9,22 @@ const normalizeOptionalNumber = (value) => (
   typeof value === 'number' && Number.isFinite(value) ? value : null
 );
 
+const ENGLISH_UNIT_LABELS = {
+  'câu hỏi': 'questions',
+  trang: 'pages',
+  'khối nội dung': 'content blocks',
+};
+
+const ENGLISH_STAGE_LABELS = {
+  queued: 'Queued',
+  preparing: 'Preparing',
+  extracting: 'Extracting text',
+  analyzing: 'Analyzing content',
+  saving: 'Saving results',
+  completed: 'Completed',
+  failed: 'Failed',
+};
+
 export const normalizeProgressState = (raw, fallback = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
   const base = fallback && typeof fallback === 'object' ? fallback : {};
@@ -94,12 +110,30 @@ export const getProgressCounterLabel = (progress, options = {}) => {
   }
 
   const defaultUnit = language === 'vi' ? 'mục' : 'items';
-  return `${progress.current}/${progress.total} ${progress.unitLabel || defaultUnit}`;
+  const rawUnitLabel = normalizeString(progress.unitLabel);
+  const unitLabel = language === 'en'
+    ? ENGLISH_UNIT_LABELS[rawUnitLabel.toLowerCase()] || rawUnitLabel || defaultUnit
+    : rawUnitLabel || defaultUnit;
+
+  return `${progress.current}/${progress.total} ${unitLabel}`;
 };
 
-export const getProgressStageLabel = (progress, options = {}) => (
-  progress?.stageLabel
-  || progress?.stage
-  || progress?.status
-  || (options.language === 'en' ? 'Queued' : 'Đang chờ')
-);
+export const getProgressStageLabel = (progress, options = {}) => {
+  const language = options.language === 'en' ? 'en' : 'vi';
+
+  if (language === 'en') {
+    const stageKey = normalizeString(progress?.stage).toLowerCase();
+    const statusKey = normalizeString(progress?.status).toLowerCase();
+    return ENGLISH_STAGE_LABELS[stageKey]
+      || ENGLISH_STAGE_LABELS[statusKey]
+      || normalizeString(progress?.stageLabel)
+      || normalizeString(progress?.stage)
+      || normalizeString(progress?.status)
+      || 'Queued';
+  }
+
+  return normalizeString(progress?.stageLabel)
+    || normalizeString(progress?.stage)
+    || normalizeString(progress?.status)
+    || 'Đang chờ';
+};

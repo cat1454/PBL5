@@ -547,11 +547,12 @@ function FolderStudio() {
   useEffect(() => {
     const nextNotice = location.state?.uploadNotice;
     if (!nextNotice) {
+      setUploadNotice('');
       return;
     }
 
     setUploadNotice([nextNotice.message, nextNotice.description].filter(Boolean).join(' '));
-  }, [location.state]);
+  }, [location.pathname, location.state]);
 
   const stopTypewriterAnimation = useCallback((slideId) => {
     if (!slideId) {
@@ -1358,7 +1359,7 @@ function FolderStudio() {
     setQuestionProgress(normalizeProgressState({
       status: 'queued',
       stage: 'queued',
-      stageLabel: language === 'vi' ? 'Ch? x? l?' : 'Queued',
+      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
       message: language === 'vi'
         ? 'Đã tạo job sinh câu hỏi cho source đã chọn.'
         : 'Created a question generation job for the selected source.',

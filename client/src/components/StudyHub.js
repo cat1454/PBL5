@@ -97,7 +97,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         sourceStatusLabel: 'Trạng thái source',
         sourceStatusReady: 'Sẵn sàng để học',
         sourceStatusProcessing: 'Đang xử lý OCR/AI',
+        sourceStatusProcessingDetail: 'Source vẫn đang được OCR/AI xử lý. Nội dung học sẽ sẵn sàng sau khi xử lý xong.',
         sourceStatusFailed: 'Xử lý thất bại',
+        sourceStatusFailedDetail: 'Source xử lý thất bại. Hãy kiểm tra lại tài liệu hoặc thử upload lại.',
         sourceStatusUnknown: 'Chưa xác định',
         bankLabel: 'Question bank',
         regenerate: 'Tạo lại câu hỏi',
@@ -169,7 +171,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       sourceStatusLabel: 'Source status',
       sourceStatusReady: 'Ready to study',
       sourceStatusProcessing: 'OCR and AI processing',
+      sourceStatusProcessingDetail: 'The source is still being processed by OCR/AI. Study content will be ready after processing completes.',
       sourceStatusFailed: 'Processing failed',
+      sourceStatusFailedDetail: 'Source processing failed. Check the document or upload it again.',
       sourceStatusUnknown: 'Status unavailable',
       bankLabel: 'Question bank',
       regenerate: 'Regenerate questions',
@@ -1249,7 +1253,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         body={loadError || copy.loadErrorBody}
         retryLabel={copy.retryLoad}
         onRetry={() => setReloadKey((current) => current + 1)}
-        onBack={onBack}
+        onBack={() => navigate(`/study/${documentId}`)}
         backLabel={copy.backToStudyHub}
         onWorkspace={() => navigate('/workspaces')}
         workspaceLabel={copy.backToWorkspace}
@@ -1495,7 +1499,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
         body={loadError || copy.loadErrorBody}
         retryLabel={copy.retryLoad}
         onRetry={() => setReloadKey((current) => current + 1)}
-        onBack={onBack}
+        onBack={() => navigate(`/study/${documentId}`)}
         backLabel={copy.backToStudyHub}
         onWorkspace={() => navigate('/workspaces')}
         workspaceLabel={copy.backToWorkspace}
@@ -1876,14 +1880,14 @@ function getStudySourceStatus(status, copy) {
   if (status === 4 || String(status) === 'Failed') {
     return {
       title: copy.sourceStatusFailed,
-      detail: copy.studyDataError,
+      detail: copy.sourceStatusFailedDetail,
     };
   }
 
   if (status === 0 || status === 1 || status === 2 || ['Uploaded', 'Extracting', 'Analyzing'].includes(String(status))) {
     return {
       title: copy.sourceStatusProcessing,
-      detail: copy.studyDataLoading,
+      detail: copy.sourceStatusProcessingDetail,
     };
   }
 
