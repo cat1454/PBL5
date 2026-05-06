@@ -50,13 +50,13 @@ public class QuestionsController : AuthenticatedControllerBase
             return NotFound("Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
         }
 
-        var jobId = _jobStore.CreateJob(request.DocumentId, request.Count, request.QuestionType?.ToString());
+        var jobId = _jobStore.CreateJob(request.DocumentId, request.Count, request.QuestionType?.ToString(), CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
 
         _ = Task.Run(() => RunGenerateQuestionsJobAsync(jobId, request));
@@ -79,6 +79,12 @@ public class QuestionsController : AuthenticatedControllerBase
             return ApiNotFound("job_not_found", "Job not found");
         }
 
+        var authResult = EnsureCurrentUserMatches(state.CreatedByUserId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         return Ok(JobProgressPayloadFactory.BuildQuestion(state));
     }
 
@@ -98,7 +104,7 @@ public class QuestionsController : AuthenticatedControllerBase
                 return NotFound("Document not found");
             }
 
-            var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+            var authResult = EnsureOwnerAccess(document.UploadedBy);
             if (authResult != null)
             {
                 return authResult;
@@ -375,7 +381,7 @@ public class QuestionsController : AuthenticatedControllerBase
             return NotFound("Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -394,7 +400,7 @@ public class QuestionsController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(question.Document?.UploadedBy);
+        var authResult = EnsureOwnerAccess(question.Document?.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -412,7 +418,7 @@ public class QuestionsController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(existing.Document?.UploadedBy);
+        var authResult = EnsureOwnerAccess(existing.Document?.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -439,7 +445,7 @@ public class QuestionsController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(question.Document?.UploadedBy);
+        var authResult = EnsureOwnerAccess(question.Document?.UploadedBy);
         if (authResult != null)
         {
             return authResult;

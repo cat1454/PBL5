@@ -101,7 +101,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(workspace.UploadedBy);
+        var authResult = EnsureOwnerAccess(workspace.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -119,7 +119,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(workspace.UploadedBy);
+        var authResult = EnsureOwnerAccess(workspace.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -145,7 +145,7 @@ public class WorkspacesController : AuthenticatedControllerBase
     }
 
     [HttpPost("{id}/sources/upload")]
-    public async Task<IActionResult> UploadSource(int id, [FromForm] IFormFile file, [FromForm] string userId)
+    public async Task<IActionResult> UploadSource(int id, [FromForm] IFormFile file)
     {
         var workspace = await _folderProjectRepository.GetByIdAsync(id);
         if (workspace == null)
@@ -153,7 +153,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return NotFound("Workspace not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(workspace.UploadedBy);
+        var authResult = EnsureOwnerAccess(workspace.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -193,7 +193,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(workspace.UploadedBy);
+        var authResult = EnsureOwnerAccess(workspace.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -212,7 +212,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return NotFound("Workspace source not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(source.UploadedBy);
+        var authResult = EnsureOwnerAccess(source.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -319,7 +319,6 @@ public class CreateWorkspaceRequest
 {
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public string? UserId { get; set; }
 }
 
 public class UpdateWorkspaceSourceSelectionRequest

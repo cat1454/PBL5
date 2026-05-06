@@ -4,7 +4,7 @@ namespace ELearnGamePlatform.API.Services;
 
 public interface IQuestionGenerationJobStore
 {
-    string CreateJob(int documentId, int count, string? questionType);
+    string CreateJob(int documentId, int count, string? questionType, string createdByUserId);
     bool TryGetJob(string jobId, out QuestionGenerationJobState? state);
     void UpdateJob(string jobId, Action<QuestionGenerationJobState> updater);
 }
@@ -13,7 +13,7 @@ public class QuestionGenerationJobStore : IQuestionGenerationJobStore
 {
     private readonly ConcurrentDictionary<string, QuestionGenerationJobState> _jobs = new();
 
-    public string CreateJob(int documentId, int count, string? questionType)
+    public string CreateJob(int documentId, int count, string? questionType, string createdByUserId)
     {
         var now = DateTime.UtcNow;
         var jobId = Guid.NewGuid().ToString("N");
@@ -23,6 +23,7 @@ public class QuestionGenerationJobStore : IQuestionGenerationJobStore
             DocumentId = documentId,
             Count = count,
             QuestionType = questionType,
+            CreatedByUserId = createdByUserId,
             Status = "queued",
             Percent = 0,
             Stage = "queued",
@@ -65,6 +66,7 @@ public class QuestionGenerationJobState
     public int DocumentId { get; set; }
     public int Count { get; set; }
     public string? QuestionType { get; set; }
+    public string CreatedByUserId { get; set; } = string.Empty;
     public string Status { get; set; } = "queued";
     public int Percent { get; set; }
     public string Stage { get; set; } = "queued";

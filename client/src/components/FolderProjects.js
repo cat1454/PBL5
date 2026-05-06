@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+`import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { workspaceService } from '../services/api';
+import { getApiErrorMessage, workspaceService } from '../services/api';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -65,7 +65,7 @@ function FolderProjects() {
       setFolders(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
-      setError(t('workspaces.errors.loadFailed'));
+      setError(getApiErrorMessage(err, t('workspaces.errors.loadFailed')));
     } finally {
       setLoading(false);
     }
@@ -90,7 +90,6 @@ function FolderProjects() {
       await workspaceService.create({
         name: form.name.trim(),
         description: form.description.trim(),
-        userId: String(currentUser?.id || ''),
       });
       setForm({ name: '', description: '' });
       showToast({
@@ -100,7 +99,7 @@ function FolderProjects() {
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setActionError(t('workspaces.errors.createFailed'));
+      setActionError(getApiErrorMessage(err, t('workspaces.errors.createFailed')));
     } finally {
       setCreating(false);
     }
@@ -121,7 +120,7 @@ function FolderProjects() {
       await loadFolders();
     } catch (err) {
       console.error(err);
-      setActionError(t('workspaces.errors.deleteFailed'));
+      setActionError(getApiErrorMessage(err, t('workspaces.errors.deleteFailed')));
     }
   };
 

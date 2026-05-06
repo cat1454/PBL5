@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { documentService, isApiNotFound, slideService } from '../services/api';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { documentService, getApiErrorMessage, isApiNotFound, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
@@ -11,6 +11,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const params = useParams();
   const documentId = propDocumentId || params.documentId;
   const navigate = useNavigate();
+  const location = useLocation();
   const slideRefs = useRef({});
   const [documentMeta, setDocumentMeta] = useState(null);
   const [deck, setDeck] = useState(null);
@@ -88,7 +89,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       }));
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.loadDocument'));
+      setError(getApiErrorMessage(err, t('slides.errors.loadDocument')));
     }
   }, [briefDirty, documentId, t]);
 
@@ -120,7 +121,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       }
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.loadDeck'));
+      setError(getApiErrorMessage(err, t('slides.errors.loadDeck')));
     } finally {
       if (!silent) {
         setLoading(false);
@@ -183,7 +184,7 @@ function SlideStudio({ documentId: propDocumentId }) {
           setJobId(null);
           setGenerationError('');
         } else {
-          setGenerationError(t('slides.generationStatus.pollFailed'));
+          setGenerationError(getApiErrorMessage(err, t('slides.generationStatus.pollFailed')));
         }
       }
     }, 1500);
@@ -214,7 +215,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       await loadDeck({ silent: true });
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.generate'));
+      setError(getApiErrorMessage(err, t('slides.errors.generate')));
     }
   };
 
@@ -284,7 +285,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       });
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.save'));
+      setError(getApiErrorMessage(err, t('slides.errors.save')));
     }
   };
 
@@ -306,7 +307,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       });
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.refreshImages'));
+      setError(getApiErrorMessage(err, t('slides.errors.refreshImages')));
     } finally {
       setMediaBusySlideId(null);
     }
@@ -330,11 +331,28 @@ function SlideStudio({ documentId: propDocumentId }) {
       });
     } catch (err) {
       console.error(err);
-      setError(t('slides.errors.selectImage'));
+      setError(getApiErrorMessage(err, t('slides.errors.selectImage')));
     } finally {
       setMediaBusySlideId(null);
     }
   };
+
+  const handleBack = useCallback(() => {
+    const fromPath = location.state?.fromPath;
+    const fromWorkspaceId = location.state?.fromWorkspaceId || documentMeta?.workspaceId || documentMeta?.folderProjectId;
+
+    if (fromPath) {
+      navigate(fromPath);
+      return;
+    }
+
+    if (fromWorkspaceId) {
+      navigate(`/workspaces/${fromWorkspaceId}`);
+      return;
+    }
+
+    navigate('/workspaces');
+  }, [documentMeta?.folderProjectId, documentMeta?.workspaceId, location.state, navigate]);
 
   const formatEta = (seconds) => {
     if (typeof seconds !== 'number') {
@@ -508,7 +526,7 @@ function SlideStudio({ documentId: propDocumentId }) {
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
       <section className="studio-header-bar card">
         <div className="studio-header-main">
-          <button className="button button-secondary studio-back-button" onClick={() => navigate('/workspaces')}>
+          <button className="button button-secondary studio-back-button" onClick={handleBack}>
             <span aria-hidden="true">←</span>
             <span>{t('slides.back')}</span>
           </button>

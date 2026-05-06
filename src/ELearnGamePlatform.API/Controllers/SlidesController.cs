@@ -68,7 +68,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -83,7 +83,7 @@ public class SlidesController : AuthenticatedControllerBase
             return SlideSchemaUnavailable();
         }
 
-        var jobId = _jobStore.CreateJob(request.DocumentId, request.DesiredSlideCount);
+        var jobId = _jobStore.CreateJob(request.DocumentId, request.DesiredSlideCount, CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
         {
@@ -118,6 +118,12 @@ public class SlidesController : AuthenticatedControllerBase
             return ApiNotFound("job_not_found", "Job not found");
         }
 
+        var authResult = EnsureCurrentUserMatches(state.CreatedByUserId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
         return Ok(JobProgressPayloadFactory.BuildSlide(state));
     }
 
@@ -130,7 +136,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -162,7 +168,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Document not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -273,7 +279,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Folder project not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -306,7 +312,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Folder project not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -1361,7 +1367,7 @@ public class SlidesController : AuthenticatedControllerBase
             return NotFound("Folder project not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -1392,7 +1398,7 @@ public class SlidesController : AuthenticatedControllerBase
             return SlideSchemaUnavailable();
         }
 
-        var jobId = _jobStore.CreateFolderJob(folderId, request.DesiredSlideCount);
+        var jobId = _jobStore.CreateFolderJob(folderId, request.DesiredSlideCount, CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
         {
@@ -1696,7 +1702,7 @@ public class SlidesController : AuthenticatedControllerBase
         }
 
         var ownerUserId = deck.Document?.UploadedBy ?? deck.FolderProject?.UploadedBy;
-        return EnsureOwnerOrAdmin(ownerUserId);
+        return EnsureOwnerAccess(ownerUserId);
     }
 
     private Task<FolderProject?> GetFolderAsync(int folderId)

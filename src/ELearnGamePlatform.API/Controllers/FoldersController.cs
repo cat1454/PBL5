@@ -93,7 +93,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -113,7 +113,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -139,7 +139,7 @@ public class FoldersController : AuthenticatedControllerBase
     }
 
     [HttpPost("{id}/sources/upload")]
-    public async Task<IActionResult> UploadSource(int id, [FromForm] IFormFile file, [FromForm] string userId)
+    public async Task<IActionResult> UploadSource(int id, [FromForm] IFormFile file)
     {
         var folder = await _folderProjectRepository.GetByIdAsync(id);
         if (folder == null)
@@ -147,7 +147,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound("Folder project not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -186,7 +186,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound();
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -206,7 +206,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound("Folder project not found");
         }
 
-        var authResult = EnsureOwnerOrAdmin(folder.UploadedBy);
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -218,7 +218,7 @@ public class FoldersController : AuthenticatedControllerBase
             return NotFound("Folder source not found");
         }
 
-        authResult = EnsureOwnerOrAdmin(source.UploadedBy);
+        authResult = EnsureOwnerAccess(source.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -302,7 +302,6 @@ public class CreateFolderProjectRequest
 {
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public string? UserId { get; set; }
 }
 
 public class UpdateFolderSourceSelectionRequest

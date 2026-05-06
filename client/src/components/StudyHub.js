@@ -1,8 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { documentService, gameService, getApiErrorMessage, learningService, questionService } from '../services/api';
+import {
+  documentService,
+  gameService,
+  getApiErrorMessage,
+  isApiJobNotFound,
+  learningService,
+  questionService,
+} from '../services/api';
 import { useLanguage } from '../context/LanguageContext';
 import { formatTopicForDisplay } from '../services/topicDisplay';
+import { isActiveProgress, normalizeProgressState } from '../services/progress';
 
 const STUDY_MODES = ['quiz', 'flashcards', 'test', 'streak'];
 const DEFAULT_QUESTION_COUNT = 10;
@@ -19,6 +27,18 @@ const LEARNING_TEST_TYPE_VALUES = {
   practiceTest: 4,
 };
 
+function getQuestionCountFromCollection(payload) {
+  if (Array.isArray(payload)) {
+    return payload.length;
+  }
+
+  if (Array.isArray(payload?.questions)) {
+    return payload.questions.length;
+  }
+
+  return 0;
+}
+
 function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true }) {
   const { language, t } = useLanguage();
   const { documentId: routeDocumentId, mode: routeMode } = useParams();
@@ -28,10 +48,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const shouldShowShell = showShell && !providedDocumentId;
   const [refreshToken, setRefreshToken] = useState(0);
   const [metaLoading, setMetaLoading] = useState(shouldShowShell);
+  const [documentStatus, setDocumentStatus] = useState(null);
   const [documentName, setDocumentName] = useState('');
   const [questionCount, setQuestionCount] = useState(0);
   const [metaError, setMetaError] = useState('');
-  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [questionJobId, setQuestionJobId] = useState(null);
+  const [questionGenerationProgress, setQuestionGenerationProgress] = useState(null);
+  const [questionGenerationError, setQuestionGenerationError] = useState('');
+  const [questionGenerationRecovered, setQuestionGenerationRecovered] = useState(false);
   const [regenerateMessage, setRegenerateMessage] = useState('');
   const [progressSummary, setProgressSummary] = useState(null);
   const [progressLoading, setProgressLoading] = useState(shouldShowShell);
@@ -58,55 +82,62 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const copy = useMemo(() => {
     if (language === 'vi') {
       return {
-        back: 'Quay lại',
-        backToWorkspace: 'Về Workspace',
-        sourceFallback: 'Tài liệu đang học',
-        emptySource: 'Chưa có tên source',
-        statusReady: 'Question bank sẵn sàng',
-        statusMissing: 'Chưa có question bank',
-        statusRefreshing: 'Đang cập nhật question bank...',
-        countLabel: 'Số câu hỏi',
-        sourceLabel: 'Source hiện tại',
+        back: 'Quay l?i',
+        backToWorkspace: 'V? Workspace',
+        sourceFallback: 'T?i li?u ?ang h?c',
+        emptySource: 'Ch?a c? t?n source',
+        statusReady: 'Question bank s?n s?ng',
+        statusMissing: 'Ch?a c? question bank',
+        statusRefreshing: '?ang c?p nh?t question bank...',
+        statusError: 'Kh?ng t?i ???c study data',
+        countLabel: 'S? c?u h?i',
+        sourceLabel: 'Source hi?n t?i',
         bankLabel: 'Question bank',
-        regenerate: 'Tạo lại câu hỏi',
-        regenerating: 'Đang tạo lại...',
-        generated: 'Đã làm mới bộ câu hỏi.',
-        modeSwitcher: 'Chế độ học',
+        regenerate: 'T?o l?i c?u h?i',
+        regenerating: '?ang t?o l?i...',
+        generated: '?? l?m m?i b? c?u h?i.',
+        generatedRecovered: '?? kh?i ph?c question bank sau khi m?t ti?n tr?nh.',
+        regenerationReplaceHint: 'T?o l?i s? thay th? b? c?u h?i ?ang ho?t ??ng.',
+        questionProgressLost: 'M?t ti?n tr?nh t?o c?u h?i. H?y ki?m tra question bank hi?n t?i ho?c th? l?i.',
+        bankMissingBody: 'Ch?a c? question bank n?o. H?y t?o c?u h?i tr??c.',
+        studyDataError: 'Kh?ng t?i ???c th?ng tin study cho source n?y.',
+        studyDataLoading: '?ang t?i th?ng tin study...',
+        modeSwitcher: 'Ch? ?? h?c',
         quizTab: 'Quiz',
         flashTab: 'Flashcards',
         testTab: 'Test',
-        testHint: 'Làm bài kiểm tra liền mạch và xem điểm ở cuối.',
-        testStartTitle: 'Sẵn sàng làm Test',
-        testStartBody: 'Bài test ghi nhận kết quả đánh giá năng lực. Trong khi làm bài sẽ không hiện đáp án hay giải thích.',
-        testStartCta: 'Bắt đầu test',
-        testSubmitting: 'Đang nộp test...',
+        testHint: 'L?m b?i ki?m tra li?n m?ch v? xem ?i?m ? cu?i.',
+        testStartTitle: 'S?n s?ng l?m Test',
+        testStartBody: 'B?i test ghi nh?n k?t qu? ??nh gi? n?ng l?c. Trong khi l?m b?i s? kh?ng hi?n ??p ?n hay gi?i th?ch.',
+        testStartCta: 'B?t ??u test',
+        testSubmitting: '?ang n?p test...',
         masteryAfterTest: 'Mastery sau test',
-        duration: 'Thời lượng',
-        reviewWeakQuestions: 'Ôn lại câu yếu',
-        noWeakQuestions: 'Không có câu yếu trong lần test này.',
-        weakReviewHint: 'Ôn tập các câu bị sai trong test vừa rồi, có phản hồi sau mỗi câu.',
-        weakReviewCompleteHint: 'Đã hoàn thành phiên ôn lại câu yếu.',
-        testSubmitError: 'Chưa thể nộp test. Hãy thử lại.',
-        testCompletedTitle: 'Hoàn thành Test',
-        testCompleteHint: 'Bài test đã hoàn tất. Kết quả chỉ được hiển thị sau câu cuối.',
-        testEmptyHint: 'Hãy tạo question bank trước khi vào Test mode.',
-        progressLabel: 'Tiến độ học',
-        progressLoading: 'Đang tải tiến độ...',
-        progressError: 'Chưa tải được tiến độ.',
-        totalQuestions: 'Tổng số câu',
-        attemptedQuestions: 'Đã làm',
+        duration: 'Th?i l??ng',
+        reviewWeakQuestions: '?n l?i c?u y?u',
+        noWeakQuestions: 'Kh?ng c? c?u y?u trong l?n test n?y.',
+        weakReviewHint: '?n t?p c?c c?u b? sai trong test v?a r?i, c? ph?n h?i sau m?i c?u.',
+        weakReviewCompleteHint: '?? ho?n th?nh phi?n ?n l?i c?u y?u.',
+        testSubmitError: 'Ch?a th? n?p test. H?y th? l?i.',
+        testCompletedTitle: 'Ho?n th?nh Test',
+        testCompleteHint: 'B?i test ?? ho?n t?t. K?t qu? ch? ???c hi?n th? sau c?u cu?i.',
+        testEmptyHint: 'H?y t?o question bank tr??c khi v?o Test mode.',
+        progressLabel: 'Ti?n ?? h?c',
+        progressLoading: '?ang t?i ti?n ??...',
+        progressError: 'Learning progress hi?n ch?a kh? d?ng.',
+        totalQuestions: 'T?ng s? c?u',
+        attemptedQuestions: '?? l?m',
         averageMastery: 'Mastery TB',
         averageMemory: 'Memory TB',
-        weakQuestions: 'Câu yếu',
-        masteredQuestions: 'Đã vững',
+        weakQuestions: 'C?u y?u',
+        masteredQuestions: '?? v?ng',
         streakTab: 'Streak',
-        quizHint: 'Ôn nhanh bằng câu hỏi trắc nghiệm.',
-        flashHint: 'Lật thẻ để ghi nhớ đáp án.',
-        streakHint: 'Giữ chuỗi đúng liên tiếp thật gọn và tập trung.',
-        quizCompleteHint: 'Xem kết quả rồi đổi mode ngay trong cùng một khu học tập.',
-        quizEmptyHint: 'Chưa có câu hỏi khả dụng cho source này.',
-        streakEmptyHint: 'Hãy tạo question bank trước khi vào streak mode.',
-        progressAria: (percent) => `Tiến độ streak ${percent} phần trăm`,
+        quizHint: '?n nhanh b?ng c?u h?i tr?c nghi?m.',
+        flashHint: 'L?t th? ?? ghi nh? ??p ?n.',
+        streakHint: 'Gi? chu?i ??ng li?n ti?p th?t g?n v? t?p trung.',
+        quizCompleteHint: 'Xem k?t qu? r?i ??i mode ngay trong c?ng m?t khu h?c t?p.',
+        quizEmptyHint: 'Ch?a c? c?u h?i kh? d?ng cho source n?y.',
+        streakEmptyHint: 'H?y t?o question bank tr??c khi v?o streak mode.',
+        progressAria: (percent) => `Ti?n ?? streak ${percent} ph?n tr?m`,
       };
     }
 
@@ -118,12 +149,19 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       statusReady: 'Question bank ready',
       statusMissing: 'Question bank missing',
       statusRefreshing: 'Refreshing question bank...',
+      statusError: 'Study data unavailable',
       countLabel: 'Question count',
       sourceLabel: 'Current source',
       bankLabel: 'Question bank',
       regenerate: 'Regenerate questions',
       regenerating: 'Regenerating...',
       generated: 'Question bank refreshed.',
+      generatedRecovered: 'Recovered the question bank after progress tracking was lost.',
+      regenerationReplaceHint: 'Regenerate will replace the active question bank.',
+      questionProgressLost: 'Question generation progress was lost. Check the current question bank or try again.',
+      bankMissingBody: 'No question bank is available yet. Generate questions first.',
+      studyDataError: 'Could not load study data for this source.',
+      studyDataLoading: 'Loading study data...',
       modeSwitcher: 'Study mode',
       quizTab: 'Quiz',
       flashTab: 'Flashcards',
@@ -145,7 +183,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       testEmptyHint: 'Generate a question bank before entering Test mode.',
       progressLabel: 'Learning progress',
       progressLoading: 'Loading progress...',
-      progressError: 'Progress is not available yet.',
+      progressError: 'Learning progress is not available yet.',
       totalQuestions: 'Total questions',
       attemptedQuestions: 'Attempted',
       averageMastery: 'Avg mastery',
@@ -166,6 +204,8 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   useEffect(() => {
     setActiveMode(routeModeFromLegacyPath);
   }, [routeModeFromLegacyPath]);
+
+  const isRegenerating = isActiveProgress(questionGenerationProgress);
 
   const loadProgressSummary = useCallback(async ({ silent = false } = {}) => {
     if (!documentId) {
@@ -201,6 +241,51 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     loadProgressSummary({ silent: true });
   }, [loadProgressSummary]);
 
+  const loadDocumentMeta = useCallback(async ({ silent = false } = {}) => {
+    if (!documentId) {
+      setDocumentName('');
+      setDocumentStatus(null);
+      setQuestionCount(0);
+      setMetaError('');
+      setMetaLoading(false);
+      return null;
+    }
+
+    if (!silent) {
+      setMetaLoading(true);
+      setMetaError('');
+    }
+
+    try {
+      const documentData = await documentService.getDocument(documentId);
+      const nextQuestionCount = Number(documentData?.questionsCount ?? documentData?.QuestionsCount ?? 0);
+
+      setDocumentName(documentData?.fileName || documentData?.name || `${copy.sourceFallback} #${documentId}`);
+      setDocumentStatus(documentData?.status ?? null);
+      setQuestionCount(nextQuestionCount);
+      setMetaError('');
+      return documentData;
+    } catch (error) {
+      setDocumentName(`${copy.sourceFallback} #${documentId}`);
+      setDocumentStatus(null);
+      setQuestionCount(0);
+      setMetaError(getApiErrorMessage(error, copy.studyDataError));
+      return null;
+    } finally {
+      if (!silent) {
+        setMetaLoading(false);
+      }
+    }
+  }, [copy.sourceFallback, copy.studyDataError, documentId]);
+
+  const refreshStudyState = useCallback(async ({ silentMeta = true, silentProgress = true } = {}) => {
+    await Promise.all([
+      loadDocumentMeta({ silent: silentMeta }),
+      loadProgressSummary({ silent: silentProgress }),
+    ]);
+    setRefreshToken((current) => current + 1);
+  }, [loadDocumentMeta, loadProgressSummary]);
+
   useEffect(() => {
     if (!shouldShowShell || !documentId) {
       return;
@@ -209,34 +294,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     let cancelled = false;
 
     const loadMeta = async () => {
-      setMetaLoading(true);
-      setMetaError('');
-
-      try {
-        const [documentData, summaryData] = await Promise.all([
-          documentService.getDocument(documentId),
-          learningService.getDocumentSummary(documentId).catch(() => null),
-        ]);
-
-        if (cancelled) {
-          return;
-        }
-
-        setDocumentName(documentData?.fileName || documentData?.name || `${copy.sourceFallback} #${documentId}`);
-
-        setQuestionCount(Number(summaryData?.totalQuestions || 0));
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setMetaError(error?.message || '');
-        setDocumentName(`${copy.sourceFallback} #${documentId}`);
-        setQuestionCount(0);
-      } finally {
-        if (!cancelled) {
-          setMetaLoading(false);
-        }
+      await loadDocumentMeta();
+      if (cancelled) {
+        return;
       }
     };
 
@@ -245,7 +305,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     return () => {
       cancelled = true;
     };
-  }, [copy.sourceFallback, documentId, refreshToken, shouldShowShell]);
+  }, [documentId, loadDocumentMeta, refreshToken, shouldShowShell]);
 
   const handleModeChange = (nextMode) => {
     setActiveMode(nextMode);
@@ -263,24 +323,194 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     navigate('/workspaces');
   };
 
-  const handleRegenerate = async () => {
+  const handleRegenerate = useCallback(async () => {
     if (!documentId || isRegenerating) {
       return;
     }
 
-    setIsRegenerating(true);
+    setQuestionGenerationRecovered(false);
+    setQuestionGenerationError('');
     setRegenerateMessage('');
 
     try {
-      await questionService.generateQuestions(documentId, DEFAULT_QUESTION_COUNT);
-      setRegenerateMessage(copy.generated);
-      setRefreshToken((current) => current + 1);
+      const startResult = await questionService.startGenerateQuestions(documentId, DEFAULT_QUESTION_COUNT);
+      const nextJobId = startResult?.jobId || startResult?.progress?.jobId;
+      if (!nextJobId) {
+        throw new Error(copy.questionProgressLost);
+      }
+
+      setQuestionJobId(nextJobId);
+      setQuestionGenerationProgress(normalizeProgressState(startResult?.progress, {
+        documentId: Number(documentId),
+        jobId: nextJobId,
+        status: startResult?.status || 'queued',
+        stage: 'queued',
+        stageLabel: copy.regenerating,
+        message: copy.regenerationReplaceHint,
+        percent: 0,
+      }));
     } catch (error) {
-      setRegenerateMessage(getApiErrorMessage(error, t('workspace.study.failed')));
-    } finally {
-      setIsRegenerating(false);
+      const nextError = getApiErrorMessage(error, t('workspace.study.failed'));
+      setQuestionGenerationError(nextError);
+      setRegenerateMessage(nextError);
+      setQuestionGenerationProgress(null);
+      setQuestionJobId(null);
     }
-  };
+  }, [copy.questionProgressLost, copy.regenerating, copy.regenerationReplaceHint, documentId, isRegenerating, t]);
+
+  useEffect(() => {
+    if (!questionJobId || !questionGenerationProgress || !isActiveProgress(questionGenerationProgress) || !documentId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const finalizeCompletion = async ({ recovered = false, questionTotal = null, message = '' } = {}) => {
+      if (cancelled) {
+        return;
+      }
+
+      await refreshStudyState();
+      if (cancelled) {
+        return;
+      }
+
+      if (typeof questionTotal === 'number' && Number.isFinite(questionTotal)) {
+        setQuestionCount(questionTotal);
+      }
+
+      setQuestionGenerationRecovered(recovered);
+      setRegenerateMessage(message || (recovered ? copy.generatedRecovered : copy.generated));
+      setQuestionGenerationError('');
+      setQuestionGenerationProgress((current) => normalizeProgressState(current, {
+        status: 'completed',
+        percent: 100,
+        message: message || (recovered ? copy.generatedRecovered : copy.generated),
+      }));
+      setQuestionJobId(null);
+    };
+
+    const recoverQuestionBank = async () => {
+      const documentData = await loadDocumentMeta({ silent: true });
+      const persistedCount = Number(documentData?.questionsCount ?? documentData?.QuestionsCount ?? 0);
+      if (persistedCount > 0) {
+        await finalizeCompletion({
+          recovered: true,
+          questionTotal: persistedCount,
+          message: copy.generatedRecovered,
+        });
+        return true;
+      }
+
+      const questionsPayload = await questionService.getQuestionsByDocument(documentId);
+      const fetchedCount = getQuestionCountFromCollection(questionsPayload);
+      if (fetchedCount > 0) {
+        await finalizeCompletion({
+          recovered: true,
+          questionTotal: fetchedCount,
+          message: copy.generatedRecovered,
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    const pollQuestionGeneration = async () => {
+      try {
+        const nextProgress = normalizeProgressState(
+          await questionService.getGenerateProgress(questionJobId),
+          questionGenerationProgress
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setQuestionGenerationProgress(nextProgress);
+        setQuestionGenerationError('');
+
+        if (nextProgress.status === 'completed') {
+          const documentData = await loadDocumentMeta({ silent: true });
+          const persistedCount = Number(documentData?.questionsCount ?? documentData?.QuestionsCount ?? nextProgress.questionsGenerated ?? 0);
+          await finalizeCompletion({
+            recovered: false,
+            questionTotal: persistedCount,
+            message: copy.generated,
+          });
+          return;
+        }
+
+        if (nextProgress.status === 'failed') {
+          const nextError = nextProgress.error || nextProgress.detail || nextProgress.message || t('workspace.study.failed');
+          setQuestionGenerationError(nextError);
+          setRegenerateMessage(nextError);
+          setQuestionJobId(null);
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        if (isApiJobNotFound(error)) {
+          try {
+            const recovered = await recoverQuestionBank();
+            if (!recovered) {
+              setQuestionGenerationRecovered(false);
+              setQuestionGenerationError(copy.questionProgressLost);
+              setRegenerateMessage(copy.questionProgressLost);
+              setQuestionGenerationProgress((current) => normalizeProgressState(current, {
+                status: 'failed',
+                error: copy.questionProgressLost,
+                message: copy.questionProgressLost,
+              }));
+              setQuestionJobId(null);
+            }
+          } catch (recoveryError) {
+            const nextError = getApiErrorMessage(recoveryError, copy.questionProgressLost);
+            setQuestionGenerationError(nextError);
+            setRegenerateMessage(nextError);
+            setQuestionGenerationProgress((current) => normalizeProgressState(current, {
+              status: 'failed',
+              error: nextError,
+              message: nextError,
+            }));
+            setQuestionJobId(null);
+          }
+          return;
+        }
+
+        const nextError = getApiErrorMessage(error, t('workspace.study.failed'));
+        setQuestionGenerationError(nextError);
+        setRegenerateMessage(nextError);
+        setQuestionGenerationProgress((current) => normalizeProgressState(current, {
+          status: 'failed',
+          error: nextError,
+          message: nextError,
+        }));
+        setQuestionJobId(null);
+      }
+    };
+
+    pollQuestionGeneration();
+    const interval = setInterval(pollQuestionGeneration, 1200);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [
+    copy.generated,
+    copy.generatedRecovered,
+    copy.questionProgressLost,
+    documentId,
+    loadDocumentMeta,
+    questionGenerationProgress,
+    questionJobId,
+    refreshStudyState,
+    t,
+  ]);
+
 
   return (
     <div className={`study-shell${shouldShowShell ? ' study-shell-route' : ' study-shell-embedded'}`}>
@@ -324,7 +554,11 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
               progressError={progressError}
               progressLoading={progressLoading}
               progressSummary={progressSummary}
+              questionGenerationError={questionGenerationError}
+              questionGenerationProgress={questionGenerationProgress}
+              questionGenerationRecovered={questionGenerationRecovered}
               questionCount={questionCount}
+              documentStatus={documentStatus}
               regenerateMessage={regenerateMessage}
               regenerating={isRegenerating}
             />
@@ -380,27 +614,44 @@ function StudySidebar({
   progressError,
   progressLoading,
   progressSummary,
+  questionGenerationError,
+  questionGenerationProgress,
+  questionGenerationRecovered,
   questionCount,
+  documentStatus,
   regenerateMessage,
   regenerating,
 }) {
-  const bankStatus = regenerating
-    ? copy.statusRefreshing
-    : questionCount > 0
-      ? copy.statusReady
-      : copy.statusMissing;
+  const bankStatus = metaError
+    ? copy.statusError
+    : regenerating
+      ? copy.statusRefreshing
+      : questionCount > 0
+        ? copy.statusReady
+        : copy.statusMissing;
+
+  const bankDetail = metaError
+    ? metaError
+    : questionGenerationError
+      ? questionGenerationError
+      : regenerateMessage
+        ? regenerateMessage
+        : questionCount > 0
+          ? `${questionCount}`
+          : copy.bankMissingBody;
 
   return (
     <aside className="study-sidebar">
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.bankLabel}</span>
         <strong>{bankStatus}</strong>
-        <p>{metaError || regenerateMessage || (questionCount > 0 ? `${questionCount}` : '0')}</p>
+        <p>{bankDetail}</p>
       </div>
 
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.countLabel}</span>
         <strong>{questionCount}</strong>
+        <p>{copy.regenerationReplaceHint}</p>
       </div>
 
       <ProgressSummaryCard
@@ -413,6 +664,7 @@ function StudySidebar({
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.sourceLabel}</span>
         <strong className="study-sidebar-source">{documentName || copy.emptySource}</strong>
+        <p>{documentStatus === null ? copy.studyDataError : `${documentStatus}`}</p>
       </div>
 
       <div className="study-sidebar-actions">
@@ -424,7 +676,13 @@ function StudySidebar({
         </button>
       </div>
 
-      {metaLoading && <p className="study-sidebar-note">...</p>}
+      {questionGenerationProgress && (
+        <p className="study-sidebar-note">
+          {Math.round(Number(questionGenerationProgress.percent || 0))}% ? {questionGenerationProgress.message || questionGenerationProgress.stageLabel || copy.regenerating}
+          {questionGenerationRecovered ? ` ? ${copy.generatedRecovered}` : ''}
+        </p>
+      )}
+      {metaLoading && <p className="study-sidebar-note">{copy.studyDataLoading}</p>}
     </aside>
   );
 }

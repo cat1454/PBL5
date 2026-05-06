@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter as Router, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import './App.css';
 import AdminPage from './components/AdminPage';
-import DocumentList from './components/DocumentList';
 import DocumentUpload from './components/DocumentUpload';
 import FlashcardGame from './components/FlashcardGame';
 import FolderProjects from './components/FolderProjects';
@@ -18,7 +17,7 @@ import RegisterPage from './components/auth/RegisterPage';
 import { ToastProvider } from './components/common/ToastProvider';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
-import { workspaceService } from './services/api';
+import { getApiErrorMessage, workspaceService } from './services/api';
 
 const MAX_RECENT_SOURCES = 4;
 const GUIDE_CHIPS = ['howToUse', 'createQuestions', 'createSlides', 'whatNext'];
@@ -297,7 +296,7 @@ function AppShell({ user, onLogout }) {
               <Route path="/folders/:folderId/studio" element={<LegacyWorkspaceRedirect />} />
               <Route path="/workspaces" element={<FolderProjects />} />
               <Route path="/workspaces/:workspaceId" element={<FolderStudio />} />
-              <Route path="/documents-legacy" element={<DocumentList />} />
+              <Route path="/documents-legacy" element={<Navigate to="/workspaces" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
               <Route path="/study/:documentId" element={<StudyHub />} />
@@ -790,7 +789,7 @@ function useWorkspaceHomeData() {
       console.error(err);
       setDefaultWorkspace(null);
       setSources([]);
-      setError(t('app.dashboard.loadErrorBody'));
+      setError(getApiErrorMessage(err, t('app.dashboard.loadErrorBody')));
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { authService, setApiAuthToken, setApiUnauthorizedHandler } from '../services/api';
 
 const TOKEN_STORAGE_KEY = 'elearn-auth-token';
+const DEFAULT_ROLE = 'LEARNER';
 
 const AuthContext = createContext({
   currentUser: null,
@@ -22,6 +23,26 @@ function getStoredToken() {
   return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
 }
 
+export function normalizeRole(role) {
+  if (typeof role !== 'string') {
+    return DEFAULT_ROLE;
+  }
+
+  const normalized = role.trim().toUpperCase();
+  return normalized || DEFAULT_ROLE;
+}
+
+function normalizeAuthUser(user) {
+  if (!user || typeof user !== 'object') {
+    return null;
+  }
+
+  return {
+    ...user,
+    role: normalizeRole(user.role),
+  };
+}
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(getStoredToken);
   const [currentUser, setCurrentUser] = useState(null);
@@ -37,8 +58,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const persistSession = useCallback((nextToken, user) => {
+    const normalizedUser = normalizeAuthUser(user);
     setToken(nextToken);
-    setCurrentUser(user);
+    setCurrentUser(normalizedUser);
     setApiAuthToken(nextToken);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(TOKEN_STORAGE_KEY, nextToken);
@@ -46,7 +68,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const refreshMe = useCallback(async () => {
-    const user = await authService.me();
+    const user = normalizeAuthUser(await authService.me());
     setCurrentUser(user);
     return user;
   }, []);
@@ -76,7 +98,7 @@ export function AuthProvider({ children }) {
 
       try {
         setApiAuthToken(token);
-        const user = await authService.me();
+        const user = normalizeAuthUser(await authService.me());
         if (isMounted) {
           setCurrentUser(user);
         }

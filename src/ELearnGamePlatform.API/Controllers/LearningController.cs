@@ -43,7 +43,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -90,7 +90,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -203,7 +203,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -226,7 +226,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -254,7 +254,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -282,7 +282,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
@@ -310,7 +310,7 @@ public class LearningController : AuthenticatedControllerBase
             return NotFound("Document not found.");
         }
 
-        var authResult = EnsureOwnerOrAdmin(document.UploadedBy);
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
         if (authResult != null)
         {
             return authResult;
