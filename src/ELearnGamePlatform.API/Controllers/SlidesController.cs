@@ -609,7 +609,7 @@ public class SlidesController : AuthenticatedControllerBase
             FailJob(
                 jobId,
                 ex.Message,
-                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.");
+                "Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.");
         }
         catch (Exception ex)
         {
