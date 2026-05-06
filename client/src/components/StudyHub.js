@@ -82,68 +82,84 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const copy = useMemo(() => {
     if (language === 'vi') {
       return {
-        back: 'Quay l?i',
-        backToWorkspace: 'V? Workspace',
-        sourceFallback: 'T?i li?u ?ang h?c',
-        emptySource: 'Ch?a c? t?n source',
-        statusReady: 'Question bank s?n s?ng',
-        statusMissing: 'Ch?a c? question bank',
-        statusRefreshing: '?ang c?p nh?t question bank...',
-        statusError: 'Kh?ng t?i ???c study data',
-        countLabel: 'S? c?u h?i',
-        sourceLabel: 'Source hi?n t?i',
+        back: 'Quay lại',
+        backToWorkspace: 'Về Workspace',
+        backToStudyHub: 'Về Study Hub',
+        retryLoad: 'Tải lại',
+        sourceFallback: 'Tài liệu đang học',
+        emptySource: 'Chưa có tên source',
+        statusReady: 'Question bank sẵn sàng',
+        statusMissing: 'Chưa có question bank',
+        statusRefreshing: 'Đang cập nhật question bank...',
+        statusError: 'Không tải được dữ liệu học tập',
+        countLabel: 'Số câu hỏi',
+        sourceLabel: 'Source hiện tại',
+        sourceStatusLabel: 'Trạng thái source',
+        sourceStatusReady: 'Sẵn sàng để học',
+        sourceStatusProcessing: 'Đang xử lý OCR/AI',
+        sourceStatusProcessingDetail: 'Source vẫn đang được OCR/AI xử lý. Nội dung học sẽ sẵn sàng sau khi xử lý xong.',
+        sourceStatusFailed: 'Xử lý thất bại',
+        sourceStatusFailedDetail: 'Source xử lý thất bại. Hãy kiểm tra lại tài liệu hoặc thử upload lại.',
+        sourceStatusUnknown: 'Chưa xác định',
         bankLabel: 'Question bank',
-        regenerate: 'T?o l?i c?u h?i',
-        regenerating: '?ang t?o l?i...',
-        generated: '?? l?m m?i b? c?u h?i.',
-        generatedRecovered: '?? kh?i ph?c question bank sau khi m?t ti?n tr?nh.',
-        regenerationReplaceHint: 'T?o l?i s? thay th? b? c?u h?i ?ang ho?t ??ng.',
-        questionProgressLost: 'M?t ti?n tr?nh t?o c?u h?i. H?y ki?m tra question bank hi?n t?i ho?c th? l?i.',
-        bankMissingBody: 'Ch?a c? question bank n?o. H?y t?o c?u h?i tr??c.',
-        studyDataError: 'Kh?ng t?i ???c th?ng tin study cho source n?y.',
-        studyDataLoading: '?ang t?i th?ng tin study...',
-        modeSwitcher: 'Ch? ?? h?c',
+        regenerate: 'Tạo lại câu hỏi',
+        regenerating: 'Đang tạo lại...',
+        generated: 'Đã làm mới question bank.',
+        generatedRecovered: 'Đã khôi phục question bank sau khi mất tiến trình.',
+        regenerationReplaceHint: 'Tạo lại sẽ thay thế question bank hiện tại.',
+        questionProgressLost: 'Mất tiến trình tạo câu hỏi. Hãy kiểm tra question bank hiện tại hoặc thử lại.',
+        bankMissingBody: 'Chưa có question bank nào. Hãy tạo câu hỏi trước.',
+        bankGeneratingBody: 'Question bank đang được tạo. Bạn có thể ở lại để theo dõi tiến trình.',
+        studyDataError: 'Không tải được thông tin Study Hub cho source này.',
+        studyDataLoading: 'Đang tải thông tin Study Hub...',
+        modeSwitcher: 'Chế độ học',
         quizTab: 'Quiz',
         flashTab: 'Flashcards',
         testTab: 'Test',
-        testHint: 'L?m b?i ki?m tra li?n m?ch v? xem ?i?m ? cu?i.',
-        testStartTitle: 'S?n s?ng l?m Test',
-        testStartBody: 'B?i test ghi nh?n k?t qu? ??nh gi? n?ng l?c. Trong khi l?m b?i s? kh?ng hi?n ??p ?n hay gi?i th?ch.',
-        testStartCta: 'B?t ??u test',
-        testSubmitting: '?ang n?p test...',
+        testHint: 'Làm bài kiểm tra liền mạch và xem điểm ở cuối.',
+        testStartTitle: 'Sẵn sàng làm Test',
+        testStartBody: 'Bài test ghi nhận kết quả đánh giá năng lực. Trong khi làm bài sẽ không hiện đáp án hay giải thích.',
+        testStartCta: 'Bắt đầu test',
+        testSubmitting: 'Đang nộp test...',
         masteryAfterTest: 'Mastery sau test',
-        duration: 'Th?i l??ng',
-        reviewWeakQuestions: '?n l?i c?u y?u',
-        noWeakQuestions: 'Kh?ng c? c?u y?u trong l?n test n?y.',
-        weakReviewHint: '?n t?p c?c c?u b? sai trong test v?a r?i, c? ph?n h?i sau m?i c?u.',
-        weakReviewCompleteHint: '?? ho?n th?nh phi?n ?n l?i c?u y?u.',
-        testSubmitError: 'Ch?a th? n?p test. H?y th? l?i.',
-        testCompletedTitle: 'Ho?n th?nh Test',
-        testCompleteHint: 'B?i test ?? ho?n t?t. K?t qu? ch? ???c hi?n th? sau c?u cu?i.',
-        testEmptyHint: 'H?y t?o question bank tr??c khi v?o Test mode.',
-        progressLabel: 'Ti?n ?? h?c',
-        progressLoading: '?ang t?i ti?n ??...',
-        progressError: 'Learning progress hi?n ch?a kh? d?ng.',
-        totalQuestions: 'T?ng s? c?u',
-        attemptedQuestions: '?? l?m',
+        duration: 'Thời lượng',
+        reviewWeakQuestions: 'Ôn lại câu yếu',
+        noWeakQuestions: 'Không có câu yếu trong lần test này.',
+        weakReviewHint: 'Ôn tập các câu bị sai trong test vừa rồi, có phản hồi sau mỗi câu.',
+        weakReviewCompleteHint: 'Đã hoàn thành phiên ôn lại câu yếu.',
+        testSubmitError: 'Chưa thể nộp test. Hãy thử lại.',
+        testCompletedTitle: 'Hoàn thành Test',
+        testCompleteHint: 'Bài test đã hoàn tất. Kết quả chỉ được hiển thị sau câu cuối.',
+        testEmptyHint: 'Hãy tạo question bank trước khi vào Test mode.',
+        progressLabel: 'Tiến độ học',
+        progressLoading: 'Đang tải tiến độ...',
+        progressError: 'Tiến độ học tập hiện chưa khả dụng.',
+        progressUnavailable: 'Chưa có dữ liệu tiến độ. Hãy bắt đầu một phiên học để tạo dữ liệu đầu tiên.',
+        totalQuestions: 'Tổng số câu',
+        attemptedQuestions: 'Đã làm',
         averageMastery: 'Mastery TB',
         averageMemory: 'Memory TB',
-        weakQuestions: 'C?u y?u',
-        masteredQuestions: '?? v?ng',
+        weakQuestions: 'Câu yếu',
+        masteredQuestions: 'Đã vững',
         streakTab: 'Streak',
-        quizHint: '?n nhanh b?ng c?u h?i tr?c nghi?m.',
-        flashHint: 'L?t th? ?? ghi nh? ??p ?n.',
-        streakHint: 'Gi? chu?i ??ng li?n ti?p th?t g?n v? t?p trung.',
-        quizCompleteHint: 'Xem k?t qu? r?i ??i mode ngay trong c?ng m?t khu h?c t?p.',
-        quizEmptyHint: 'Ch?a c? c?u h?i kh? d?ng cho source n?y.',
-        streakEmptyHint: 'H?y t?o question bank tr??c khi v?o streak mode.',
-        progressAria: (percent) => `Ti?n ?? streak ${percent} ph?n tr?m`,
+        quizHint: 'Ôn nhanh bằng câu hỏi trắc nghiệm.',
+        flashHint: 'Lật thẻ để ghi nhớ đáp án.',
+        streakHint: 'Giữ chuỗi đúng liên tiếp để tập trung hơn.',
+        quizCompleteHint: 'Xem kết quả rồi đổi mode ngay trong cùng một khu học tập.',
+        quizEmptyHint: 'Chưa có câu hỏi khả dụng cho source này.',
+        streakEmptyHint: 'Hãy tạo question bank trước khi vào streak mode.',
+        loadErrorTitleQuiz: 'Không tải được bộ câu hỏi quiz',
+        loadErrorTitleFlashcards: 'Không tải được bộ flashcards',
+        loadErrorBody: 'Bạn vẫn đang ở trong luồng học hiện tại. Hãy thử tải lại hoặc quay lại Workspace để kiểm tra question bank.',
+        progressAria: (percent) => `Tiến độ streak ${percent} phần trăm`,
       };
     }
 
     return {
       back: 'Back',
       backToWorkspace: 'Back to Workspace',
+      backToStudyHub: 'Back to Study Hub',
+      retryLoad: 'Retry',
       sourceFallback: 'Current study source',
       emptySource: 'No source name available',
       statusReady: 'Question bank ready',
@@ -152,6 +168,13 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       statusError: 'Study data unavailable',
       countLabel: 'Question count',
       sourceLabel: 'Current source',
+      sourceStatusLabel: 'Source status',
+      sourceStatusReady: 'Ready to study',
+      sourceStatusProcessing: 'OCR and AI processing',
+      sourceStatusProcessingDetail: 'The source is still being processed by OCR/AI. Study content will be ready after processing completes.',
+      sourceStatusFailed: 'Processing failed',
+      sourceStatusFailedDetail: 'Source processing failed. Check the document or upload it again.',
+      sourceStatusUnknown: 'Status unavailable',
       bankLabel: 'Question bank',
       regenerate: 'Regenerate questions',
       regenerating: 'Regenerating...',
@@ -160,6 +183,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       regenerationReplaceHint: 'Regenerate will replace the active question bank.',
       questionProgressLost: 'Question generation progress was lost. Check the current question bank or try again.',
       bankMissingBody: 'No question bank is available yet. Generate questions first.',
+      bankGeneratingBody: 'The question bank is still generating. Stay here to monitor progress.',
       studyDataError: 'Could not load study data for this source.',
       studyDataLoading: 'Loading study data...',
       modeSwitcher: 'Study mode',
@@ -184,6 +208,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       progressLabel: 'Learning progress',
       progressLoading: 'Loading progress...',
       progressError: 'Learning progress is not available yet.',
+      progressUnavailable: 'No learning history yet. Start a study session to populate this summary.',
       totalQuestions: 'Total questions',
       attemptedQuestions: 'Attempted',
       averageMastery: 'Avg mastery',
@@ -197,6 +222,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       quizCompleteHint: 'Review the result, then switch modes without leaving the study area.',
       quizEmptyHint: 'No study questions are available for this source yet.',
       streakEmptyHint: 'Generate a question bank before entering streak mode.',
+      loadErrorTitleQuiz: 'Could not load the quiz question set',
+      loadErrorTitleFlashcards: 'Could not load the flashcards set',
+      loadErrorBody: 'You can retry here or go back to the workspace to inspect the current question bank.',
       progressAria: (percent) => `Streak progress ${percent} percent`,
     };
   }, [language]);
@@ -622,6 +650,7 @@ function StudySidebar({
   regenerateMessage,
   regenerating,
 }) {
+  const sourceStatus = getStudySourceStatus(documentStatus, copy);
   const bankStatus = metaError
     ? copy.statusError
     : regenerating
@@ -636,12 +665,20 @@ function StudySidebar({
       ? questionGenerationError
       : regenerateMessage
         ? regenerateMessage
+        : regenerating
+          ? copy.bankGeneratingBody
         : questionCount > 0
           ? `${questionCount}`
           : copy.bankMissingBody;
 
   return (
     <aside className="study-sidebar">
+      <div className="study-sidebar-card">
+        <span className="study-sidebar-label">{copy.sourceStatusLabel}</span>
+        <strong>{sourceStatus.title}</strong>
+        <p>{sourceStatus.detail}</p>
+      </div>
+
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.bankLabel}</span>
         <strong>{bankStatus}</strong>
@@ -664,7 +701,7 @@ function StudySidebar({
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.sourceLabel}</span>
         <strong className="study-sidebar-source">{documentName || copy.emptySource}</strong>
-        <p>{documentStatus === null ? copy.studyDataError : `${documentStatus}`}</p>
+        <p>{metaError || sourceStatus.detail}</p>
       </div>
 
       <div className="study-sidebar-actions">
@@ -678,8 +715,8 @@ function StudySidebar({
 
       {questionGenerationProgress && (
         <p className="study-sidebar-note">
-          {Math.round(Number(questionGenerationProgress.percent || 0))}% ? {questionGenerationProgress.message || questionGenerationProgress.stageLabel || copy.regenerating}
-          {questionGenerationRecovered ? ` ? ${copy.generatedRecovered}` : ''}
+          {Math.round(Number(questionGenerationProgress.percent || 0))}% - {questionGenerationProgress.message || questionGenerationProgress.stageLabel || copy.regenerating}
+          {questionGenerationRecovered ? ` - ${copy.generatedRecovered}` : ''}
         </p>
       )}
       {metaLoading && <p className="study-sidebar-note">{copy.studyDataLoading}</p>}
@@ -705,6 +742,8 @@ function ProgressSummaryCard({ copy, progressError, progressLoading, progressSum
         <p>{copy.progressLoading}</p>
       ) : progressError ? (
         <p>{progressError || copy.progressError}</p>
+      ) : !progressSummary ? (
+        <p>{copy.progressUnavailable}</p>
       ) : (
         <div className="study-progress-summary-grid">
           <ProgressSummaryItem label={copy.totalQuestions} value={summary.totalQuestions || 0} />
@@ -795,6 +834,8 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
 function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [allQuestions, setAllQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
@@ -824,6 +865,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   useEffect(() => {
     const loadQuiz = async () => {
       setLoading(true);
+      setLoadError('');
       try {
         if (isTestMode) {
           setAllQuestions([]);
@@ -833,16 +875,15 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         const data = await gameService.getQuizGame(documentId, DEFAULT_QUESTION_COUNT);
         setAllQuestions(Array.isArray(data?.questions) ? data.questions : []);
       } catch (error) {
-        alert(t('quiz.loadError'));
         console.error(error);
-        navigate('/workspaces');
+        setLoadError(getApiErrorMessage(error, t('quiz.loadError')));
       } finally {
         setLoading(false);
       }
     };
 
     loadQuiz();
-  }, [documentId, isTestMode, navigate, refreshToken, t]);
+  }, [documentId, isTestMode, refreshToken, reloadKey, t]);
 
   useEffect(() => () => {
     if (bumpTimerRef.current) {
@@ -1205,6 +1246,21 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     );
   }
 
+  if (loadError) {
+    return (
+      <StudyLoadErrorState
+        title={copy.loadErrorTitleQuiz}
+        body={loadError || copy.loadErrorBody}
+        retryLabel={copy.retryLoad}
+        onRetry={() => setReloadKey((current) => current + 1)}
+        onBack={() => navigate(`/study/${documentId}`)}
+        backLabel={copy.backToStudyHub}
+        onWorkspace={() => navigate('/workspaces')}
+        workspaceLabel={copy.backToWorkspace}
+      />
+    );
+  }
+
   if (questions.length === 0 && !(isTestMode && testState === 'ready')) {
     return (
       <StudyEmptyState
@@ -1386,6 +1442,8 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [allFlashcards, setAllFlashcards] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -1396,20 +1454,20 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
   useEffect(() => {
     const loadFlashcards = async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const data = await gameService.getFlashcards(documentId);
         setAllFlashcards(Array.isArray(data?.flashcards) ? data.flashcards : []);
       } catch (error) {
-        alert(t('flashcards.loadError'));
         console.error(error);
-        navigate('/workspaces');
+        setLoadError(getApiErrorMessage(error, t('flashcards.loadError')));
       } finally {
         setLoading(false);
       }
     };
 
     loadFlashcards();
-  }, [documentId, navigate, refreshToken, t]);
+  }, [documentId, refreshToken, reloadKey, t]);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -1431,6 +1489,21 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
         <div className="spinner"></div>
         <p>{t('flashcards.loading')}</p>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <StudyLoadErrorState
+        title={copy.loadErrorTitleFlashcards}
+        body={loadError || copy.loadErrorBody}
+        retryLabel={copy.retryLoad}
+        onRetry={() => setReloadKey((current) => current + 1)}
+        onBack={() => navigate(`/study/${documentId}`)}
+        backLabel={copy.backToStudyHub}
+        onWorkspace={() => navigate('/workspaces')}
+        workspaceLabel={copy.backToWorkspace}
+      />
     );
   }
 
@@ -1748,6 +1821,28 @@ function StudyEmptyState({ title, body, resetLabel, onReset, onBack, backLabel }
   );
 }
 
+function StudyLoadErrorState({ title, body, retryLabel, onRetry, onBack, backLabel, onWorkspace, workspaceLabel }) {
+  return (
+    <div className="study-panel">
+      <div className="card study-card study-empty-card">
+        <h2>{title}</h2>
+        <p>{body}</p>
+        <div className="study-action-row">
+          <button className="button" onClick={onRetry}>
+            {retryLabel}
+          </button>
+          <button className="button button-secondary" onClick={onBack}>
+            {backLabel}
+          </button>
+          <button className="button button-secondary" onClick={onWorkspace}>
+            {workspaceLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getModeHint(mode, copy) {
   if (mode === 'flashcards') {
     return copy.flashHint;
@@ -1772,6 +1867,34 @@ function getModeTabLabel(mode, copy) {
     return copy.streakTab;
   }
   return copy.quizTab;
+}
+
+function getStudySourceStatus(status, copy) {
+  if (status === 3 || String(status) === 'Completed') {
+    return {
+      title: copy.sourceStatusReady,
+      detail: copy.quizHint,
+    };
+  }
+
+  if (status === 4 || String(status) === 'Failed') {
+    return {
+      title: copy.sourceStatusFailed,
+      detail: copy.sourceStatusFailedDetail,
+    };
+  }
+
+  if (status === 0 || status === 1 || status === 2 || ['Uploaded', 'Extracting', 'Analyzing'].includes(String(status))) {
+    return {
+      title: copy.sourceStatusProcessing,
+      detail: copy.sourceStatusProcessingDetail,
+    };
+  }
+
+  return {
+    title: copy.sourceStatusUnknown,
+    detail: copy.studyDataError,
+  };
 }
 
 export default StudyHub;

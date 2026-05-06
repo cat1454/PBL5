@@ -1,4 +1,4 @@
-`import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage, workspaceService } from '../services/api';
@@ -220,9 +220,6 @@ function FolderProjects() {
             <div className="folder-card-actions">
               <button type="button" className="button" onClick={() => navigate(`/workspaces/${folder.id}`)}>
                 {t('workspaces.open')}
-              </button>
-              <button type="button" className="button button-secondary" onClick={() => navigate(`/workspaces/${folder.id}`)}>
-                {t('workspaces.manage')}
               </button>
               <button type="button" className="button button-secondary" onClick={() => handleDelete(folder.id)}>
                 {t('workspaces.delete')}

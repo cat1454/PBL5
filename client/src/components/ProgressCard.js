@@ -23,11 +23,11 @@ function ProgressCard({
   }
 
   const normalizedStatus = String(progress.status || '').toLowerCase();
-  const stageLabel = getProgressStageLabel(progress);
+  const stageLabel = getProgressStageLabel(progress, { language });
   const etaLabel = showEta && isActiveProgress(progress)
-    ? (formatEta(progress.estimatedRemainingSeconds) || t('slides.sourceProcessing.etaEstimating'))
+    ? (formatEta(progress.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating'))
     : null;
-  const counterLabel = showCounters ? getProgressCounterLabel(progress) : null;
+  const counterLabel = showCounters ? getProgressCounterLabel(progress, { language }) : null;
   const subProgress = getSubProgress(progress.current, progress.total);
   const classes = [
     'progress-card',
@@ -73,8 +73,8 @@ function ProgressCard({
           <span>{language === 'vi' ? `Bước ${progress.stageIndex}/${progress.stageCount}` : `Step ${progress.stageIndex}/${progress.stageCount}`}</span>
         )}
         {counterLabel && <span>{counterLabel}</span>}
-        {progress.topicTag && <span>Chủ đề: {progress.topicTag}</span>}
-        {etaLabel && <span>ETA {etaLabel}</span>}
+        {progress.topicTag && <span>{language === 'vi' ? `Chủ đề: ${progress.topicTag}` : `Topic: ${progress.topicTag}`}</span>}
+        {etaLabel && <span>{t('slides.sourceProcessing.etaLabel')} {etaLabel}</span>}
       </div>
     </section>
   );

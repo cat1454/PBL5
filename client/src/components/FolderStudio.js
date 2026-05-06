@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   documentService,
   getApiErrorMessage,
@@ -351,8 +351,8 @@ function WorkspaceDeckProgressCard({ progress, language }) {
   }
 
   const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
-  const counterLabel = getProgressCounterLabel(progress);
-  const etaLabel = formatEta(progress.estimatedRemainingSeconds) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
+  const counterLabel = getProgressCounterLabel(progress, { language });
+  const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
 
   return (
     <div className="workspace-generate-progress-card">
@@ -396,8 +396,8 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
   }
 
   const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
-  const counterLabel = getProgressCounterLabel(progress);
-  const etaLabel = formatEta(progress.estimatedRemainingSeconds) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
+  const counterLabel = getProgressCounterLabel(progress, { language });
+  const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
 
   return (
     <div className="workspace-generate-progress-card">
@@ -451,6 +451,7 @@ function FolderStudio() {
   const { t, language } = useLanguage();
   const { showToast } = useToast();
   const { workspaceId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
@@ -465,6 +466,7 @@ function FolderStudio() {
   const [activeField, setActiveField] = useState('body');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [uploadNotice, setUploadNotice] = useState('');
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(null);
   const [generationError, setGenerationError] = useState('');
@@ -541,6 +543,16 @@ function FolderStudio() {
 
     return new Date(value).toLocaleString();
   };
+
+  useEffect(() => {
+    const nextNotice = location.state?.uploadNotice;
+    if (!nextNotice) {
+      setUploadNotice('');
+      return;
+    }
+
+    setUploadNotice([nextNotice.message, nextNotice.description].filter(Boolean).join(' '));
+  }, [location.pathname, location.state]);
 
   const stopTypewriterAnimation = useCallback((slideId) => {
     if (!slideId) {
@@ -1200,11 +1212,11 @@ function FolderStudio() {
       await loadWorkspace({ silent: true });
       showToast({
         type: 'success',
-        message: language === 'vi' ? '?? c?p nh?t c?u tr?c t?i li?u.' : 'Document structure updated.',
+        message: language === 'vi' ? 'Đã cập nhật cấu trúc tài liệu.' : 'Document structure updated.',
       });
     } catch (err) {
       console.error(err);
-      setError(getApiErrorMessage(err, language === 'vi' ? 'Kh?ng ph?n t?ch l?i ???c c?u tr?c t?i li?u n?y.' : 'Could not re-analyze this document structure.'));
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không phân tích lại được cấu trúc tài liệu này.' : 'Could not re-analyze this document structure.'));
     } finally {
       setIsAnalyzingStructure(false);
     }
@@ -1347,9 +1359,9 @@ function FolderStudio() {
     setQuestionProgress(normalizeProgressState({
       status: 'queued',
       stage: 'queued',
-      stageLabel: language === 'vi' ? 'Ch? x? l?' : 'Queued',
+      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
       message: language === 'vi'
-        ? '?? t?o job sinh c?u h?i cho source ?? ch?n.'
+        ? 'Đã tạo job sinh câu hỏi cho source đã chọn.'
         : 'Created a question generation job for the selected source.',
       percent: 0,
       documentId: selectedSourceDocumentId,
@@ -1357,9 +1369,9 @@ function FolderStudio() {
 
     showToast({
       type: 'info',
-      message: language === 'vi' ? '?? b?t ??u t?o b? c?u h?i.' : 'Started generating the question bank.',
+      message: language === 'vi' ? 'Đã bắt đầu tạo bộ câu hỏi.' : 'Started generating the question bank.',
       description: language === 'vi'
-        ? 'Ti?n tr?nh s? hi?n th? ngay trong action panel.'
+        ? 'Tiến trình sẽ hiển thị ngay trong action panel.'
         : 'Progress will continue in the action panel.',
     });
 
@@ -1368,7 +1380,7 @@ function FolderStudio() {
       const nextJobId = startResult?.jobId;
       if (!nextJobId) {
         throw new Error(language === 'vi'
-          ? 'Kh?ng t?o ???c m? ti?n tr?nh cho question bank.'
+          ? 'Không tạo được mã tiến trình cho question bank.'
           : 'Could not create a progress job for the question bank.');
       }
 
@@ -1403,14 +1415,14 @@ function FolderStudio() {
               percent: 100,
               questionsGenerated: recoveredCount,
               message: language === 'vi'
-                ? 'Kh?i ph?c question bank sau khi m?t ti?n tr?nh.'
+                ? 'Khôi phục question bank sau khi mất tiến trình.'
                 : 'Recovered the question bank after progress tracking was lost.',
             }));
             setQuestionError('');
             showToast({
               type: 'success',
               message: language === 'vi'
-                ? `?? kh?i ph?c question bank (${recoveredCount} c?u).`
+                ? `Đã khôi phục question bank (${recoveredCount} câu).`
                 : `Recovered question bank (${recoveredCount} questions).`,
             });
             navigate(`/study/${selectedSourceDocumentId}`);
@@ -1418,7 +1430,7 @@ function FolderStudio() {
           }
 
           throw new Error(language === 'vi'
-            ? 'M?t ti?n tr?nh t?o c?u h?i. H?y th? l?i.'
+            ? 'Mất tiến trình tạo câu hỏi. Hãy thử lại.'
             : 'Question generation progress was lost. Please try again.');
         }
 
@@ -1431,7 +1443,7 @@ function FolderStudio() {
           showToast({
             type: 'success',
             message: language === 'vi'
-              ? `?? t?o xong b? c?u h?i (${generatedCount} c?u).`
+              ? `Đã tạo xong bộ câu hỏi (${generatedCount} câu).`
               : `Question bank ready (${generatedCount} questions).`,
           });
           navigate(`/study/${selectedSourceDocumentId}`);
@@ -1446,12 +1458,12 @@ function FolderStudio() {
       }
 
       throw new Error(language === 'vi'
-        ? 'H?t th?i gian ch? ti?n tr?nh t?o c?u h?i.'
+        ? 'Hết thời gian chờ tiến trình tạo câu hỏi.'
         : 'Timed out while waiting for question generation progress.');
     } catch (err) {
       console.error(err);
       const nextError = getApiErrorMessage(err, language === 'vi'
-        ? 'Kh?ng th? t?o question bank l?c n?y.'
+        ? 'Không thể tạo question bank lúc này.'
         : 'Could not generate the question bank right now.');
       setQuestionError(nextError);
       setQuestionProgress((current) => (
@@ -1466,7 +1478,7 @@ function FolderStudio() {
       ));
       showToast({
         type: 'error',
-        message: language === 'vi' ? 'Kh?ng t?o ???c c?u h?i.' : 'Could not generate questions.',
+        message: language === 'vi' ? 'Không tạo được câu hỏi.' : 'Could not generate questions.',
         description: nextError,
       });
     } finally {
@@ -1539,9 +1551,9 @@ function FolderStudio() {
   const topbarProgress = activeProgress && isActiveProgress(activeProgress)
     ? activeProgress
     : runningSourceVm?.vm.progressState || null;
-  const topbarCounter = getProgressCounterLabel(topbarProgress);
+  const topbarCounter = getProgressCounterLabel(topbarProgress, { language });
   const topbarEta = topbarProgress && isActiveProgress(topbarProgress)
-    ? (formatEta(topbarProgress?.estimatedRemainingSeconds) || t('slides.sourceProcessing.etaEstimating'))
+    ? (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating'))
     : null;
   const topbarSourceSummary = runningSourceVm
     ? [
@@ -1565,22 +1577,22 @@ function FolderStudio() {
     ? t('slides.studyActions.streakHint')
     : '';
   const questionActionTitle = selectedSourceHasQuestions
-    ? (language === 'vi' ? 'T?o l?i question bank' : 'Regenerate question bank')
-    : (language === 'vi' ? 'T?o c?u h?i ?n t?p' : 'Generate review questions');
+    ? (language === 'vi' ? 'Tạo lại question bank' : 'Regenerate question bank')
+    : (language === 'vi' ? 'Tạo câu hỏi ôn tập' : 'Generate review questions');
   const questionActionDetail = !selectedSource
     ? (language === 'vi'
-      ? 'Ch?n m?t source Completed ?? t?o question bank.'
+      ? 'Chọn một source Completed để tạo question bank.'
       : 'Select a completed source to generate a question bank.')
     : selectedSource.status !== 3
       ? (language === 'vi'
-        ? 'Source n?y v?n ?ang x? l?. Ho?n t?t xong m?i t?o ???c c?u h?i.'
+        ? 'Source này vẫn đang xử lý. Hoàn tất xong mới tạo được câu hỏi.'
         : 'This source is still processing. Wait until it is completed.')
       : selectedSourceHasQuestions
         ? (language === 'vi'
-          ? `T?o l?i s? thay th? b? question bank hi?n t?i (${selectedSourceQuestionsCount} c?u).`
+          ? `Tạo lại sẽ thay thế question bank hiện tại (${selectedSourceQuestionsCount} câu).`
           : `Regenerating will replace the active question bank (${selectedSourceQuestionsCount} questions).`)
         : (language === 'vi'
-          ? 'Sinh quiz v? flow ?n t?p t? source ?ang ch?n'
+          ? 'Sinh quiz và flow ôn tập từ source đang chọn'
           : 'Generate quiz-ready review questions from the selected source');
 
   useEffect(() => {
@@ -1686,6 +1698,7 @@ function FolderStudio() {
         accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.txt"
       />
 
+      {uploadNotice && <div className="alert alert-info">{uploadNotice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
       {generationError && <div className="alert alert-error">{generationError}</div>}
       <section className="folder-studio-shell">
@@ -1867,7 +1880,7 @@ function FolderStudio() {
                           </div>
                         <div className="folder-studio-source-live">
                           {progressState.stageLabel || progressState.message || (language === 'vi' ? 'Đang xử lý' : 'Processing')}
-                          {progressState.estimatedRemainingSeconds ? ` | ${formatEta(progressState.estimatedRemainingSeconds)}` : ''}
+                          {progressState.estimatedRemainingSeconds ? ` | ${formatEta(progressState.estimatedRemainingSeconds, { language })}` : ''}
                         </div>
                         </>
                       )}
@@ -2454,21 +2467,21 @@ function FolderStudio() {
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Phân tích & Tóm tắt' : 'Analysis & Summary'}</div>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content')}>
+              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content'}</strong>
                   <span>{language === 'vi' ? 'Tổng hợp summary cấp workspace từ các source đã chọn' : 'Build a workspace-level summary from selected sources'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas')}>
+              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas'}</strong>
                   <span>{language === 'vi' ? 'Đặt sẵn cho luồng concept extraction cấp workspace' : 'Scaffold for workspace-level concept extraction'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map')}>
+              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map'}</strong>
                   <span>{language === 'vi' ? 'Nối vào luồng mindmap trong phase tiếp theo' : 'Reserved for the next-phase mindmap flow'}</span>
@@ -2503,14 +2516,14 @@ function FolderStudio() {
                 </span>
                 <span className="folder-studio-action-badge">Export</span>
               </a>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint')}>
+              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Xuất PowerPoint' : 'Export PowerPoint'}</strong>
                   <span>{language === 'vi' ? 'Cho phase xuất file pptx sau này' : 'Reserved for a future PPTX export phase'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Soon</span>
               </button>
-              <button type="button" className="folder-studio-action" onClick={() => notifySoon(language === 'vi' ? 'Chia sẻ liên kết' : 'Share link')}>
+              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Chia sẻ liên kết' : 'Share link')}>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Chia sẻ liên kết' : 'Share link'}</strong>
                   <span>{language === 'vi' ? 'Đặt sẵn cho shareable review link' : 'Scaffold for a shareable review link'}</span>
@@ -2566,7 +2579,7 @@ function FolderStudio() {
                 {t('slides.scopePicker.clear')}
               </button>
               <button type="button" onClick={handleAnalyzeStructure} disabled={isAnalyzingStructure}>
-                {isAnalyzingStructure ? (language === 'vi' ? '?ang ph?n t?ch...' : 'Analyzing...') : t('slides.scopePicker.analyzeAgain')}
+                {isAnalyzingStructure ? (language === 'vi' ? 'Đang phân tích...' : 'Analyzing...') : t('slides.scopePicker.analyzeAgain')}
               </button>
             </div>
 
