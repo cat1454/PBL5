@@ -970,9 +970,15 @@ function FolderStudio() {
     }
 
     let cancelled = false;
+    let inFlight = false;
     const activeSourceIds = new Set(sourceProcessingPollKey.split('|').filter(Boolean));
 
     const pollSources = async () => {
+      if (inFlight) {
+        return;
+      }
+
+      inFlight = true;
       try {
         const nextSources = await workspaceService.listSources(workspaceId);
         if (cancelled) {
@@ -992,6 +998,8 @@ function FolderStudio() {
         }
       } catch (err) {
         console.error(err);
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -1003,6 +1011,24 @@ function FolderStudio() {
       clearInterval(interval);
     };
   }, [loadWorkspace, sourceProcessingPollKey, workspaceId]);
+
+  useEffect(() => {
+    if (!sourceProcessingPollKey) {
+      return undefined;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadWorkspace({ silent: true });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadWorkspace, sourceProcessingPollKey]);
 
   const selectedReadySources = useMemo(
     () => sources.filter((source) => source.status === 3 && (source.includeInWorkspaceSlides ?? source.includeInFolderSlides)),
@@ -1647,6 +1673,7 @@ function FolderStudio() {
   const topbarDeckProgress = activeProgress && isActiveProgress(activeProgress)
     ? activeProgress
     : null;
+  const topbarDeckProgressPercent = clampPercent(Number(topbarDeckProgress?.percent || 0)) ?? 0;
   const topbarProgress = topbarDeckProgress || runningSourceVm?.vm.progressState || null;
   const topbarCounter = getProgressCounterLabel(topbarProgress, { language });
   const topbarEta = topbarProgress && isActiveProgress(topbarProgress)
@@ -1655,7 +1682,7 @@ function FolderStudio() {
   const topbarLiveSummary = topbarDeckProgress
     ? [
         t('slides.generationStatus.liveTitle'),
-        `${Math.round(topbarDeckProgress.percent || 0)}%`,
+        `${Math.round(topbarDeckProgressPercent)}%`,
         topbarDeckProgress.stageLabel || topbarDeckProgress.message || t('slides.generatingSlides'),
       ].filter(Boolean).join(' · ')
     : runningSourceVm

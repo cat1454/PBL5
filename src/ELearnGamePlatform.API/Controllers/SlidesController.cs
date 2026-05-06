@@ -531,7 +531,7 @@ public class SlidesController : AuthenticatedControllerBase
                     {
                         state.Percent = Math.Max(
                             state.Percent,
-                            MapSlideProgress(index, slideItems.Count, 96, 30, 90));
+                            MapSlideProgress(index + 1, slideItems.Count, 0, 30, 90));
                         state.Stage = "image-sourcing";
                         state.StageLabel = "Dang xu ly media";
                         state.Message = $"Dang tim/chon media cho slide {index + 1}/{slideItems.Count}";
@@ -608,8 +608,13 @@ public class SlidesController : AuthenticatedControllerBase
 
             FailJob(
                 jobId,
+<<<<<<< HEAD
                 ex.Message,
                 "Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.");
+=======
+                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.",
+                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.");
+>>>>>>> 17ae681 (fix(slides): address progress polling review comments)
         }
         catch (Exception ex)
         {

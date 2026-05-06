@@ -105,6 +105,16 @@ export function isApiJobNotFound(error) {
 }
 
 export function isSlideSchemaUnavailable(error) {
+  const code = getApiErrorCode(error).toLowerCase();
+  if (code === 'slide_schema_unavailable') {
+    return true;
+  }
+
+  const status = error?.response?.status;
+  if (status !== 500 && status !== 503) {
+    return false;
+  }
+
   const message = getApiErrorMessage(error, '').toLowerCase();
 
   return message.includes('slide schema')
