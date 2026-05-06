@@ -1367,6 +1367,28 @@ translations.en.slides.sourceProcessing = {
   emptyBody: 'This workspace already has sources, but they are still being processed before a deck can be generated.',
 };
 
+Object.assign(translations.vi.slides.sourceProcessing, {
+  liveHint: 'Đang nhận tiến trình mới từ backend',
+});
+
+translations.vi.slides.folderGenerate = {
+  disabledGenerating: 'Deck đang được tạo. Chờ tiến trình hiện tại hoàn tất trước khi tạo lại.',
+  disabledNoSource: 'Chọn một source đã Completed trước khi tạo deck.',
+  disabledSourceProcessing: 'Source đang xử lý. Có thể tạo deck sau khi source Completed.',
+  disabledNoScope: 'Chọn ít nhất một chương hoặc mục nội dung trước khi tạo deck.',
+};
+
+Object.assign(translations.en.slides.sourceProcessing, {
+  liveHint: 'Receiving fresh progress from the backend',
+});
+
+translations.en.slides.folderGenerate = {
+  disabledGenerating: 'A deck is already being generated. Wait for the current run to finish before starting another.',
+  disabledNoSource: 'Select a Completed source before generating a deck.',
+  disabledSourceProcessing: 'This source is still processing. Deck generation is available after it reaches Completed.',
+  disabledNoScope: 'Choose at least one chapter or content section before generating a deck.',
+};
+
 translations.vi.app = {
   brand: 'AI Teaching',
   userRole: 'Không gian dạy học',
@@ -2141,6 +2163,16 @@ translations.en.upload = {
   success: 'File uploaded successfully.',
   processingStarted: 'The file upload is complete. OCR and AI analysis continue in the workspace, so keep watching processing there.',
   progressDone: 'The file upload is complete. OCR and AI processing are still running in the workspace.',
+};
+
+translations.vi.slides.errors = {
+  ...translations.vi.slides.errors,
+  schemaUnavailable: 'Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.',
+};
+
+translations.en.slides.errors = {
+  ...translations.en.slides.errors,
+  schemaUnavailable: 'Slide schema is not ready. Run the migration/backend update before creating a deck.',
 };
 
 export default translations;

@@ -104,6 +104,28 @@ export function isApiJobNotFound(error) {
   return message.includes('job not found');
 }
 
+export function isSlideSchemaUnavailable(error) {
+  const code = getApiErrorCode(error).toLowerCase();
+  if (code === 'slide_schema_unavailable') {
+    return true;
+  }
+
+  const status = error?.response?.status;
+  if (status !== 500 && status !== 503) {
+    return false;
+  }
+
+  const message = getApiErrorMessage(error, '').toLowerCase();
+
+  return message.includes('slide schema')
+    || message.includes('slide_decks')
+    || message.includes('slide_items')
+    || message.includes('image_plan')
+    || message.includes('image_candidates')
+    || message.includes('selected_image_key')
+    || message.includes('editor_state');
+}
+
 export const authService = {
   register: async (payload) => {
     const response = await apiClient.post('/auth/register', payload);

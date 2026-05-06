@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { documentService, getApiErrorMessage, isApiNotFound, slideService } from '../services/api';
+import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
+import { normalizeProgressState } from '../services/progress';
+import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -116,12 +118,15 @@ function SlideStudio({ documentId: propDocumentId }) {
         });
       }
       if (data?.generationProgress) {
-        setProgress(data.generationProgress);
-        setJobId(data.generationProgress.jobId || data.generationProgress.JobId || jobId);
+        const rawProgress = data.generationProgress;
+        setProgress((current) => normalizeProgressState(rawProgress, current || {}));
+        setJobId(rawProgress.jobId || rawProgress.JobId || jobId);
       }
     } catch (err) {
       console.error(err);
-      setError(getApiErrorMessage(err, t('slides.errors.loadDeck')));
+      setError(isSlideSchemaUnavailable(err)
+        ? t('slides.errors.schemaUnavailable')
+        : getApiErrorMessage(err, t('slides.errors.loadDeck')));
     } finally {
       if (!silent) {
         setLoading(false);
@@ -159,8 +164,9 @@ function SlideStudio({ documentId: propDocumentId }) {
     const interval = setInterval(async () => {
       try {
         if (jobId) {
-          const nextProgress = await slideService.getGenerateProgress(jobId);
-          setProgress(nextProgress);
+          const rawProgress = await slideService.getGenerateProgress(jobId);
+          const nextProgress = normalizeProgressState(rawProgress);
+          setProgress((current) => normalizeProgressState(rawProgress, current || {}));
           if (nextProgress.slideDeckId) {
             setJobId(nextProgress.jobId || jobId);
           }
@@ -201,12 +207,13 @@ function SlideStudio({ documentId: propDocumentId }) {
         ...deckBrief,
       });
       setJobId(response.jobId);
-      setProgress({
+      setProgress(normalizeProgressState(response.progress, {
+        jobId: response.jobId,
         status: response.status,
         percent: 0,
         stageLabel: 'Queued',
         message: t('slides.feedback.jobCreated'),
-      });
+      }));
       showToast({
         type: 'info',
         message: t('slides.feedback.jobCreated'),
@@ -215,7 +222,9 @@ function SlideStudio({ documentId: propDocumentId }) {
       await loadDeck({ silent: true });
     } catch (err) {
       console.error(err);
-      setError(getApiErrorMessage(err, t('slides.errors.generate')));
+      setError(isSlideSchemaUnavailable(err)
+        ? t('slides.errors.schemaUnavailable')
+        : getApiErrorMessage(err, t('slides.errors.generate')));
     }
   };
 
@@ -478,7 +487,9 @@ function SlideStudio({ documentId: propDocumentId }) {
 
   const canGenerate = documentMeta?.status === 3;
   const outlineSlides = deck?.outline?.slides || [];
-  const activeProgress = progress || deck?.generationProgress;
+  const activeProgress = progress || (deck?.generationProgress ? normalizeProgressState(deck.generationProgress) : null);
+  const activeProgressPercent = Math.max(0, Math.min(100, Number(activeProgress?.percent || 0)));
+  const displayedProgressPercent = useAnimatedProgress(activeProgressPercent);
   const themeMeta = getThemeMeta(deckBrief.themeKey);
   const allPreviewItems = deck?.items || [];
   const previewItems = hideLowConfidence
@@ -557,7 +568,7 @@ function SlideStudio({ documentId: propDocumentId }) {
           <button className="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
             <span>
               {isGenerating
-                ? t('slides.generating', { percent: activeProgress?.percent || 0 })
+                ? t('slides.generating', { percent: Math.round(activeProgressPercent) })
                 : deck
                   ? t('slides.regenerate')
                   : t('slides.generate')}
@@ -672,13 +683,13 @@ function SlideStudio({ documentId: propDocumentId }) {
                 </div>
 
                 {activeProgress && (
-                  <div className="studio-progress-card">
+                  <div className={`studio-progress-card${isGenerating ? ' is-active' : ''}`}>
                     <div className="studio-progress-head">
                       <strong>{getProgressStageLabel(activeProgress)}</strong>
-                      <span>{activeProgress.percent || 0}%</span>
+                      <span>{Math.round(activeProgressPercent)}%</span>
                     </div>
                     <div className="generation-progress-bar">
-                      <div className="generation-progress-fill" style={{ width: `${Math.max(0, Math.min(100, activeProgress.percent || 0))}%` }}></div>
+                      <div className="generation-progress-fill" style={{ width: `${Math.max(0, Math.min(100, displayedProgressPercent))}%` }}></div>
                     </div>
                     <p>{formatEta(activeProgress.estimatedRemainingSeconds)}</p>
                   </div>
@@ -721,13 +732,13 @@ function SlideStudio({ documentId: propDocumentId }) {
           <div className="studio-canvas-body">
             {activeProgress && isGenerating && (
               <div className="studio-canvas-progress-shell">
-                <div className="studio-progress-card studio-progress-card-large">
+                <div className="studio-progress-card studio-progress-card-large is-active">
                   <div className="studio-progress-head">
                     <strong>{getProgressStageLabel(activeProgress)}</strong>
-                    <span>{Math.max(0, Math.min(100, activeProgress.percent || 0))}%</span>
+                    <span>{Math.round(activeProgressPercent)}%</span>
                   </div>
                   <div className="generation-progress-bar">
-                    <div className="generation-progress-fill" style={{ width: `${Math.max(0, Math.min(100, activeProgress.percent || 0))}%` }}></div>
+                    <div className="generation-progress-fill" style={{ width: `${Math.max(0, Math.min(100, displayedProgressPercent))}%` }}></div>
                   </div>
                   <p>{activeProgress.message || activeProgress.stageLabel || t('slides.generationStatus.runningFallback')}</p>
                   <small>{formatEta(activeProgress.estimatedRemainingSeconds)}</small>

@@ -2195,6 +2195,7 @@ main {
 }
 
 .generation-progress-bar {
+  position: relative;
   width: 100%;
   height: 8px;
   margin-top: 10px;
@@ -4896,6 +4897,25 @@ main {
   color: #6f4d0d;
 }
 
+.folder-studio-live-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3c3489;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-studio-live-pill.folder-studio-live-source {
+  background: #fff7ed;
+  color: #8a4b0f;
+}
+
 .folder-studio-topbar-actions {
   margin-left: auto;
   display: flex;
@@ -5308,6 +5328,38 @@ main {
   animation: folder-studio-progress-shimmer 1.2s ease-in-out infinite;
 }
 
+.folder-studio-source-progress.is-active::after,
+.workspace-generate-progress-track::after,
+.progress-card.is-active .generation-progress-bar::after,
+.studio-progress-card.is-active .generation-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+  animation: folder-studio-progress-sheen 1.7s ease-in-out infinite;
+}
+
+.folder-studio-source-progress-compact {
+  height: 7px;
+}
+
+.folder-studio-live-hint {
+  color: #475467;
+  font-weight: 700;
+}
+
+.is-legacy-hidden {
+  display: none !important;
+}
+
+.folder-studio-generate-hint {
+  width: 100%;
+  color: #8a4b0f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .folder-studio-source-processing + .folder-studio-source-live {
   display: none;
 }
@@ -5438,6 +5490,7 @@ main {
 
 .folder-studio-empty-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
   margin-top: 18px;
@@ -5450,6 +5503,16 @@ main {
 
   100% {
     transform: translateX(320%);
+  }
+}
+
+@keyframes folder-studio-progress-sheen {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(110%);
   }
 }
 
@@ -6275,6 +6338,7 @@ main {
 }
 
 .workspace-generate-progress-track {
+  position: relative;
   width: 100%;
   height: 10px;
   margin-top: 18px;
@@ -6284,6 +6348,7 @@ main {
 }
 
 .workspace-generate-progress-fill {
+  position: relative;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #7c6ee6, #9f8cff);
