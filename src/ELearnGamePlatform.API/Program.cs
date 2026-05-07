@@ -105,6 +105,7 @@ builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
+builder.Services.AddScoped<IQuestionMetricsService, QuestionMetricsService>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");
