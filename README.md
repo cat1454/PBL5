@@ -136,7 +136,7 @@ PLANS.md
 
 Cần cài trước:
 
-- .NET SDK 8.0+
+- .NET SDK `9.0.306` theo `global.json` (projects target `net8.0`)
 - Node.js 18+
 - PostgreSQL 14+
 - Ollama
@@ -184,7 +184,7 @@ Mẫu cấu hình local:
     "SecretKey": "CHANGE_THIS_TO_A_LONG_LOCAL_DEV_SECRET_KEY",
     "Issuer": "ELearnGamePlatform",
     "Audience": "ELearnGamePlatform.Client",
-    "ExpiresInMinutes": 1440
+    "ExpirationMinutes": 10080
   },
   "AdminSeed": {
     "Enabled": true,
@@ -507,6 +507,7 @@ GET    /api/games/sessions/{sessionId}
 POST   /api/games/sessions/{sessionId}/start
 POST   /api/games/sessions/{sessionId}/submit
 GET    /api/games/quiz/{documentId}
+POST   /api/games/quiz/{documentId}/answers
 GET    /api/games/flashcards/{documentId}
 GET    /api/games/user/{userId}
 ```
@@ -521,12 +522,16 @@ GET    /api/learning/tests/document/{documentId}
 GET    /api/learning/tests/summary/{documentId}
 GET    /api/learning/progress/document/{documentId}
 GET    /api/learning/progress/summary/{documentId}
+GET    /api/learning/export/attempts.csv
+GET    /api/learning/export/progress.csv
+GET    /api/learning/export/test-results.csv
 ```
 
 ### Slides
 
 ```text
 POST   /api/slides/generate/start
+POST   /api/slides/folders/{folderId}/generate/start
 GET    /api/slides/generate/progress/{jobId}
 GET    /api/slides/document/{documentId}
 GET    /api/slides/document/{documentId}/html

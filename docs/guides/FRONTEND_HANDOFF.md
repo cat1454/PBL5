@@ -4,6 +4,7 @@
 
 Frontend should now focus on the main demo flow:
 
+0. Register or log in
 1. Upload document
 2. Show document progress clearly
 3. Generate questions
@@ -42,6 +43,9 @@ Useful optional fields:
 
 ### Document
 
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
 - `POST /api/documents/upload`
 - `GET /api/documents/{id}`
 - `GET /api/documents/{id}/progress`
@@ -56,9 +60,14 @@ Useful optional fields:
 ### Slide
 
 - `POST /api/slides/generate/start`
+- `POST /api/slides/folders/{folderId}/generate/start`
 - `GET /api/slides/generate/progress/{jobId}`
 - `GET /api/slides/document/{documentId}`
+- `GET /api/slides/folders/{folderId}`
 - `PUT /api/slides/{deckId}/items/{itemId}`
+- `GET /api/slides/{deckId}/export/html`
+- `GET /api/slides/{deckId}/export/print`
+- `GET /api/slides/{deckId}/export/pptx`
 
 ## 4. Frontend next actions
 
@@ -93,6 +102,6 @@ Useful optional fields:
 
 ## 6. Notes
 
-- `demo-user` is still expected in the current frontend flow
+- Basic JWT auth is implemented. `client/src/context/AuthContext.js` stores the token and `client/src/services/api.js` sends the bearer token.
 - Backend model/config changes are already in place
 - If a field is missing or unclear, sync with backend before adding frontend assumptions

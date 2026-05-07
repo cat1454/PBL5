@@ -30,7 +30,8 @@ Cap nhat: 2026-03-23
   - Chua co slide template san de demo nhanh.
   - Chua co benchmark va timing log de do chat luong that.
   - Job state van dua vao memory, chua ben vung neu restart app.
-  - Chua co auth va test tu dong co he thong.
+  - Auth JWT co ban da co, nhung chua hardening production.
+  - Chua co test tu dong co he thong.
 
 ## 3. Thu tu uu tien
 
@@ -129,7 +130,7 @@ Cap nhat: 2026-03-23
 - Muc tieu: Giam technical debt de he thong san sang cho user that va du an lon hon.
 - Hang muc:
   - Chuyen job state tu memory sang persistent store.
-  - Them auth va bo `demo-user`.
+  - Hoan thien auth production hardening va ownership edge cases.
   - Them test tu dong cho core flows.
   - Them health checks va logging co cau truc.
   - Them validation va failure handling day du hon.
@@ -192,10 +193,10 @@ Cap nhat: 2026-03-23
 
 ## 6. Backlog sau sprint 2 tuan
 
-- `Weakness Mode` va learning history.
+- `Weakness Mode` va learning history nang cao.
 - `Ask Document` hoac hoi dap truc tiep tren tai lieu.
 - Teacher review flow cho question/slide low-confidence.
-- Auth, ownership, va dashboard ca nhan.
+- Auth hardening, ownership audit, va dashboard ca nhan.
 - Persistent jobs va job recovery.
 - Test tu dong va deployment checklist.
 

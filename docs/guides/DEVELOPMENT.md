@@ -1,418 +1,209 @@
-# Hướng dẫn Development và Best Practices
+# Development Guide and Best Practices
+
+Verified from source: 2026-05-07.
 
 ## Code Structure
 
-### Naming Conventions
+### C# / .NET
 
-#### C# (.NET)
-- **Classes/Interfaces**: PascalCase (e.g., `DocumentProcessor`, `IContentAnalyzer`)
-- **Methods**: PascalCase (e.g., `ExtractTextAsync()`)
-- **Variables/Parameters**: camelCase (e.g., `documentId`, `filePath`)
-- **Constants**: UPPER_CASE (e.g., `MAX_FILE_SIZE`)
-- **Private fields**: _camelCase (e.g., `_logger`, `_repository`)
+- Classes and interfaces: `PascalCase`
+- Methods: `PascalCase`
+- Variables and parameters: `camelCase`
+- Private fields: `_camelCase`
+- Prefer async/await for I/O.
+- Register runtime services in `src/ELearnGamePlatform.API/Program.cs`.
 
-#### JavaScript/React
-- **Components**: PascalCase (e.g., `DocumentUpload`, `QuizGame`)
-- **Functions/Variables**: camelCase (e.g., `loadDocuments`, `currentIndex`)
-- **Constants**: UPPER_CASE (e.g., `API_BASE_URL`)
+### React
 
-### Async/Await Pattern
+- Components: `PascalCase`
+- Functions and variables: `camelCase`
+- Shared API calls live in `client/src/services/api.js`.
+- UI text changes must update both `vi` and `en` translations in the same task.
 
-Luôn sử dụng async/await cho I/O operations:
+## Runtime Stack
 
-```csharp
-// ✅ Good
-public async Task<Document> GetDocumentAsync(string id)
-{
-    return await _repository.GetByIdAsync(id);
-}
+- ASP.NET Core Web API targeting `net8.0`
+- .NET SDK pinned by `global.json` to `9.0.306`
+- PostgreSQL + EF Core + Npgsql
+- React 18 + React Router + Axios
+- Ollama local AI
+- Tesseract OCR
 
-// ❌ Bad
-public Document GetDocument(string id)
-{
-    return _repository.GetByIdAsync(id).Result; // Blocking!
-}
-```
+MongoDB is historical migration context only. Do not add MongoDB runtime guidance, `mongosh`, MongoDB Compass steps, or MongoDB health checks for the current app.
 
-### Error Handling
+## Database Practices
 
-```csharp
-// API Controller
-try
-{
-    var result = await _service.ProcessAsync(data);
-    return Ok(result);
-}
-catch (NotFoundException ex)
-{
-    _logger.LogWarning(ex, "Resource not found: {Id}", id);
-    return NotFound(ex.Message);
-}
-catch (Exception ex)
-{
-    _logger.LogError(ex, "Unexpected error");
-    return StatusCode(500, "Internal server error");
-}
-```
+### EF Core Queries
 
-### Dependency Injection
+Use repository/query patterns already present in `ELearnGamePlatform.Infrastructure`.
 
-Register services trong `Program.cs`:
+For read-only queries:
 
 ```csharp
-// Singleton - Shared across all requests
-builder.Services.AddSingleton<IDocumentRepository, DocumentRepository>();
-
-// Scoped - One instance per request
-builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
-
-// Transient - New instance every time
-builder.Services.AddTransient<IDocumentProcessor, PdfProcessor>();
+var documents = await _dbContext.Documents
+    .AsNoTracking()
+    .Where(document => document.UploadedBy == userId)
+    .OrderByDescending(document => document.CreatedAt)
+    .Take(50)
+    .ToListAsync();
 ```
+
+For large lists, use pagination:
+
+```csharp
+var page = Math.Max(1, request.Page);
+var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
+var items = await query
+    .Skip((page - 1) * pageSize)
+    .Take(pageSize)
+    .ToListAsync();
+```
+
+### Migrations
+
+Use the repo-local EF tool:
+
+```powershell
+cd H:\pbl5
+dotnet tool restore
+dotnet ef --version
+```
+
+List or apply migrations from the API project:
+
+```powershell
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
+```
+
+The API also applies pending migrations automatically on startup.
+
+### PostgreSQL Inspection
+
+```powershell
+psql -U postgres -d ELearnGameDB
+```
+
+Useful commands:
+
+```sql
+\dt
+\d+ documents
+\d+ questions
+\d+ game_sessions
+\d+ slide_decks
+\d+ slide_items
+SELECT id, file_name, status, uploaded_by, created_at FROM documents ORDER BY created_at DESC LIMIT 20;
+```
+
+### JSONB
+
+JSON-shaped fields are stored as JSONB where configured by EF Core. PostgreSQL does not automatically create query-optimized GIN indexes for JSONB columns. If a feature needs to filter/search inside JSONB, add an explicit migration with the right index.
+
+Example:
+
+```sql
+CREATE INDEX idx_documents_processed_metadata_gin
+ON documents USING GIN (processed_metadata);
+```
+
+## API Design Notes
+
+- Use controller routes already present in `src/ELearnGamePlatform.API/Controllers`.
+- Do not invent new endpoints in docs before adding source.
+- Most controllers are protected by JWT; `register` and `login` are anonymous.
+- Use structured error responses from `AuthenticatedControllerBase` where possible.
+
+## Background Jobs and Progress
+
+Current job stores are in-memory singletons:
+
+- `DocumentProcessingJobStore`
+- `QuestionGenerationJobStore`
+- `SlideGenerationJobStore`
+
+Current background execution uses `Task.Run` for document ingestion, question generation, and slide generation. This is acceptable for MVP/demo, but not durable across API restarts.
+
+## AI Development Notes
+
+Current Ollama defaults in `appsettings.json`:
+
+- `qwen2.5:7b` for analysis
+- `qwen2.5:7b` for generation
+- `qwen2.5:7b` for verification
+
+`OllamaService` can fall back to the generation/default model if a different profile model fails. Keep model names in docs aligned with `appsettings.json`.
 
 ## Testing
 
-### Unit Tests
+There is no complete automated test suite covering all core flows. When adding tests, prefer focused coverage around:
 
-Tạo thư mục `tests/` và thêm test projects:
+- auth and ownership checks
+- document upload/processing contracts
+- question generation persistence
+- learning progress/session behavior
+- slide generation/export contracts
+
+Before merge/push, run at minimum:
 
 ```powershell
-cd H:\PBL5
-mkdir tests
-cd tests
+cd H:\pbl5
+dotnet tool restore
+dotnet build ELearnGamePlatform.sln
 
-# Create test projects
-dotnet new xunit -n ELearnGamePlatform.Services.Tests
-dotnet new xunit -n ELearnGamePlatform.API.Tests
-
-# Add to solution
-dotnet sln ../ELearnGamePlatform.sln add ELearnGamePlatform.Services.Tests/ELearnGamePlatform.Services.Tests.csproj
+cd H:\pbl5\client
+npm run build
 ```
 
-Example test:
+## Debugging
 
-```csharp
-public class ContentAnalyzerServiceTests
-{
-    [Fact]
-    public async Task AnalyzeContentAsync_ShouldReturnProcessedContent()
-    {
-        // Arrange
-        var mockOllama = new Mock<IOllamaService>();
-        var service = new ContentAnalyzerService(mockOllama.Object, Mock.Of<ILogger>());
-        
-        // Act
-        var result = await service.AnalyzeContentAsync("test content");
-        
-        // Assert
-        Assert.NotNull(result);
-        Assert.NotEmpty(result.MainTopics);
-    }
-}
+Backend:
+
+```powershell
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet run --verbosity detailed
 ```
 
-### Integration Tests
+Frontend:
 
-```csharp
-public class DocumentsControllerIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
-{
-    private readonly HttpClient _client;
-    
-    public DocumentsControllerIntegrationTests(WebApplicationFactory<Program> factory)
-    {
-        _client = factory.CreateClient();
-    }
-    
-    [Fact]
-    public async Task Upload_ValidFile_ReturnsOk()
-    {
-        // Arrange
-        var content = new MultipartFormDataContent();
-        // Add file and userId
-        
-        // Act
-        var response = await _client.PostAsync("/api/documents/upload", content);
-        
-        // Assert
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-}
+```powershell
+cd H:\pbl5\client
+npm start
 ```
 
-## Logging
+PostgreSQL:
 
-### Sử dụng ILogger
-
-```csharp
-public class DocumentProcessor
-{
-    private readonly ILogger<DocumentProcessor> _logger;
-    
-    public DocumentProcessor(ILogger<DocumentProcessor> logger)
-    {
-        _logger = logger;
-    }
-    
-    public async Task ProcessAsync(string filePath)
-    {
-        _logger.LogInformation("Starting to process file: {FilePath}", filePath);
-        
-        try
-        {
-            // Process
-            _logger.LogDebug("File size: {Size} bytes", fileSize);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to process file: {FilePath}", filePath);
-            throw;
-        }
-    }
-}
+```powershell
+psql -U postgres -d ELearnGameDB
 ```
 
-### Log Levels
-- **Trace**: Very detailed diagnostic info
-- **Debug**: Internal application state
-- **Information**: General flow of application
-- **Warning**: Unusual events
-- **Error**: Error events that still allow app to continue
-- **Critical**: Critical failures
+Ollama:
 
-## Database Operations
-
-### MongoDB Best Practices
-
-```csharp
-// ✅ Use indexes for frequent queries
-var indexKeys = Builders<Document>.IndexKeys
-    .Ascending(d => d.UploadedBy)
-    .Descending(d => d.CreatedAt);
-await collection.Indexes.CreateOneAsync(new CreateIndexModel<Document>(indexKeys));
-
-// ✅ Use projection to limit data transfer
-var projection = Builders<Document>.Projection
-    .Include(d => d.FileName)
-    .Include(d => d.Status)
-    .Exclude(d => d.ExtractedText); // Don't load large text
-
-// ✅ Use aggregation for complex queries
-var pipeline = new[]
-{
-    new BsonDocument("$match", new BsonDocument("status", 3)),
-    new BsonDocument("$group", new BsonDocument
-    {
-        { "_id", "$uploadedBy" },
-        { "count", new BsonDocument("$sum", 1) }
-    })
-};
+```powershell
+ollama list
+curl http://localhost:11434/api/tags
 ```
 
-## API Design
+Swagger:
 
-### RESTful Conventions
-
+```text
+http://localhost:5000/swagger
 ```
-GET    /api/documents           - List all
-GET    /api/documents/{id}      - Get one
-POST   /api/documents           - Create
-PUT    /api/documents/{id}      - Update (full)
-PATCH  /api/documents/{id}      - Update (partial)
-DELETE /api/documents/{id}      - Delete
-
-GET    /api/documents/{id}/questions  - Nested resource
-POST   /api/documents/{id}/process    - Action
-```
-
-### Response Format
-
-```csharp
-// Success with data
-return Ok(new
-{
-    success = true,
-    data = document,
-    message = "Document created successfully"
-});
-
-// Error
-return BadRequest(new
-{
-    success = false,
-    error = "Invalid file type",
-    code = "INVALID_FILE_TYPE"
-});
-
-// Pagination
-return Ok(new
-{
-    data = documents,
-    pagination = new
-    {
-        page = 1,
-        pageSize = 20,
-        totalItems = 100,
-        totalPages = 5
-    }
-});
-```
-
-## Frontend Best Practices
-
-### React Component Structure
-
-```jsx
-// ✅ Good: Separate concerns
-function DocumentList() {
-    // State
-    const [documents, setDocuments] = useState([]);
-    const [loading, setLoading] = useState(true);
-    
-    // Effects
-    useEffect(() => {
-        loadDocuments();
-    }, []);
-    
-    // Handlers
-    const handleDelete = async (id) => {
-        // Handle delete
-    };
-    
-    // Render helpers
-    const renderDocument = (doc) => {
-        return <DocumentItem key={doc.id} document={doc} />;
-    };
-    
-    // Main render
-    if (loading) return <Loading />;
-    
-    return (
-        <div>
-            {documents.map(renderDocument)}
-        </div>
-    );
-}
-```
-
-### API Service Pattern
-
-```javascript
-// services/api.js
-export const documentService = {
-    upload: (file) => axios.post('/api/documents/upload', file),
-    getAll: () => axios.get('/api/documents'),
-    delete: (id) => axios.delete(`/api/documents/${id}`)
-};
-
-// Component
-import { documentService } from '../services/api';
-
-const handleUpload = async (file) => {
-    try {
-        const result = await documentService.upload(file);
-        setMessage('Upload successful');
-    } catch (error) {
-        setError(error.message);
-    }
-};
-```
-
-## Performance Tips
-
-### Backend
-1. **Use async/await** cho tất cả I/O operations
-2. **Cache** frequently accessed data
-3. **Pagination** cho large datasets
-4. **Background processing** cho heavy tasks
-5. **Connection pooling** cho database
-6. **Compression** cho API responses
-
-### Frontend
-1. **Lazy loading** components
-2. **Memoization** với useMemo/useCallback
-3. **Virtual scrolling** cho large lists
-4. **Image optimization**
-5. **Code splitting**
 
 ## Security Checklist
 
-- [ ] Validate all user inputs
-- [ ] Sanitize file names and paths
-- [ ] Limit file upload sizes
-- [ ] Check file types by content, not just extension
-- [ ] Use HTTPS in production
-- [ ] Implement authentication/authorization
-- [ ] Rate limiting on APIs
-- [ ] CORS configuration
-- [ ] SQL injection prevention (use parameterized queries)
-- [ ] XSS prevention (sanitize output)
-- [ ] Store sensitive config in environment variables
-
-## Git Workflow
-
-### Branch Strategy
-```
-main (production)
-  ├── develop (latest development)
-      ├── feature/document-upload
-      ├── feature/question-generation
-      └── bugfix/ocr-error
-```
-
-### Commit Messages
-```
-feat: Add PDF processing support
-fix: Resolve OCR text encoding issue
-docs: Update setup instructions
-refactor: Improve question generation logic
-test: Add unit tests for ContentAnalyzer
-```
-
-### Pull Request Process
-1. Create feature branch from `develop`
-2. Implement changes
-3. Write tests
-4. Update documentation
-5. Create PR with description
-6. Code review
-7. Merge to `develop`
-
-## Monitoring và Debugging
-
-### Application Insights (Azure)
-```csharp
-builder.Services.AddApplicationInsightsTelemetry();
-```
-
-### Health Checks
-```csharp
-builder.Services.AddHealthChecks()
-    .AddMongoDb(mongoConnectionString)
-    .AddUrlGroup(new Uri("http://localhost:11434"), "ollama");
-
-app.MapHealthChecks("/health");
-```
-
-### Debug Tips
-1. Set breakpoints trong VS Code
-2. Use `dotnet watch run` cho hot reload
-3. Check logs: `dotnet run --verbosity detailed`
-4. MongoDB Compass để xem data
-5. Postman/Swagger để test APIs
-6. React DevTools cho component debugging
-
-## Code Review Checklist
-
-- [ ] Code follows naming conventions
-- [ ] No hardcoded values (use config)
-- [ ] Error handling implemented
-- [ ] Logging added where appropriate
-- [ ] Tests written and passing
-- [ ] Documentation updated
-- [ ] No sensitive data in code
-- [ ] Performance considered
-- [ ] SOLID principles followed
-- [ ] DRY principle applied
+- [x] Basic JWT login/register/me flow exists.
+- [x] Protected controllers require bearer token.
+- [x] Admin overview requires `Admin` role.
+- [ ] Add refresh tokens.
+- [ ] Add password reset/account recovery.
+- [ ] Add email verification if needed.
+- [ ] Add rate limiting.
+- [ ] Add audit logging.
+- [ ] Move secrets to environment/user secrets for non-local use.
+- [ ] Add production HTTPS/deployment hardening.
 
 ## Useful Commands
 
@@ -420,26 +211,22 @@ app.MapHealthChecks("/health");
 # Backend
 dotnet clean
 dotnet restore
-dotnet build
-dotnet test
-dotnet run --project src/ELearnGamePlatform.API
-dotnet watch run
+dotnet build ELearnGamePlatform.sln
+dotnet run --project src\ELearnGamePlatform.API
+dotnet watch run --project src\ELearnGamePlatform.API
+
+# EF Core local tool
+dotnet tool restore
+dotnet ef --version
+dotnet ef migrations list --project src\ELearnGamePlatform.Infrastructure --startup-project src\ELearnGamePlatform.API
 
 # Frontend
+cd client
 npm install
 npm start
 npm run build
-npm test
-
-# MongoDB
-mongosh
-use ELearnGameDB
-db.documents.find().pretty()
-db.questions.countDocuments()
 
 # Git
 git status
-git add .
-git commit -m "feat: add new feature"
-git push origin feature-branch
+git diff
 ```
