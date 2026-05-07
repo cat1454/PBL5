@@ -1,248 +1,124 @@
 # PostgreSQL Migration Guide
 
-## Tổng quan
-Dự án đã được migrate từ MongoDB sang PostgreSQL với Entity Framework Core 8.0.
+Verified from source: 2026-05-07.
 
-## Thay đổi chính
+This guide records the historical move from MongoDB to PostgreSQL. The current runtime is PostgreSQL + EF Core + Npgsql.
 
-### Database
-- **Trước**: MongoDB (NoSQL)
-- **Sau**: PostgreSQL 14+ (SQL) với EF Core
+## Current Runtime
 
-### Schema Changes
-- **ID Fields**: Từ `string` (ObjectId) → `int` (auto-increment)
-- **JSON Storage**: Complex properties được lưu dưới dạng JSONB columns
-- **Relationships**: Foreign keys và navigation properties được thiết lập đúng
-- **Naming**: Sử dụng snake_case cho database columns
+- Database: PostgreSQL `14+`
+- ORM: Entity Framework Core `8.0.0`
+- Provider: `Npgsql.EntityFrameworkCore.PostgreSQL 8.0.0`
+- Local EF tool: `dotnet-ef 8.0.0` from `.config/dotnet-tools.json` and root `dotnet-tools.json`
+- API startup: automatically applies pending migrations
 
-### Entity Models
+## Setup
 
-#### Document Entity
-```csharp
-- Id: string → int (Primary Key, auto-increment)
-- ProcessedContent object → MainTopicsJson (jsonb) + KeyPointsJson (jsonb)
-- Navigation Properties: Questions, GameSessions
-```
+Create the database:
 
-#### Question Entity
-```csharp
-- Id: string → int
-- DocumentId: string → int (Foreign Key)
-- Options: List<QuestionOption> → OptionsJson (jsonb)
-- Navigation Property: Document
-```
-
-#### GameSession Entity
-```csharp
-- Id: string → int
-- DocumentId: string → int (Foreign Key)
-- QuestionIds: List<string> → QuestionIdsJson (jsonb as List<int>)
-- Navigation Property: Document
-```
-
-## Extension Methods
-Để truy cập các JSON properties một cách dễ dàng, sử dụng EntityExtensions:
-
-```csharp
-using ELearnGamePlatform.Core.Extensions;
-
-// Document
-var mainTopics = document.GetMainTopics();
-document.SetMainTopics(new List<string> { "Topic 1", "Topic 2" });
-
-var keyPoints = document.GetKeyPoints();
-document.SetKeyPoints(new List<string> { "Point 1", "Point 2" });
-
-// Question
-var options = question.GetOptions();
-question.SetOptions(new List<QuestionOption> { ... });
-
-// GameSession
-var questionIds = session.GetQuestionIds();
-session.SetQuestionIds(new List<int> { 1, 2, 3 });
-```
-
-## Database Setup
-
-### 1. Install PostgreSQL
-**Windows:**
-```bash
-# Sử dụng PostgreSQL installer hoặc Chocolatey
-choco install postgresql14
-
-# Hoặc download từ: https://www.postgresql.org/download/windows/
-```
-
-**Linux:**
-```bash
-sudo apt-get update
-sudo apt-get install postgresql-14 postgresql-contrib
-```
-
-**Mac:**
-```bash
-brew install postgresql@14
-brew services start postgresql@14
-```
-
-### 2. Create Database
-```bash
-# Connect to PostgreSQL
+```powershell
 psql -U postgres
-
-# Create database
-CREATE DATABASE ELearnGameDB;
-
-# Create user (optional)
-CREATE USER elearnapp WITH PASSWORD 'yourpassword';
-GRANT ALL PRIVILEGES ON DATABASE ELearnGameDB TO elearnapp;
-
-# Exit
+CREATE DATABASE "ELearnGameDB";
 \q
 ```
 
-### 3. Update Connection String
-Cập nhật `appsettings.json`:
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=postgres"
-  }
-}
+Check the connection string:
+
+```text
+src/ELearnGamePlatform.API/appsettings.json
 ```
 
-### 4. Run Migrations
-```bash
-cd src/ELearnGamePlatform.API
+Restore local tools:
 
-# Migrations sẽ tự động chạy khi start app
-dotnet run
-
-# Hoặc chạy thủ công:
-dotnet ef database update --project ../ELearnGamePlatform.Infrastructure
+```powershell
+cd H:\pbl5
+dotnet tool restore
+dotnet ef --version
 ```
 
-## Verify Migration
+Apply migrations manually if needed:
+
+```powershell
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
+```
+
+Normally, `dotnet run` also applies migrations automatically.
+
+## Schema Notes
+
+The active schema is defined by:
+
+- `src/ELearnGamePlatform.Infrastructure/Data/ApplicationDbContext.cs`
+- migrations under `src/ELearnGamePlatform.Infrastructure/Migrations`
+
+Main tables include:
+
+- `app_users`
+- `documents`
+- `questions`
+- `game_sessions`
+- `folder_projects`
+- `slide_decks`
+- `slide_items`
+- `learning_attempts`
+- `learning_progresses`
+- `learning_test_results`
+
+## JSONB Notes
+
+Several complex fields are stored as JSONB. JSONB is flexible and can be indexed, but PostgreSQL does not automatically create GIN indexes for your query patterns.
+
+If a feature needs filtering/searching inside JSONB, add an explicit migration with a suitable index.
+
+Example:
+
 ```sql
--- Connect to database
-psql -U postgres -d ELearnGameDB
-
--- List tables
-\dt
-
--- Expected tables:
--- documents
--- questions
--- game_sessions
--- __EFMigrationsHistory
-
--- Check table structure
-\d documents
-\d questions
-\d game_sessions
-
--- Exit
-\q
+CREATE INDEX idx_slide_items_editor_state_gin
+ON slide_items USING GIN (editor_state);
 ```
 
-## Rollback (nếu cần)
-```bash
-# Remove last migration
-cd src/ELearnGamePlatform.API
-dotnet ef migrations remove --project ../ELearnGamePlatform.Infrastructure
+Only create JSONB indexes after confirming the exact query pattern; unnecessary GIN indexes slow writes and increase storage.
 
-# Revert database to specific migration
-dotnet ef database update PreviousMigrationName --project ../ELearnGamePlatform.Infrastructure
+## Verify Database
+
+```powershell
+psql -U postgres -d ELearnGameDB
+```
+
+```sql
+\dt
+\d+ documents
+\d+ questions
+\d+ slide_decks
+\d+ slide_items
+SELECT migration_id FROM "__EFMigrationsHistory" ORDER BY migration_id;
 ```
 
 ## Troubleshooting
 
-### Issue: Connection refused
-```bash
-# Check PostgreSQL service
-# Windows:
-sc query postgresql-x64-14
+### Connection refused
 
-# Linux:
-sudo systemctl status postgresql
-
-# Mac:
-brew services list
+```powershell
+Get-Service postgresql*
+psql -U postgres -d ELearnGameDB -c "SELECT version();"
 ```
 
-### Issue: Authentication failed
-- Kiểm tra username/password trong connection string
-- Kiểm tra pg_hba.conf file cho authentication method
+### Authentication failed
 
-### Issue: Permission denied
-```sql
--- Grant permissions
-psql -U postgres
-GRANT ALL PRIVILEGES ON DATABASE ELearnGameDB TO your_user;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO your_user;
+- Check username/password in `ConnectionStrings:DefaultConnection`.
+- Check local PostgreSQL authentication rules.
+
+### Schema mismatch on startup
+
+The API validates selected critical columns. If startup fails with a schema mismatch:
+
+```powershell
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
 ```
 
-## Performance Tips
+## Historical Legacy Data
 
-### Enable Query Logging (Development)
-```json
-// appsettings.Development.json
-{
-  "Logging": {
-    "LogLevel": {
-      "Microsoft.EntityFrameworkCore.Database.Command": "Information"
-    }
-  }
-}
-```
-
-### JSON Performance
-JSONB columns được index tự động bởi PostgreSQL, nhưng có thể tạo thêm GIN indexes:
-```sql
-CREATE INDEX idx_documents_main_topics ON documents USING GIN (main_topics);
-CREATE INDEX idx_documents_key_points ON documents USING GIN (key_points);
-CREATE INDEX idx_questions_options ON questions USING GIN (options);
-```
-
-## API Changes
-- **ID Parameters**: Tất cả endpoints dùng `int` thay vì `string`
-- **Compatibility**: Frontend cần cập nhật để gửi integer IDs
-
-Example:
-```javascript
-// Before (MongoDB)
-axios.get(`/api/documents/${documentId}`)  // documentId là string
-
-// After (PostgreSQL)
-axios.get(`/api/documents/${documentId}`)  // documentId là number
-```
-
-## Testing
-```bash
-# Run tests with PostgreSQL
-cd tests
-dotnet test
-```
-
-## Data Migration (từ MongoDB sang PostgreSQL)
-Nếu đã có data trong MongoDB, cần migrate:
-
-1. Export data từ MongoDB
-```bash
-mongoexport --db=ELearnGameDB --collection=documents --out=documents.json
-mongoexport --db=ELearnGameDB --collection=questions --out=questions.json
-mongoexport --db=ELearnGameDB --collection=gameSessions --out=gameSessions.json
-```
-
-2. Tạo migration script để import vào PostgreSQL
-3. Cập nhật IDs từ ObjectId strings sang integers
-4. Update relationships
-
-## Benefits of PostgreSQL
-- ✅ ACID compliance
-- ✅ Better query performance với complex joins
-- ✅ Built-in JSONB support
-- ✅ Strong typing và schema validation
-- ✅ Rich ecosystem của PostgreSQL tools
-- ✅ Better integration với .NET EF Core
+If someone has old MongoDB data from before the migration, migrate it with a dedicated one-off script. Do not use MongoDB commands as normal development or run instructions for the current app.
