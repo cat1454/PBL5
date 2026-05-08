@@ -608,13 +608,8 @@ public class SlidesController : AuthenticatedControllerBase
 
             FailJob(
                 jobId,
-<<<<<<< HEAD
                 ex.Message,
                 "Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.");
-=======
-                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.",
-                "Slide schema chua san sang. Hay chay migration/backend update truoc khi tao deck.");
->>>>>>> 17ae681 (fix(slides): address progress polling review comments)
         }
         catch (Exception ex)
         {
