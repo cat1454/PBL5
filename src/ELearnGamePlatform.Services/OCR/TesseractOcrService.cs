@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -15,9 +17,9 @@ namespace ELearnGamePlatform.Services.OCR;
 
 public class TesseractOcrService : IOcrService
 {
-    private const int PdfOcrResolution = 300;
     private const int RescueVariantCount = 2;
     private readonly ILogger<TesseractOcrService> _logger;
+    private readonly OcrSettings _settings;
     private readonly string _tessDataPath;
     private readonly string _ocrLanguages;
     private readonly string _pdfToPpmPath;
@@ -33,9 +35,10 @@ public class TesseractOcrService : IOcrService
         new(PageSegMode.SparseText, "sparse-text", 0.02f)
     };
 
-    public TesseractOcrService(ILogger<TesseractOcrService> logger)
+    public TesseractOcrService(ILogger<TesseractOcrService> logger, IOptions<OcrSettings> settings)
     {
         _logger = logger;
+        _settings = settings.Value;
         _tessDataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tessdata");
         if (!Directory.Exists(_tessDataPath))
         {
@@ -86,6 +89,19 @@ public class TesseractOcrService : IOcrService
         IReadOnlyCollection<int> pageNumbers,
         IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
+        var pageResults = await ExtractPageResultsFromPdfPagesAsync(pdfPath, pageNumbers, progress: progress);
+        return pageResults
+            .Where(item => !string.IsNullOrWhiteSpace(item.Value.Text))
+            .ToDictionary(item => item.Key, item => item.Value.Text);
+    }
+
+    public async Task<IReadOnlyDictionary<int, OcrPageExtractionResult>> ExtractPageResultsFromPdfPagesAsync(
+        string pdfPath,
+        IReadOnlyCollection<int> pageNumbers,
+        int? pdfDpi = null,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
+    {
+        var renderDpi = ResolvePdfDpi(pdfDpi);
         var orderedPages = pageNumbers
             .Where(page => page > 0)
             .Distinct()
@@ -94,7 +110,7 @@ public class TesseractOcrService : IOcrService
 
         if (orderedPages.Length == 0)
         {
-            return new Dictionary<int, string>();
+            return new Dictionary<int, OcrPageExtractionResult>();
         }
 
         var tempDirectory = Path.Combine(Path.GetTempPath(), $"elearn_pdf_ocr_{Guid.NewGuid():N}");
@@ -102,10 +118,14 @@ public class TesseractOcrService : IOcrService
 
         try
         {
-            _logger.LogInformation("Starting OCR for {PageCount} selected PDF pages: {PdfPath}", orderedPages.Length, pdfPath);
+            _logger.LogInformation(
+                "Starting OCR for {PageCount} selected PDF pages at {PdfDpi} DPI: {PdfPath}",
+                orderedPages.Length,
+                renderDpi,
+                pdfPath);
 
-            var results = new Dictionary<int, string>(orderedPages.Length);
-            using var engine = CreateEngine();
+            var results = new Dictionary<int, OcrPageExtractionResult>(orderedPages.Length);
+            using var engine = CreateEngine(renderDpi);
 
             for (var index = 0; index < orderedPages.Length; index++)
             {
@@ -118,17 +138,40 @@ public class TesseractOcrService : IOcrService
                     index + 1,
                     orderedPages.Length);
 
-                var imagePath = await ConvertPdfPageToImageAsync(pdfPath, tempDirectory, pageNumber);
+                var imagePath = await ConvertPdfPageToImageAsync(pdfPath, tempDirectory, pageNumber, renderDpi);
                 if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
                 {
                     _logger.LogWarning("Could not convert page {PageNumber} to image for OCR", pageNumber);
+                    results[pageNumber] = new OcrPageExtractionResult
+                    {
+                        PageNumber = pageNumber,
+                        PdfDpi = renderDpi,
+                        FailureReason = "PDF page could not be converted to image for OCR."
+                    };
                     continue;
                 }
 
-                var pageText = await ExtractTextFromImageWithEngineAsync(imagePath, engine);
-                if (!string.IsNullOrWhiteSpace(pageText))
+                var pageResult = await ExtractBestResultFromImageWithEngineAsync(imagePath, engine);
+                if (pageResult != null)
                 {
-                    results[pageNumber] = pageText;
+                    results[pageNumber] = new OcrPageExtractionResult
+                    {
+                        PageNumber = pageNumber,
+                        Text = pageResult.Text,
+                        Confidence = Math.Round(pageResult.Confidence, 4),
+                        PdfDpi = renderDpi,
+                        SelectedVariant = pageResult.Variant,
+                        SelectedPass = pageResult.PassName
+                    };
+                }
+                else
+                {
+                    results[pageNumber] = new OcrPageExtractionResult
+                    {
+                        PageNumber = pageNumber,
+                        PdfDpi = renderDpi,
+                        FailureReason = "OCR produced no candidate text."
+                    };
                 }
 
                 ReportPdfPageProgress(
@@ -140,7 +183,7 @@ public class TesseractOcrService : IOcrService
                     orderedPages.Length);
             }
 
-            if (!results.Any())
+            if (!results.Any(item => !string.IsNullOrWhiteSpace(item.Value.Text)))
             {
                 _logger.LogWarning("Selected PDF page OCR produced empty text. Ensure Poppler and image quality are sufficient. Current pdftoppm path: {PdfToPpmPath}", _pdfToPpmPath);
             }
@@ -168,7 +211,7 @@ public class TesseractOcrService : IOcrService
         }
     }
 
-    private TesseractEngine CreateEngine()
+    private TesseractEngine CreateEngine(int? pdfDpi = null)
     {
         var engine = new TesseractEngine(_tessDataPath, _ocrLanguages, EngineMode.Default);
         engine.DefaultPageSegMode = PageSegMode.Auto;
@@ -182,13 +225,19 @@ public class TesseractOcrService : IOcrService
             _logger.LogDebug(ex, "Could not set preserve_interword_spaces on Tesseract engine.");
         }
 
-        TrySetEngineVariable(engine, "user_defined_dpi", PdfOcrResolution.ToString());
+        TrySetEngineVariable(engine, "user_defined_dpi", ResolvePdfDpi(pdfDpi).ToString());
         TrySetEngineVariable(engine, "tessedit_do_invert", "0");
 
         return engine;
     }
 
     private async Task<string> ExtractTextFromImageWithEngineAsync(string imagePath, TesseractEngine engine)
+    {
+        var best = await ExtractBestResultFromImageWithEngineAsync(imagePath, engine);
+        return best?.Text ?? string.Empty;
+    }
+
+    private async Task<OcrCandidateResult?> ExtractBestResultFromImageWithEngineAsync(string imagePath, TesseractEngine engine)
     {
         var candidates = await BuildOcrCandidatesAsync(imagePath);
 
@@ -220,7 +269,7 @@ public class TesseractOcrService : IOcrService
                 best?.PassName ?? "none",
                 best?.Confidence ?? 0f);
 
-            return best?.Text ?? string.Empty;
+            return best;
         }
         finally
         {
@@ -240,14 +289,14 @@ public class TesseractOcrService : IOcrService
         return document.NumberOfPages;
     }
 
-    private async Task<string?> ConvertPdfPageToImageAsync(string pdfPath, string tempDirectory, int pageNumber)
+    private async Task<string?> ConvertPdfPageToImageAsync(string pdfPath, string tempDirectory, int pageNumber, int pdfDpi)
     {
         var outputPrefix = Path.Combine(tempDirectory, $"page_{pageNumber}");
 
         var startInfo = new ProcessStartInfo
         {
             FileName = _pdfToPpmPath,
-            Arguments = $"-f {pageNumber} -l {pageNumber} -r {PdfOcrResolution} -png \"{pdfPath}\" \"{outputPrefix}\"",
+            Arguments = $"-f {pageNumber} -l {pageNumber} -r {pdfDpi} -png \"{pdfPath}\" \"{outputPrefix}\"",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -331,6 +380,9 @@ public class TesseractOcrService : IOcrService
 
         return "pdftoppm";
     }
+
+    private int ResolvePdfDpi(int? pdfDpi)
+        => Math.Clamp(pdfDpi ?? _settings.DefaultPdfDpi, 72, 600);
 
     private async Task<List<OcrCandidate>> BuildOcrCandidatesAsync(string imagePath)
     {

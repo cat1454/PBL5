@@ -1,5 +1,6 @@
 using ELearnGamePlatform.API.Configuration;
 using ELearnGamePlatform.API.Contracts;
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
@@ -101,6 +102,7 @@ public class DocumentIngestionService : IDocumentIngestionService
         var contentAnalyzer = scope.ServiceProvider.GetRequiredService<IContentAnalyzer>();
         var qualityGate = scope.ServiceProvider.GetRequiredService<IDocumentInputQualityGate>();
         var tokenBudgetPlanner = scope.ServiceProvider.GetRequiredService<ITokenBudgetPlanner>();
+        var ocrSettings = scope.ServiceProvider.GetRequiredService<IOptions<OcrSettings>>().Value;
         var documentProcessors = scope.ServiceProvider.GetRequiredService<IEnumerable<IDocumentProcessor>>();
         var documentJobStore = scope.ServiceProvider.GetRequiredService<IDocumentProcessingJobStore>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<DocumentIngestionService>>();
@@ -165,8 +167,10 @@ public class DocumentIngestionService : IDocumentIngestionService
             document.ExtractedText = extractedText;
             var qualityResult = qualityGate.Evaluate(extractedText);
             var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
+            var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
             var metadata = document.GetProcessingMetadata();
             metadata.InputQuality = qualityResult;
+            metadata.PageQualityReport = pageQualityReport;
             metadata.AnalysisTokenBudget = budgetPlan;
             document.SetProcessingMetadata(metadata);
 
@@ -180,9 +184,46 @@ public class DocumentIngestionService : IDocumentIngestionService
                 qualityResult.EstimatedTokenCount,
                 budgetPlan.IsWithinBudget);
 
-            foreach (var warning in qualityResult.Warnings.Concat(budgetPlan.Warnings).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (pageQualityReport != null && ocrSettings.EnableQualityProfile)
             {
-                logger.LogWarning("Document {DocumentId} quality/budget warning: {Warning}", documentId, warning);
+                logger.LogInformation(
+                    "Document {DocumentId} page quality: total={TotalPages}, direct={DirectTextPages}, ocr={OcrPages}, empty={EmptyPages}, failed={FailedPages}, lowQuality={LowQualityPages}, avgQuality={AveragePageQuality}, estimatedTokens={EstimatedTokens}",
+                    documentId,
+                    pageQualityReport.TotalPages,
+                    pageQualityReport.DirectTextPages,
+                    pageQualityReport.OcrPages,
+                    pageQualityReport.EmptyPages,
+                    pageQualityReport.FailedPages,
+                    pageQualityReport.LowQualityPages,
+                    pageQualityReport.AveragePageQuality,
+                    pageQualityReport.TotalEstimatedTokens);
+            }
+            else if (pageQualityReport != null)
+            {
+                logger.LogInformation(
+                    "Document {DocumentId} page extraction: total={TotalPages}, direct={DirectTextPages}, ocr={OcrPages}, empty={EmptyPages}, failed={FailedPages}, estimatedTokens={EstimatedTokens}",
+                    documentId,
+                    pageQualityReport.TotalPages,
+                    pageQualityReport.DirectTextPages,
+                    pageQualityReport.OcrPages,
+                    pageQualityReport.EmptyPages,
+                    pageQualityReport.FailedPages,
+                    pageQualityReport.TotalEstimatedTokens);
+            }
+
+            var qualityWarnings = qualityResult.Warnings
+                .Concat(budgetPlan.Warnings)
+                .Concat(pageQualityReport?.Warnings ?? Enumerable.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (qualityWarnings.Count > 0)
+            {
+                logger.LogWarning(
+                    "Document {DocumentId} quality/budget warnings: total={WarningCount}, examples={WarningExamples}",
+                    documentId,
+                    qualityWarnings.Count,
+                    string.Join(" | ", qualityWarnings.Take(5)));
             }
 
             documentJobStore.UpdateJob(documentId, state =>
@@ -249,6 +290,7 @@ public class DocumentIngestionService : IDocumentIngestionService
                 Structure = processedContent.Structure,
                 ExcludedContent = processedContent.ExcludedContent,
                 InputQuality = qualityResult,
+                PageQualityReport = pageQualityReport,
                 AnalysisTokenBudget = budgetPlan
             });
             document.Summary = processedContent.Summary;

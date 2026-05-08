@@ -61,6 +61,8 @@ builder.Services.Configure<AdminSeedSettings>(
     builder.Configuration.GetSection(AdminSeedSettings.SectionName));
 builder.Services.Configure<LocalLlmSettings>(
     builder.Configuration.GetSection(LocalLlmSettings.SectionName));
+builder.Services.Configure<OcrSettings>(
+    builder.Configuration.GetSection(OcrSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JwtSettings configuration is required.");
