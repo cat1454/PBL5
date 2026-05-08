@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
+using ELearnGamePlatform.Core.Interfaces;
 
 namespace ELearnGamePlatform.Services.AI;
 
@@ -16,9 +18,30 @@ public static class DocumentCoverageMapBuilder
         "into", "about", "their", "there", "would", "should", "could", "while", "where", "which"
     };
     public static List<DocumentCoverageChunk> Build(string content, int chunkSize = 2200, int overlap = 320)
+        => Build(content, chunkSize, overlap, null);
+
+    public static List<DocumentCoverageChunk> Build(string content, LocalLlmSettings settings, ITokenEstimator? tokenEstimator = null)
+    {
+        var normalized = NormalizeContent(content);
+        var rawChunks = DocumentStructureChunker.SplitIntoTokenChunks(
+            normalized,
+            settings.TargetChunkTokens,
+            settings.MaxChunkTokens,
+            settings.ChunkOverlapTokens,
+            tokenEstimator);
+
+        return BuildFromRawChunks(rawChunks, tokenEstimator);
+    }
+
+    public static List<DocumentCoverageChunk> Build(string content, int chunkSize, int overlap, ITokenEstimator? tokenEstimator)
     {
         var normalized = NormalizeContent(content);
         var rawChunks = SplitIntoChunks(normalized, chunkSize, overlap);
+        return BuildFromRawChunks(rawChunks, tokenEstimator);
+    }
+
+    private static List<DocumentCoverageChunk> BuildFromRawChunks(List<string> rawChunks, ITokenEstimator? tokenEstimator)
+    {
         var chunks = new List<DocumentCoverageChunk>(rawChunks.Count);
         var headingStack = new List<DocumentHeadingMetadata>();
 
@@ -26,6 +49,8 @@ public static class DocumentCoverageMapBuilder
         {
             var chunkNumber = index + 1;
             var chunkText = rawChunks[index];
+            var normalizedChunkText = NormalizeContent(chunkText);
+            var textTokenCount = EstimateTokens(normalizedChunkText, tokenEstimator);
             var keyFacts = ExtractHighSignalSentences(chunkText, 4);
             var heading = DocumentStructureChunker.AnalyzeHeading(chunkText);
             UpdateHeadingStack(headingStack, heading);
@@ -52,7 +77,11 @@ public static class DocumentCoverageMapBuilder
                 IsPrimarySection = IsPrimarySection(heading),
                 Summary = BuildChunkSummary(chunkText, keyFacts),
                 EvidenceExcerpt = BuildEvidenceExcerpt(chunkText, keyFacts),
-                KeyFacts = keyFacts
+                KeyFacts = keyFacts,
+                Text = chunkText,
+                NormalizedText = normalizedChunkText,
+                TextTokenCount = textTokenCount,
+                EstimatedTokenCount = textTokenCount
             });
         }
 
@@ -71,6 +100,8 @@ public static class DocumentCoverageMapBuilder
             chunk.SectionKey,
             chunk.Summary,
             chunk.EvidenceExcerpt,
+            chunk.NormalizedText,
+            chunk.Text,
             string.Join(" ", chunk.KeyFacts));
 
     public static HashSet<string> BuildSearchTokens(params string?[] values)
@@ -94,6 +125,16 @@ public static class DocumentCoverageMapBuilder
 
     private static List<string> SplitIntoChunks(string content, int chunkSize, int overlap)
         => DocumentStructureChunker.SplitIntoChunks(content, chunkSize, overlap);
+
+    private static int EstimateTokens(string? text, ITokenEstimator? tokenEstimator)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return tokenEstimator?.EstimateTokens(text) ?? (int)Math.Ceiling(text.Length / 3.5d);
+    }
 
     private static void UpdateHeadingStack(List<DocumentHeadingMetadata> stack, DocumentHeadingMetadata? heading)
     {

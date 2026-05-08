@@ -41,9 +41,14 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             PromptType = promptType,
             ContextWindowTokens = _settings.ContextWindowTokens,
             MaxInputTokens = maxInputTokens,
+            TargetInputTokens = maxInputTokens,
+            TargetInputBudgetFillRatio = 1d,
             EstimatedInputTokens = estimatedInputTokens,
             IsWithinBudget = maxInputTokens > 0 && estimatedInputTokens <= maxInputTokens,
             WasTruncated = false,
+            SelectedTextTokens = estimatedInputTokens,
+            BudgetFillRatio = maxInputTokens > 0 ? Math.Round(estimatedInputTokens / (double)maxInputTokens, 4) : 0d,
+            IncludeFullChunkText = false,
             Warnings = warnings
         };
     }
@@ -56,6 +61,10 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             .OrderBy(chunk => chunk.ChunkNumber)
             .ToList();
         var warnings = new List<string>();
+        var fillRatio = Math.Clamp(_settings.TargetInputBudgetFillRatio, 0.1d, 1d);
+        var targetInputTokens = maxInputTokens > 0
+            ? Math.Max(1, (int)Math.Floor(maxInputTokens * fillRatio))
+            : 0;
 
         if (maxInputTokens <= 0)
         {
@@ -69,8 +78,8 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             .Where(chunk => chunk.IsEligibleForQuestionGeneration && chunk.ChunkQualityScore >= MinimumChunkQualityScore)
             .ToList();
 
-        var selected = maxInputTokens > 0
-            ? SelectChunksWithinBudget(candidates, maxInputTokens)
+        var selected = targetInputTokens > 0
+            ? SelectChunksWithinBudget(candidates, targetInputTokens)
             : new List<DocumentCoverageChunk>();
         var selectedIds = selected.Select(chunk => chunk.ChunkId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var omitted = preparedChunks
@@ -78,6 +87,13 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             .OrderBy(chunk => chunk.ChunkNumber)
             .ToList();
         var estimatedInputTokens = selected.Sum(chunk => chunk.EstimatedTokenCount);
+        var selectedTextTokens = selected.Sum(chunk => chunk.TextTokenCount > 0 ? chunk.TextTokenCount : chunk.EstimatedTokenCount);
+        var averageChunkTokens = preparedChunks.Count > 0
+            ? Math.Round(preparedChunks.Average(chunk => chunk.TextTokenCount > 0 ? chunk.TextTokenCount : chunk.EstimatedTokenCount), 2)
+            : 0d;
+        var budgetFillRatio = maxInputTokens > 0
+            ? Math.Round(selectedTextTokens / (double)maxInputTokens, 4)
+            : 0d;
 
         if (lowQualityChunks.Any())
         {
@@ -86,22 +102,35 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
 
         if (omitted.Count > lowQualityChunks.Count)
         {
-            warnings.Add($"Omitted {omitted.Count - lowQualityChunks.Count} chunk(s) to fit max input budget ({maxInputTokens}).");
+            warnings.Add($"Omitted {omitted.Count - lowQualityChunks.Count} chunk(s) to fit target input budget ({targetInputTokens}/{maxInputTokens}).");
         }
 
-        if (estimatedInputTokens >= (int)Math.Round(maxInputTokens * 0.85d) && maxInputTokens > 0)
+        if (estimatedInputTokens > maxInputTokens && maxInputTokens > 0)
+        {
+            warnings.Add($"Selected chunk tokens ({estimatedInputTokens}) exceed hard max input budget ({maxInputTokens}).");
+        }
+        else if (estimatedInputTokens >= (int)Math.Round(maxInputTokens * 0.85d) && maxInputTokens > 0)
         {
             warnings.Add($"Selected chunk tokens ({estimatedInputTokens}) are close to max input budget ({maxInputTokens}).");
         }
+
+        warnings.Add($"Selected token count: {selectedTextTokens}/{maxInputTokens}; fill ratio: {budgetFillRatio:P0}; omitted chunks: {omitted.Count}; full text included: {_settings.IncludeFullSelectedChunkText}.");
 
         return new TokenBudgetPlan
         {
             PromptType = promptType,
             ContextWindowTokens = _settings.ContextWindowTokens,
             MaxInputTokens = maxInputTokens,
+            TargetInputTokens = targetInputTokens,
+            TargetInputBudgetFillRatio = fillRatio,
             EstimatedInputTokens = estimatedInputTokens,
             IsWithinBudget = maxInputTokens > 0 && estimatedInputTokens <= maxInputTokens,
             WasTruncated = omitted.Any(),
+            SelectedTextTokens = selectedTextTokens,
+            BudgetFillRatio = budgetFillRatio,
+            IncludeFullChunkText = _settings.IncludeFullSelectedChunkText,
+            TotalChunks = preparedChunks.Count,
+            AverageChunkTokens = averageChunkTokens,
             SelectedChunks = selected,
             OmittedChunks = omitted,
             Warnings = warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
@@ -111,10 +140,15 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
     private DocumentCoverageChunk PrepareChunk(DocumentCoverageChunk chunk)
     {
         var cloned = CloneChunk(chunk);
-        if (cloned.EstimatedTokenCount <= 0)
+        if (cloned.TextTokenCount <= 0)
         {
-            cloned.EstimatedTokenCount = Math.Max(1, _tokenEstimator.EstimateTokens(BuildChunkTokenText(cloned)));
+            cloned.TextTokenCount = Math.Max(1, _tokenEstimator.EstimateTokens(GetChunkFullText(cloned)));
         }
+
+        var tokenText = _settings.IncludeFullSelectedChunkText
+            ? BuildChunkTokenText(cloned)
+            : BuildSummaryTokenText(cloned);
+        cloned.EstimatedTokenCount = Math.Max(1, _tokenEstimator.EstimateTokens(tokenText));
 
         if (cloned.TokenEfficiencyScore <= 0)
         {
@@ -204,6 +238,27 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
     }
 
     private static string BuildChunkTokenText(DocumentCoverageChunk chunk)
+    {
+        var text = GetChunkFullText(chunk);
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            return string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    chunk.ChunkId,
+                    chunk.SectionKey,
+                    chunk.Label,
+                    chunk.Summary,
+                    string.Join(" ", chunk.KeyFacts),
+                    text
+                }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        }
+
+        return BuildSummaryTokenText(chunk);
+    }
+
+    private static string BuildSummaryTokenText(DocumentCoverageChunk chunk)
         => string.Join(
             Environment.NewLine,
             new[]
@@ -215,6 +270,11 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
                 chunk.EvidenceExcerpt,
                 string.Join(" ", chunk.KeyFacts)
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
+
+    private static string GetChunkFullText(DocumentCoverageChunk chunk)
+        => !string.IsNullOrWhiteSpace(chunk.NormalizedText)
+            ? chunk.NormalizedText!
+            : chunk.Text ?? string.Empty;
 
     private static DocumentCoverageChunk CloneChunk(DocumentCoverageChunk chunk)
         => new()
@@ -250,6 +310,9 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             Warnings = chunk.Warnings.ToList(),
             Summary = chunk.Summary,
             EvidenceExcerpt = chunk.EvidenceExcerpt,
-            KeyFacts = chunk.KeyFacts.ToList()
+            KeyFacts = chunk.KeyFacts.ToList(),
+            Text = chunk.Text,
+            NormalizedText = chunk.NormalizedText,
+            TextTokenCount = chunk.TextTokenCount
         };
 }

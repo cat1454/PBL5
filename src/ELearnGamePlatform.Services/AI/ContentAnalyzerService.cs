@@ -1,7 +1,9 @@
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.Services.AI;
@@ -11,6 +13,8 @@ public class ContentAnalyzerService : IContentAnalyzer
     private readonly IOllamaService _ollamaService;
     private readonly ITokenBudgetPlanner _tokenBudgetPlanner;
     private readonly IPromptAssembler _promptAssembler;
+    private readonly ITokenEstimator _tokenEstimator;
+    private readonly LocalLlmSettings _localLlmSettings;
     private readonly ILogger<ContentAnalyzerService> _logger;
     private const int ChunkSize = 1800;
     private const int ChunkOverlap = 260;
@@ -23,11 +27,15 @@ public class ContentAnalyzerService : IContentAnalyzer
         IOllamaService ollamaService,
         ITokenBudgetPlanner tokenBudgetPlanner,
         IPromptAssembler promptAssembler,
+        ITokenEstimator tokenEstimator,
+        IOptions<LocalLlmSettings> localLlmSettings,
         ILogger<ContentAnalyzerService> logger)
     {
         _ollamaService = ollamaService;
         _tokenBudgetPlanner = tokenBudgetPlanner;
         _promptAssembler = promptAssembler;
+        _tokenEstimator = tokenEstimator;
+        _localLlmSettings = localLlmSettings.Value;
         _logger = logger;
     }
 
@@ -36,7 +44,7 @@ public class ContentAnalyzerService : IContentAnalyzer
         try
         {
             var normalizedText = NormalizeText(text);
-            var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText);
+            var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText, _localLlmSettings, _tokenEstimator);
             var enrichedCoverageMap = EnrichCoverageMap(rawCoverageMap, normalizedText);
             var cleanCoverageMap = BuildCleanCoverageMap(enrichedCoverageMap);
             var budgetPlan = _tokenBudgetPlanner.PlanChunks(cleanCoverageMap, "analysis");
@@ -45,7 +53,7 @@ public class ContentAnalyzerService : IContentAnalyzer
                 : cleanCoverageMap;
             var promptAssembly = _promptAssembler.BuildAnalysisPrompt(selectedCoverageMap, budgetPlan);
             var coverageMapWithBudgetSelection = MarkBudgetSelection(enrichedCoverageMap, budgetPlan);
-            var chunks = BuildAnalysisChunks(selectedCoverageMap);
+            var chunks = BuildAnalysisChunks(selectedCoverageMap, _localLlmSettings.IncludeFullSelectedChunkText);
 
             if (chunks.Count == 0 && cleanCoverageMap.Count == 0)
             {
@@ -59,11 +67,15 @@ public class ContentAnalyzerService : IContentAnalyzer
             }
 
             _logger.LogInformation(
-                "Analyzing document content using {ChunkCount} selected chunks ({OmittedChunkCount} omitted), estimatedTokens={EstimatedInputTokens}/{MaxInputTokens}, max parallelism {MaxParallelChunkAnalyses}",
+                "Analyzing document content using {ChunkCount} selected chunks ({OmittedChunkCount} omitted), selectedTextTokens={SelectedTextTokens}/{MaxInputTokens}, budgetFillRatio={BudgetFillRatio:P0}, totalChunks={TotalChunks}, averageChunkTokens={AverageChunkTokens}, includeFullChunkText={IncludeFullChunkText}, max parallelism {MaxParallelChunkAnalyses}",
                 chunks.Count,
                 budgetPlan.OmittedChunks.Count,
-                budgetPlan.EstimatedInputTokens,
+                budgetPlan.SelectedTextTokens,
                 budgetPlan.MaxInputTokens,
+                budgetPlan.BudgetFillRatio,
+                budgetPlan.TotalChunks,
+                budgetPlan.AverageChunkTokens,
+                budgetPlan.IncludeFullChunkText,
                 Math.Min(MaxParallelChunkAnalyses, Math.Max(1, chunks.Count)));
 
             foreach (var warning in promptAssembly.Warnings)
@@ -96,7 +108,7 @@ public class ContentAnalyzerService : IContentAnalyzer
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error analyzing content");
-            return CreateFallbackProcessedContent(text, EnrichCoverageMap(DocumentCoverageMapBuilder.Build(NormalizeText(text)), NormalizeText(text)));
+            return CreateFallbackProcessedContent(text, EnrichCoverageMap(DocumentCoverageMapBuilder.Build(NormalizeText(text), _localLlmSettings, _tokenEstimator), NormalizeText(text)));
         }
     }
 
@@ -441,7 +453,7 @@ Respond in JSON format:
         };
     }
 
-    private static List<string> BuildAnalysisChunks(List<DocumentCoverageChunk> cleanCoverageMap)
+    private static List<string> BuildAnalysisChunks(List<DocumentCoverageChunk> cleanCoverageMap, bool includeFullText)
         => cleanCoverageMap
             .OrderBy(chunk => chunk.ChunkNumber)
             .Select(chunk => string.Join(
@@ -452,7 +464,10 @@ Respond in JSON format:
                     chunk.Label,
                     chunk.Summary,
                     chunk.EvidenceExcerpt,
-                    string.Join(" ", chunk.KeyFacts)
+                    string.Join(" ", chunk.KeyFacts),
+                    includeFullText
+                        ? $"text:\n<<<\n{GetChunkPromptText(chunk)}\n>>>"
+                        : null
                 }.Where(value => !string.IsNullOrWhiteSpace(value))))
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
@@ -482,6 +497,9 @@ Respond in JSON format:
                     cloned.TokenEfficiencyScore = planned.TokenEfficiencyScore;
                     cloned.ChunkQualityScore = planned.ChunkQualityScore;
                     cloned.KeyFactDensityScore = planned.KeyFactDensityScore;
+                    cloned.Text = planned.Text ?? cloned.Text;
+                    cloned.NormalizedText = planned.NormalizedText ?? cloned.NormalizedText;
+                    cloned.TextTokenCount = planned.TextTokenCount > 0 ? planned.TextTokenCount : cloned.TextTokenCount;
                     cloned.IsEligibleForQuestionGeneration = planned.IsEligibleForQuestionGeneration;
                 }
 
@@ -506,6 +524,13 @@ Respond in JSON format:
 
         return start?.ToString() ?? end?.ToString() ?? "unknown";
     }
+
+    private static string GetChunkPromptText(DocumentCoverageChunk chunk)
+        => !string.IsNullOrWhiteSpace(chunk.NormalizedText)
+            ? chunk.NormalizedText!
+            : !string.IsNullOrWhiteSpace(chunk.Text)
+                ? chunk.Text!
+                : chunk.EvidenceExcerpt;
 
     private static List<DocumentCoverageChunk> BuildCleanCoverageMap(List<DocumentCoverageChunk> coverageMap)
     {
@@ -540,7 +565,7 @@ Respond in JSON format:
 
     private static (int Score, int KeyFactDensityScore, List<string> Warnings) ScoreChunkQuality(DocumentCoverageChunk chunk, string classification, int teachabilityScore)
     {
-        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}";
+        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)} {GetChunkPromptText(chunk)}";
         var warnings = new List<string>();
         var lengthScore = ScoreTextLength(text.Length);
         var signalRatio = ScoreSignalRatio(text);
@@ -751,7 +776,10 @@ Respond in JSON format:
             Warnings = chunk.Warnings.ToList(),
             Summary = chunk.Summary,
             EvidenceExcerpt = chunk.EvidenceExcerpt,
-            KeyFacts = chunk.KeyFacts.ToList()
+            KeyFacts = chunk.KeyFacts.ToList(),
+            Text = chunk.Text,
+            NormalizedText = chunk.NormalizedText,
+            TextTokenCount = chunk.TextTokenCount
         };
     }
 
@@ -830,7 +858,7 @@ Respond in JSON format:
     private static string ClassifyChunk(DocumentCoverageChunk chunk, string documentType)
     {
         var heading = $"{chunk.HeadingText} {chunk.NormalizedHeading} {chunk.Label}".ToLowerInvariant();
-        var text = $"{chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}".ToLowerInvariant();
+        var text = $"{chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)} {GetChunkPromptText(chunk)}".ToLowerInvariant();
 
         if (Regex.IsMatch(heading + " " + text, @"\b(muc luc|table of contents|contents)\b"))
         {
@@ -900,7 +928,7 @@ Respond in JSON format:
         var score = 50;
         var positives = new List<string>();
         var negatives = new List<string>();
-        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}";
+        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)} {GetChunkPromptText(chunk)}";
         var lowered = text.ToLowerInvariant();
 
         void AddPositive(string signal, int points)
@@ -1010,14 +1038,14 @@ Respond in JSON format:
 
     private static int? TryGetChunkStartPage(DocumentCoverageChunk chunk)
     {
-        var candidate = $"{chunk.Label}\n{chunk.Summary}\n{chunk.EvidenceExcerpt}";
+        var candidate = $"{chunk.Label}\n{chunk.Summary}\n{chunk.EvidenceExcerpt}\n{GetChunkPromptText(chunk)}";
         var match = PageRegex.Match(candidate);
         return match.Success && int.TryParse(match.Groups[1].Value, out var page) ? page : null;
     }
 
     private static int? TryGetChunkEndPage(DocumentCoverageChunk chunk)
     {
-        var candidate = $"{chunk.EvidenceExcerpt}\n{chunk.Summary}\n{chunk.Label}";
+        var candidate = $"{GetChunkPromptText(chunk)}\n{chunk.EvidenceExcerpt}\n{chunk.Summary}\n{chunk.Label}";
         var matches = PageRegex.Matches(candidate);
         if (matches.Count == 0)
         {
@@ -1059,7 +1087,11 @@ Respond in JSON format:
             Title = title,
             MainContentStartPage = mainContentStartPage,
             Structure = BuildStructureDescriptors(coverageMap),
-            ExcludedContent = BuildExcludedDescriptors(coverageMap)
+            ExcludedContent = BuildExcludedDescriptors(coverageMap),
+            TotalChunks = coverageMap.Count,
+            AverageChunkTokens = coverageMap.Count > 0
+                ? Math.Round(coverageMap.Average(chunk => chunk.TextTokenCount > 0 ? chunk.TextTokenCount : chunk.EstimatedTokenCount), 2)
+                : 0d
         };
     }
 

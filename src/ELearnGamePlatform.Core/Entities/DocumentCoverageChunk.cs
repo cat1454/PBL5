@@ -34,4 +34,7 @@ public class DocumentCoverageChunk
     public string Summary { get; set; } = string.Empty;
     public string EvidenceExcerpt { get; set; } = string.Empty;
     public List<string> KeyFacts { get; set; } = new();
+    public string? Text { get; set; }
+    public string? NormalizedText { get; set; }
+    public int TextTokenCount { get; set; }
 }

@@ -279,6 +279,7 @@ public class DocumentIngestionService : IDocumentIngestionService
             });
 
             var processedContent = await contentAnalyzer.AnalyzeContentAsync(extractedText, analysisProgress);
+            var analysisChunkBudget = tokenBudgetPlanner.PlanChunks(processedContent.CoverageMap, "analysis");
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
             document.SetCoverageMap(processedContent.CoverageMap);
@@ -292,10 +293,28 @@ public class DocumentIngestionService : IDocumentIngestionService
                 ExcludedContent = processedContent.ExcludedContent,
                 InputQuality = qualityResult,
                 PageQualityReport = pageQualityReport,
-                AnalysisTokenBudget = budgetPlan
+                AnalysisTokenBudget = analysisChunkBudget,
+                TotalChunks = analysisChunkBudget.TotalChunks,
+                AverageChunkTokens = analysisChunkBudget.AverageChunkTokens,
+                SelectedChunks = analysisChunkBudget.SelectedChunks.Count,
+                SelectedTextTokens = analysisChunkBudget.SelectedTextTokens,
+                BudgetFillRatio = analysisChunkBudget.BudgetFillRatio,
+                IncludeFullChunkText = analysisChunkBudget.IncludeFullChunkText,
+                OmittedChunks = analysisChunkBudget.OmittedChunks.Count
             });
             document.Summary = processedContent.Summary;
             document.Language = processedContent.Language;
+
+            logger.LogInformation(
+                "Document {DocumentId} analysis chunk budget: totalChunks={TotalChunks}, averageChunkTokens={AverageChunkTokens}, selectedChunks={SelectedChunks}, selectedTextTokens={SelectedTextTokens}, budgetFillRatio={BudgetFillRatio:P0}, includeFullChunkText={IncludeFullChunkText}, omittedChunks={OmittedChunks}",
+                documentId,
+                analysisChunkBudget.TotalChunks,
+                analysisChunkBudget.AverageChunkTokens,
+                analysisChunkBudget.SelectedChunks.Count,
+                analysisChunkBudget.SelectedTextTokens,
+                analysisChunkBudget.BudgetFillRatio,
+                analysisChunkBudget.IncludeFullChunkText,
+                analysisChunkBudget.OmittedChunks.Count);
 
             documentJobStore.UpdateJob(documentId, state =>
             {

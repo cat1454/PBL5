@@ -34,6 +34,13 @@ public class DocumentProcessingMetadata
     public DocumentInputQualityResult? InputQuality { get; set; }
     public DocumentInputQualityReport? PageQualityReport { get; set; }
     public TokenBudgetPlan? AnalysisTokenBudget { get; set; }
+    public int TotalChunks { get; set; }
+    public double AverageChunkTokens { get; set; }
+    public int SelectedChunks { get; set; }
+    public int SelectedTextTokens { get; set; }
+    public double BudgetFillRatio { get; set; }
+    public bool IncludeFullChunkText { get; set; }
+    public int OmittedChunks { get; set; }
 }
 
 public class DocumentSectionDescriptor

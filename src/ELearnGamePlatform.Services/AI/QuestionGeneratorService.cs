@@ -1,17 +1,21 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace ELearnGamePlatform.Services.AI;
 
 public class QuestionGeneratorService : IQuestionGenerator
 {
     private readonly IOllamaService _ollamaService;
+    private readonly ITokenEstimator _tokenEstimator;
+    private readonly LocalLlmSettings _localLlmSettings;
     private readonly ILogger<QuestionGeneratorService> _logger;
     private const string OutputLanguage = "Vietnamese";
     private const int ChunkSize = 2200;
@@ -35,9 +39,15 @@ public class QuestionGeneratorService : IQuestionGenerator
         "into", "about", "their", "there", "would", "should", "could", "while", "where", "which"
     };
 
-    public QuestionGeneratorService(IOllamaService ollamaService, ILogger<QuestionGeneratorService> logger)
+    public QuestionGeneratorService(
+        IOllamaService ollamaService,
+        ITokenEstimator tokenEstimator,
+        IOptions<LocalLlmSettings> localLlmSettings,
+        ILogger<QuestionGeneratorService> logger)
     {
         _ollamaService = ollamaService;
+        _tokenEstimator = tokenEstimator;
+        _localLlmSettings = localLlmSettings.Value;
         _logger = logger;
     }
 
@@ -165,6 +175,9 @@ public class QuestionGeneratorService : IQuestionGenerator
                     Summary = chunk.Summary,
                     KeyFacts = chunk.KeyFacts,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
+                    Text = chunk.Text,
+                    NormalizedText = chunk.NormalizedText,
+                    TextTokenCount = chunk.TextTokenCount,
                     SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(chunk)
                 })
                 .ToList();
@@ -190,7 +203,7 @@ public class QuestionGeneratorService : IQuestionGenerator
 
     private List<DocumentChunk> BuildCoverageChunks(string content, IProgress<QuestionGenerationProgressUpdate>? progress)
     {
-        var coverageMap = DocumentCoverageMapBuilder.Build(content, ChunkSize, ChunkOverlap);
+        var coverageMap = DocumentCoverageMapBuilder.Build(content, _localLlmSettings, _tokenEstimator);
         var chunks = new List<DocumentChunk>(coverageMap.Count);
 
         for (var index = 0; index < coverageMap.Count; index++)
@@ -210,6 +223,9 @@ public class QuestionGeneratorService : IQuestionGenerator
                 Summary = coverageChunk.Summary,
                 KeyFacts = coverageChunk.KeyFacts,
                 EvidenceExcerpt = coverageChunk.EvidenceExcerpt,
+                Text = coverageChunk.Text,
+                NormalizedText = coverageChunk.NormalizedText,
+                TextTokenCount = coverageChunk.TextTokenCount,
                 SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(coverageChunk)
             };
 
@@ -751,7 +767,7 @@ Return JSON only:
         return question;
     }
 
-    private static string BuildEvidenceBlock(EvidenceBundle bundle)
+    private string BuildEvidenceBlock(EvidenceBundle bundle)
     {
         var builder = new StringBuilder();
 
@@ -770,6 +786,13 @@ Return JSON only:
             }
 
             builder.AppendLine($"Excerpt: {chunk.EvidenceExcerpt}");
+            if (_localLlmSettings.IncludeFullSelectedChunkText)
+            {
+                builder.AppendLine("Text:");
+                builder.AppendLine("<<<");
+                builder.AppendLine(GetChunkPromptText(chunk));
+                builder.AppendLine(">>>");
+            }
             builder.AppendLine();
         }
 
@@ -1241,7 +1264,7 @@ Return JSON only:
         }
     }
 
-    private static string BuildQuestionVerifierEvidenceBlock(EvidenceBundle bundle)
+    private string BuildQuestionVerifierEvidenceBlock(EvidenceBundle bundle)
     {
         if (bundle.EvidenceChunks.Count == 0)
         {
@@ -1249,7 +1272,12 @@ Return JSON only:
         }
 
         return string.Join(Environment.NewLine, bundle.EvidenceChunks.Select(chunk =>
-            $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}"));
+        {
+            var text = _localLlmSettings.IncludeFullSelectedChunkText
+                ? $" | text={Truncate(GetChunkPromptText(chunk), 1200)}"
+                : string.Empty;
+            return $"- {chunk.ChunkId} | zone={chunk.Zone} | label={chunk.Label} | summary={chunk.Summary} | excerpt={chunk.EvidenceExcerpt}{text}";
+        }));
     }
 
     private static string BuildQuestionVerifierOptionsBlock(IReadOnlyCollection<QuestionOption> options)
@@ -1795,7 +1823,7 @@ Return JSON only:
         return builder.ToString().Trim();
     }
 
-    private static string BuildEvidenceLibraryBlock(List<EvidenceBundle> bundles)
+    private string BuildEvidenceLibraryBlock(List<EvidenceBundle> bundles)
     {
         var uniqueChunks = bundles
             .SelectMany(bundle => bundle.EvidenceChunks)
@@ -1815,11 +1843,25 @@ Return JSON only:
                 builder.AppendLine($"- {Truncate(fact, 110)}");
             }
             builder.AppendLine($"Excerpt: {Truncate(chunk.EvidenceExcerpt, 220)}");
+            if (_localLlmSettings.IncludeFullSelectedChunkText)
+            {
+                builder.AppendLine("Text:");
+                builder.AppendLine("<<<");
+                builder.AppendLine(GetChunkPromptText(chunk));
+                builder.AppendLine(">>>");
+            }
             builder.AppendLine();
         }
 
         return builder.ToString().Trim();
     }
+
+    private static string GetChunkPromptText(DocumentChunk chunk)
+        => !string.IsNullOrWhiteSpace(chunk.NormalizedText)
+            ? chunk.NormalizedText!
+            : !string.IsNullOrWhiteSpace(chunk.Text)
+                ? chunk.Text!
+                : chunk.EvidenceExcerpt;
 
     private static string BuildQuestionBriefBlock(List<QuestionPlan> plans, List<EvidenceBundle> bundles)
     {
@@ -2483,6 +2525,8 @@ Return JSON only:
             Summary = plan.Focus,
             KeyFacts = new List<string> { plan.Focus },
             EvidenceExcerpt = plan.Focus,
+            Text = plan.Focus,
+            NormalizedText = plan.Focus,
             SearchTokens = TokenizeForSearch(plan.Focus)
         };
 
@@ -2507,6 +2551,9 @@ Return JSON only:
         public string Summary { get; init; } = string.Empty;
         public List<string> KeyFacts { get; init; } = new();
         public string EvidenceExcerpt { get; init; } = string.Empty;
+        public string? Text { get; init; }
+        public string? NormalizedText { get; init; }
+        public int TextTokenCount { get; init; }
         public HashSet<string> SearchTokens { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
