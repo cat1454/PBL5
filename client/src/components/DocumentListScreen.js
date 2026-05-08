@@ -46,6 +46,7 @@ function DocumentListScreen() {
   const [slideProgress, setSlideProgress] = useState({});
   const [slideDecks, setSlideDecks] = useState({});
   const [slideDeckAvailability, setSlideDeckAvailability] = useState({});
+  const [exportingDeck, setExportingDeck] = useState(null);
   const [showAnalysis, setShowAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -422,6 +423,65 @@ function DocumentListScreen() {
     }
   };
 
+  const handleDownloadDeckHtml = async (deck) => {
+    if (!deck || exportingDeck) {
+      return;
+    }
+
+    try {
+      setExportingDeck(`${deck.id}:html`);
+      const result = await slideService.exportDeckHtml(deck.id);
+      showToast({
+        type: 'success',
+        message: 'Đã tải file HTML.',
+        description: result.filename,
+      });
+    } catch (err) {
+      showToast({
+        type: 'error',
+        message: getApiErrorMessage(err, 'Không thể xuất HTML.'),
+      });
+    } finally {
+      setExportingDeck(null);
+    }
+  };
+
+  const handleOpenDeckPrint = async (deck) => {
+    if (!deck || exportingDeck) {
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast({
+        type: 'error',
+        message: 'Trinh duyet da chan tab in. Hay cho phep popup va thu lai.',
+      });
+      return;
+    }
+    printWindow.opener = null;
+
+    try {
+      setExportingDeck(`${deck.id}:print`);
+      const blob = await slideService.getDeckPrintHtml(deck.id);
+      const url = window.URL.createObjectURL(blob);
+      printWindow.location.href = url;
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+      showToast({
+        type: 'success',
+        message: 'Da mo ban In / Luu PDF.',
+      });
+    } catch (err) {
+      printWindow.close();
+      showToast({
+        type: 'error',
+        message: getApiErrorMessage(err, 'Khong the mo ban in.'),
+      });
+    } finally {
+      setExportingDeck(null);
+    }
+  };
+
   const handleDelete = async (documentId) => {
     if (!window.confirm('Are you sure you want to delete this document?')) {
       return;
@@ -582,12 +642,22 @@ function DocumentListScreen() {
                               Mo Studio
                             </button>
                             {slideDeck && (
-                              <button
-                                className="button button-secondary"
-                                onClick={() => window.open(slideService.getDeckHtmlUrl(doc.id), '_blank', 'noopener,noreferrer')}
-                              >
-                                HTML/PDF
-                              </button>
+                              <>
+                                <button
+                                  className="button button-secondary"
+                                  onClick={() => handleDownloadDeckHtml(slideDeck)}
+                                  disabled={Boolean(exportingDeck)}
+                                >
+                                  HTML
+                                </button>
+                                <button
+                                  className="button button-secondary"
+                                  onClick={() => handleOpenDeckPrint(slideDeck)}
+                                  disabled={Boolean(exportingDeck)}
+                                >
+                                  In / PDF
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>

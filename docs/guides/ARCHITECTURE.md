@@ -1,219 +1,150 @@
 # Architecture - ELearn Game Platform
 
-## 1. Tong quan
+Verified from source: 2026-05-07.
 
-He thong hien tai theo mo hinh 4 layer:
+## Overview
+
+ELearn Game Platform is an MVP+ demo app built as a React frontend over an ASP.NET Core Web API. Runtime state is PostgreSQL + EF Core, not MongoDB.
 
 ```text
-Frontend (React)
-        |
-        v
-API Layer (.NET Web API)
-        |
-        v
-Services Layer (OCR, AI, document processing)
-        |
-        v
-Core + Infrastructure (entities, repositories, EF Core, PostgreSQL, Ollama)
+React client
+  -> ASP.NET Core API controllers
+  -> Services layer for OCR, AI, learning, slide generation/export
+  -> Core contracts/entities + Infrastructure repositories
+  -> PostgreSQL, Ollama, local upload/asset storage
 ```
 
-## 2. Layer thuc te trong repo
+## Projects
 
-### `src/ELearnGamePlatform.Core`
+- `src/ELearnGamePlatform.API`: entrypoint, DI, controllers, JWT auth, in-memory job stores, document ingestion, slide image pipeline, uploads.
+- `src/ELearnGamePlatform.Core`: entities, enums, repository/service interfaces, shared domain contracts.
+- `src/ELearnGamePlatform.Infrastructure`: `ApplicationDbContext`, EF Core migrations, repositories, `OllamaService`, PostgreSQL/Ollama config.
+- `src/ELearnGamePlatform.Services`: OCR processors, content analysis, question generation, slide generation, slide export.
+- `client`: React 18 app using React Router, Axios, auth context, and live backend APIs.
 
-Chua:
+## Backend Runtime
 
-- domain entities
-- enums
-- interfaces cho repositories va services
-- extension methods cho JSON fields
+- API URL is pinned in `Program.cs` to `http://localhost:5000`.
+- Swagger is enabled at `http://localhost:5000/swagger`.
+- EF Core migrations run automatically on startup through `dbContext.Database.Migrate()`.
+- Startup also validates selected critical columns for questions, documents, and slide items.
+- All controllers except `POST /api/auth/register` and `POST /api/auth/login` require JWT. Admin overview requires role `Admin`.
 
-Entities chinh:
+## Core Entities
 
+Main persisted entities verified in `src/ELearnGamePlatform.Core/Entities`:
+
+- `AppUser`
 - `Document`
+- `ProcessedContent`
 - `Question`
 - `GameSession`
-- `ProcessedContent`
-- `QuestionGenerationProgressUpdate`
+- `LearningAttempt`
+- `LearningProgress`
+- `LearningTestResult`
+- `FolderProject`
+- `SlideDeck`
+- `SlideItem`
+- `SlideImageMetadata`
+- progress/update DTOs for document, question, and slide jobs
 
-### `src/ELearnGamePlatform.Infrastructure`
+## Data Layer
 
-Chua:
+`ApplicationDbContext` maps the runtime schema to PostgreSQL. Repositories currently include:
 
-- `ApplicationDbContext`
-- EF Core migrations
-- repository implementations
-- `OllamaService`
-- config classes
+- `DocumentRepository`
+- `QuestionRepository`
+- `GameSessionRepository`
+- `FolderProjectRepository`
+- `SlideDeckRepository`
 
-Runtime database hien tai:
+JSON-shaped data is stored in JSONB columns where configured by EF Core. PostgreSQL does not automatically create useful GIN indexes for JSONB query patterns; add explicit indexes in migrations if JSONB fields become query targets.
 
-- PostgreSQL
+## AI / Ollama
 
-Khong phai MongoDB.
+Runtime config comes from `src/ELearnGamePlatform.API/appsettings.json`:
 
-### `src/ELearnGamePlatform.Services`
+- `Model`: `qwen2.5:7b`
+- `AnalysisModel`: `qwen2.5:7b`
+- `GenerationModel`: `qwen2.5:7b`
+- `VerificationModel`: `qwen2.5:7b`
+- `BaseUrl`: `http://localhost:11434`
 
-Chua business logic:
+`OllamaService` resolves the profile-specific model first. If a non-generation profile fails and differs from the generation/default model, it falls back to the generation/default model.
 
-- `PdfProcessor`
-- `DocxProcessor`
-- `ImageProcessor`
-- `TesseractOcrService`
-- `ContentAnalyzerService`
-- `QuestionGeneratorService`
+The repo also contains `qwen2.5-edu-json.modelfile`; that is a local optional model recipe and is not the default unless `appsettings.json` is changed.
 
-### `src/ELearnGamePlatform.API`
+## Main Flows
 
-Chua:
+### Auth
 
-- DI wiring
-- controllers
-- startup
-- in-memory progress store cho question generation
+1. `AuthController` registers or logs in a user.
+2. `JwtTokenService` creates a bearer token.
+3. React `AuthContext` stores the token in `localStorage`.
+4. Axios attaches `Authorization: Bearer <token>`.
+5. Protected controllers read the current user through claims.
 
-Controllers hien tai:
+Current limitation: auth is real basic JWT for demo/local use, but it lacks production hardening such as refresh tokens, reset password, email verification, rate limiting, and audit logs.
 
-- `DocumentsController`
-- `QuestionsController`
-- `GamesController`
+### Document Processing
 
-### `client/`
+1. Frontend uploads a file through `POST /api/documents/upload`.
+2. API validates extension/size and user ownership.
+3. File metadata and file content are stored.
+4. `DocumentIngestionService` starts a `Task.Run` background job.
+5. PDF/DOCX/image processors extract text; scanned images/PDFs use Tesseract and Poppler/`pdftoppm`.
+6. `ContentAnalyzerService` analyzes chunks through Ollama and local fallback/merge logic.
+7. PostgreSQL stores extracted text, summary, topics, key points, structure, and coverage metadata.
+8. Frontend polls `GET /api/documents/{id}/progress`.
 
-Frontend React hien tai co:
+### Question Generation
 
-- upload document
-- document list
-- analysis modal
-- quiz
-- flashcards
+1. Async flow starts with `POST /api/questions/generate/start`.
+2. API creates an in-memory job state in `QuestionGenerationJobStore`.
+3. `Task.Run` invokes `QuestionGeneratorService`.
+4. The service uses Ollama generation plus local/AI verification and one repair pass when needed.
+5. Questions are persisted to PostgreSQL.
+6. Frontend polls `GET /api/questions/generate/progress/{jobId}`.
 
-## 3. Data flow hien tai
+`POST /api/questions/generate` still exists as a legacy/synchronous endpoint. Prefer the async start/progress pair for UI flows.
 
-### Upload document
+### Learning / Games
 
-1. Frontend goi `POST /api/documents/upload`
-2. API validate:
-   - file co ton tai
-   - `userId`
-   - file size
-   - allowed extension
-3. API luu file vao `uploads/`
-4. API tao `Document` record trong PostgreSQL
-5. API day background task xu ly document
+Quiz, flashcards, streak/session flows, practice tests, attempts, progress summaries, and CSV exports are implemented through `GamesController` and `LearningController`.
 
-### Process document
+### Slide Generation
 
-1. Chon processor theo file type
-2. Trich xuat text:
-   - PDF text -> PdfPig
-   - DOCX -> OpenXML
-   - image -> Tesseract
-   - PDF scan -> `pdftoppm` + Tesseract
-3. Goi AI de phan tich noi dung
-4. Luu:
-   - extracted text
-   - main topics
-   - key points
-   - summary
-   - language
+Slide module is implemented, not just planned:
 
-### Generate questions
+1. `SlidesController` starts document or folder/workspace deck jobs.
+2. `SlideGenerationJobStore` keeps progress in memory.
+3. `SlideGeneratorService` builds outline and slide content from processed document chunks.
+4. Local and AI verifier metadata is applied; low-confidence/fallback content can be marked for review.
+5. `SlideImageService` can refresh/select image candidates when the image pipeline is enabled.
+6. `SlideDeck` and `SlideItem` are persisted.
+7. HTML preview, HTML export, print HTML, PPTX basic export, and slide item edits are available.
 
-1. Frontend goi `POST /api/questions/generate/start`
-2. API tao job state trong memory
-3. Background task goi `QuestionGeneratorService`
-4. Service dung Ollama tao bo cau hoi
-5. Ket qua duoc luu vao PostgreSQL
-6. Frontend poll `GET /api/questions/generate/progress/{jobId}`
+Frontend `SlideStudio` uses live APIs from `client/src/services/api.js`; it is not a mock-only screen.
 
-### Play game
+## API Surface
 
-- Quiz lay du lieu tu `GET /api/games/quiz/{documentId}`
-- Flashcards lay du lieu tu `GET /api/games/flashcards/{documentId}`
+Controller routes verified from source:
 
-## 4. Dinh nghia du lieu chinh
+- Auth: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- Admin: `GET /api/admin/overview`
+- Documents: upload, get, progress, structure, analyze-structure, user list, delete
+- Workspaces/Folders: create, user list, default workspace, get, delete, source upload/list, slide selection
+- Questions: async generate start/progress, legacy sync generate, document list, get, update, delete
+- Games: sessions, quiz, quiz answers, flashcards, user sessions
+- Learning: attempts, test start/submit/list/summary, progress, CSV exports
+- Slides: document/folder generation, progress, deck fetch, HTML preview, HTML/print/PPTX export, item edit, image refresh/select
 
-### Document
+## Known Limitations
 
-Luu:
-
-- metadata file
-- extracted text
-- topics/key points dang JSON
-- summary
-- language
-- status
-- owner (`UploadedBy`)
-
-### Question
-
-Luu:
-
-- document id
-- question text
-- question type
-- options dang JSON
-- correct answer
-- explanation
-- difficulty
-- topic tag
-
-### GameSession
-
-Luu:
-
-- document id
-- game type
-- user id
-- danh sach question ids dang JSON
-- score
-- correct answers
-- status
-
-## 5. Ky thuat dang dung
-
-### Backend
-
-- ASP.NET Core 8
-- Entity Framework Core 8
-- Npgsql
-- PdfPig
-- DocumentFormat.OpenXml
-- Tesseract
-- ImageSharp
-
-### Frontend
-
-- React 18
-- React Router
-- Axios
-
-### AI
-
-- Ollama
-- `qwen2.5-edu-json:latest` cho analysis/verification
-- `qwen3:14b` cho generation
-
-## 6. Gioi han kien truc hien tai
-
-- Question generation progress store dang nam trong RAM
-- Background jobs dang dung `Task.Run`
-- Chua co auth/authorization that su
-- Frontend dang hardcode `demo-user`
-- Chua co test project that su
-- `local-store` khong duoc wiring vao runtime
-
-## 7. Dinh huong mo rong gan nhat
-
-Gan nhat nen uu tien:
-
-1. On dinh MVP va dong bo docs
-2. Auth va ownership that su
-3. Job ben vung hon
-4. Mo rong hoc tap (`QuestionType`, test mode, lich su hoc)
-5. Auto slide tu tai lieu theo huong:
-   - AI tao slide schema
-   - backend render HTML
-   - frontend preview
-   - export PDF
+- Not production-ready.
+- Job state/progress is in memory and can be lost when the API restarts.
+- Background jobs use `Task.Run`, not a durable queue or worker service.
+- Test coverage is not a complete automated safety net.
+- AI quality depends on the local model, available hardware, and input document quality.
+- Security hardening is still incomplete for production deployment.
+- `local-store` contains old/sample data and is not the runtime database source.

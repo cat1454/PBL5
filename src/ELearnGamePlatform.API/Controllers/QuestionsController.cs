@@ -16,6 +16,7 @@ public class QuestionsController : AuthenticatedControllerBase
     private readonly IQuestionRepository _questionRepository;
     private readonly IDocumentRepository _documentRepository;
     private readonly IQuestionGenerator _questionGenerator;
+    private readonly IQuestionMetricsService _questionMetricsService;
     private readonly IQuestionGenerationJobStore _jobStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<QuestionsController> _logger;
@@ -24,6 +25,7 @@ public class QuestionsController : AuthenticatedControllerBase
         IQuestionRepository questionRepository,
         IDocumentRepository documentRepository,
         IQuestionGenerator questionGenerator,
+        IQuestionMetricsService questionMetricsService,
         IQuestionGenerationJobStore jobStore,
         IServiceScopeFactory scopeFactory,
         ILogger<QuestionsController> logger)
@@ -31,6 +33,7 @@ public class QuestionsController : AuthenticatedControllerBase
         _questionRepository = questionRepository;
         _documentRepository = documentRepository;
         _questionGenerator = questionGenerator;
+        _questionMetricsService = questionMetricsService;
         _jobStore = jobStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -389,6 +392,25 @@ public class QuestionsController : AuthenticatedControllerBase
 
         var questions = await _questionRepository.GetByDocumentIdAsync(documentId);
         return Ok(questions.Select(BuildQuestionPayload));
+    }
+
+    [HttpGet("document/{documentId}/metrics")]
+    public async Task<IActionResult> GetQuestionMetricsByDocument(int documentId, CancellationToken cancellationToken)
+    {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var metrics = await _questionMetricsService.GetMetricsAsync(document, cancellationToken);
+        return Ok(metrics);
     }
 
     [HttpGet("{id}")]

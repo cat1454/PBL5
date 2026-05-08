@@ -60,6 +60,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const [progressSummary, setProgressSummary] = useState(null);
   const [progressLoading, setProgressLoading] = useState(shouldShowShell);
   const [progressError, setProgressError] = useState('');
+  const [questionMetrics, setQuestionMetrics] = useState(null);
+  const [metricsLoading, setMetricsLoading] = useState(shouldShowShell);
+  const [metricsError, setMetricsError] = useState('');
 
   const routeModeFromLegacyPath = useMemo(() => {
     if (forcedMode) {
@@ -135,6 +138,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         progressLoading: 'Đang tải tiến độ...',
         progressError: 'Tiến độ học tập hiện chưa khả dụng.',
         progressUnavailable: 'Chưa có dữ liệu tiến độ. Hãy bắt đầu một phiên học để tạo dữ liệu đầu tiên.',
+        metricsLabel: 'Chất lượng AI',
+        metricsLoading: 'Đang tải chỉ số AI...',
+        metricsError: 'Chưa tải được chỉ số AI output.',
+        metricsUnavailable: 'Chưa có chỉ số AI cho question bank này.',
+        coverage: 'Coverage',
+        validRate: 'Valid Rate',
+        averageQualityScore: 'Quality TB',
+        missingTopics: 'Topic còn thiếu',
         totalQuestions: 'Tổng số câu',
         attemptedQuestions: 'Đã làm',
         averageMastery: 'Mastery TB',
@@ -209,6 +220,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       progressLoading: 'Loading progress...',
       progressError: 'Learning progress is not available yet.',
       progressUnavailable: 'No learning history yet. Start a study session to populate this summary.',
+      metricsLabel: 'AI output metrics',
+      metricsLoading: 'Loading AI metrics...',
+      metricsError: 'AI output metrics are not available yet.',
+      metricsUnavailable: 'No AI metrics are available for this question bank yet.',
+      coverage: 'Coverage',
+      validRate: 'Valid Rate',
+      averageQualityScore: 'Avg quality',
+      missingTopics: 'Missing topics',
       totalQuestions: 'Total questions',
       attemptedQuestions: 'Attempted',
       averageMastery: 'Avg mastery',
@@ -269,6 +288,37 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     loadProgressSummary({ silent: true });
   }, [loadProgressSummary]);
 
+  const loadQuestionMetrics = useCallback(async ({ silent = false } = {}) => {
+    if (!documentId || !shouldShowShell) {
+      setQuestionMetrics(null);
+      setMetricsLoading(false);
+      setMetricsError('');
+      return;
+    }
+
+    if (!silent) {
+      setMetricsLoading(true);
+      setMetricsError('');
+    }
+
+    try {
+      const metrics = await questionService.getQuestionMetrics(documentId);
+      setQuestionMetrics(metrics);
+      setMetricsError('');
+    } catch (error) {
+      setQuestionMetrics(null);
+      setMetricsError(getApiErrorMessage(error, copy.metricsError));
+    } finally {
+      if (!silent) {
+        setMetricsLoading(false);
+      }
+    }
+  }, [copy.metricsError, documentId, shouldShowShell]);
+
+  useEffect(() => {
+    loadQuestionMetrics();
+  }, [loadQuestionMetrics, refreshToken]);
+
   const loadDocumentMeta = useCallback(async ({ silent = false } = {}) => {
     if (!documentId) {
       setDocumentName('');
@@ -310,9 +360,10 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     await Promise.all([
       loadDocumentMeta({ silent: silentMeta }),
       loadProgressSummary({ silent: silentProgress }),
+      loadQuestionMetrics({ silent: true }),
     ]);
     setRefreshToken((current) => current + 1);
-  }, [loadDocumentMeta, loadProgressSummary]);
+  }, [loadDocumentMeta, loadProgressSummary, loadQuestionMetrics]);
 
   useEffect(() => {
     if (!shouldShowShell || !documentId) {
@@ -582,6 +633,9 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
               progressError={progressError}
               progressLoading={progressLoading}
               progressSummary={progressSummary}
+              metricsError={metricsError}
+              metricsLoading={metricsLoading}
+              questionMetrics={questionMetrics}
               questionGenerationError={questionGenerationError}
               questionGenerationProgress={questionGenerationProgress}
               questionGenerationRecovered={questionGenerationRecovered}
@@ -642,6 +696,9 @@ function StudySidebar({
   progressError,
   progressLoading,
   progressSummary,
+  metricsError,
+  metricsLoading,
+  questionMetrics,
   questionGenerationError,
   questionGenerationProgress,
   questionGenerationRecovered,
@@ -696,6 +753,13 @@ function StudySidebar({
         progressError={progressError}
         progressLoading={progressLoading}
         progressSummary={progressSummary}
+      />
+
+      <QuestionMetricsCard
+        copy={copy}
+        metricsError={metricsError}
+        metricsLoading={metricsLoading}
+        questionMetrics={questionMetrics}
       />
 
       <div className="study-sidebar-card">
@@ -753,6 +817,47 @@ function ProgressSummaryCard({ copy, progressError, progressLoading, progressSum
           <ProgressSummaryItem label={copy.weakQuestions} value={summary.weakCount || 0} />
           <ProgressSummaryItem label={copy.masteredQuestions} value={summary.masteredCount || 0} />
         </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionMetricsCard({ copy, metricsError, metricsLoading, questionMetrics }) {
+  const formatPercent = (value) => {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) {
+      return '0%';
+    }
+
+    return `${Math.round(Number(value))}%`;
+  };
+
+  const missingTopics = Array.isArray(questionMetrics?.missingTopics)
+    ? questionMetrics.missingTopics.filter(Boolean)
+    : [];
+
+  return (
+    <div className="study-sidebar-card study-question-metrics-card">
+      <span className="study-sidebar-label">{copy.metricsLabel}</span>
+      {metricsLoading ? (
+        <p>{copy.metricsLoading}</p>
+      ) : metricsError ? (
+        <p>{metricsError || copy.metricsError}</p>
+      ) : !questionMetrics ? (
+        <p>{copy.metricsUnavailable}</p>
+      ) : (
+        <>
+          <div className="study-question-metrics-grid">
+            <ProgressSummaryItem label={copy.coverage} value={formatPercent(questionMetrics.coverage)} />
+            <ProgressSummaryItem label={copy.validRate} value={formatPercent(questionMetrics.validRate)} />
+            <ProgressSummaryItem label={copy.averageQualityScore} value={formatPercent(questionMetrics.averageQualityScore)} />
+          </div>
+          {missingTopics.length > 0 && (
+            <div className="study-missing-topics">
+              <span>{copy.missingTopics}</span>
+              <p>{missingTopics.slice(0, 4).join(', ')}</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

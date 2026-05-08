@@ -1,368 +1,275 @@
-# 🚀 Hướng dẫn Setup và Chạy Project
+# Setup Guide - ELearn Game Platform
 
-## Yêu cầu hệ thống
+Verified from source: 2026-05-07.
 
-### Phần mềm cần cài đặt:
-1. **.NET 8.0 SDK** - [Download](https://dotnet.microsoft.com/download/dotnet/8.0)
-2. **PostgreSQL 14+** - [Download](https://www.postgresql.org/download/)
-3. **Ollama** - [Download](https://ollama.ai/)
-4. **Node.js 18+** - [Download](https://nodejs.org/)
-5. **Tesseract OCR** - [Download](https://github.com/UB-Mannheim/tesseract/wiki)
+## System Requirements
 
----
+1. .NET SDK `9.0.306` as pinned by `global.json`. The projects target `net8.0`.
+2. PostgreSQL `14+`.
+3. Ollama.
+4. Node.js `18+`.
+5. Tesseract OCR.
 
-## Bước 1: Setup PostgreSQL
+## 1. Setup PostgreSQL
 
-### Windows:
+Make sure PostgreSQL is running on `localhost:5432`.
+
+Create the database if needed:
+
 ```powershell
-# Tải và cài đặt PostgreSQL từ website
-# https://www.postgresql.org/download/windows/
-
-# Hoặc dùng Chocolatey
-choco install postgresql14
-
-# Khởi động PostgreSQL service (thường tự động chạy)
-net start postgresql-x64-14
-```
-
-### Hoặc chạy PostgreSQL trong Docker:
-```powershell
-docker run -d -p 5432:5432 --name postgres -e POSTGRES_PASSWORD=postgres postgres:14
-```
-
-### Tạo Database:
-```powershell
-# Kết nối PostgreSQL (mật khẩu: postgres)
 psql -U postgres
-
-# Tạo database
 CREATE DATABASE "ELearnGameDB";
-
-# Thoát
 \q
 ```
 
-Kiểm tra PostgreSQL đang chạy:
-```powershell
-# Kiểm tra service
-Get-Service postgresql-x64-14
+Check the runtime connection string in:
 
-# Hoặc kết nối
-psql -U postgres -d ELearnGameDB
+```text
+src/ELearnGamePlatform.API/appsettings.json
 ```
 
----
+Current runtime uses PostgreSQL + EF Core migrations. MongoDB is not part of the active runtime.
 
-## Bước 2: Setup Ollama và LLaMA
+## 2. Setup Ollama
 
-### Cài đặt Ollama:
+The current default model story is:
+
+- `Model`: `qwen2.5:7b`
+- `AnalysisModel`: `qwen2.5:7b`
+- `GenerationModel`: `qwen2.5:7b`
+- `VerificationModel`: `qwen2.5:7b`
+
+Pull and test the model:
+
 ```powershell
-# Download và cài đặt Ollama từ https://ollama.ai/
-
-# Kiểm tra Ollama đã cài đặt
-ollama --version
-
-# Pull LLaMA model (hoặc model khác bạn muốn dùng)
-ollama pull llama2
-
-# Hoặc dùng model nhỏ hơn nếu RAM hạn chế
-ollama pull llama2:7b
+ollama pull qwen2.5:7b
+ollama run qwen2.5:7b "Hello"
 ```
 
-### Chạy Ollama server:
-```powershell
-# Ollama sẽ tự động chạy ở background sau khi cài
-# Mặc định chạy ở http://localhost:11434
+Optional for slide image review if enabled:
 
-# Test Ollama
-ollama run llama2 "Hello, how are you?"
+```powershell
+ollama pull qwen2.5-vl:3b
 ```
 
----
+`qwen2.5-edu-json.modelfile` is optional/local. It is not the default model unless `appsettings.json` is changed.
 
-## Bước 3: Setup Tesseract OCR
+## 3. Setup Tesseract OCR
 
-### Windows:
+Create or verify:
+
 ```powershell
-# Download installer từ: https://github.com/UB-Mannheim/tesseract/wiki
-# Cài đặt vào thư mục mặc định: C:\Program Files\Tesseract-OCR
-
-# Thêm vào PATH environment variable
-$env:PATH += ";C:\Program Files\Tesseract-OCR"
-
-# Tải tessdata (training data)
-# Download từ: https://github.com/tesseract-ocr/tessdata
-# Đặt vào: C:\Program Files\Tesseract-OCR\tessdata
-# Cần file: eng.traineddata và vie.traineddata (nếu xử lý tiếng Việt)
-```
-
-### Tạo thư mục tessdata trong project:
-```powershell
-cd H:\PBL5
+cd H:\pbl5
 mkdir src\ELearnGamePlatform.API\tessdata
-# Copy các file .traineddata vào thư mục này
 ```
 
----
+Add:
 
-## Bước 4: Setup Backend (.NET)
+- `eng.traineddata`
+- `vie.traineddata` for Vietnamese OCR
 
-### Restore và Build:
+For scanned PDFs, the app first tries bundled Poppler under `poppler-25.12.0`, then falls back to `pdftoppm` from `PATH`.
+
+## 4. Restore Tools and Build Backend
+
+Use the repo local tool manifest. Do not install a global EF tool unless you intentionally want one outside this repo.
+
 ```powershell
-cd H:\PBL5
-
-# Restore dependencies
+cd H:\pbl5
+dotnet tool restore
+dotnet ef --version
 dotnet restore
-
-# Build solution
-dotnet build
+dotnet build ELearnGamePlatform.sln
 ```
 
-### Chạy Entity Framework Migrations:
+Expected local `dotnet-ef` version: `8.0.0`.
+
+## 5. Run Database Migrations
+
+The API runs EF Core migrations automatically on startup.
+
+Manual update is useful when you want to prepare or repair the database without starting the API:
+
 ```powershell
-# Cài đặt EF Core tools (nếu chưa có)
-dotnet tool install --global dotnet-ef
-
-# Chạy migrations để tạo database schema
-cd src\ELearnGamePlatform.API
-dotnet ef database update
-
-# Kiểm tra migrations đã apply
-dotnet ef migrations list
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
+dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
 ```
 
-### Chạy API:
+## 6. Run API
+
 ```powershell
-# Từ thư mục API
-cd src\ELearnGamePlatform.API
+cd H:\pbl5\src\ELearnGamePlatform.API
 dotnet run
 ```
 
-Backend sẽ chạy tại: **http://localhost:5000**
+Backend:
 
-Swagger UI: **http://localhost:5000/swagger**
+- `http://localhost:5000`
 
----
+Swagger:
 
-## Bước 5: Setup Frontend (React)
+- `http://localhost:5000/swagger`
 
-### Cài đặt dependencies:
+There is no active HTTPS `5001` URL in `Program.cs`.
+
+## 7. Run Frontend
+
 ```powershell
-cd H:\PBL5\client
-
-# Install packages
+cd H:\pbl5\client
 npm install
-
-# Chạy development server
 npm start
 ```
 
-Frontend sẽ chạy tại: **http://localhost:3000**
+Frontend:
 
----
+- `http://localhost:3000`
 
-## Bước 6: Kiểm tra cấu hình
+Frontend proxy in `client/package.json`:
 
-### Kiểm tra appsettings.json:
+- `http://127.0.0.1:5000`
+
+## Runtime Config Example
+
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=postgres"
+    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_PASSWORD;SslMode=disable"
+  },
+  "JwtSettings": {
+    "Issuer": "ELearnGamePlatform",
+    "Audience": "ELearnGamePlatform.Client",
+    "SecretKey": "CHANGE_THIS_LOCAL_DEV_SECRET",
+    "ExpirationMinutes": 10080
   },
   "OllamaSettings": {
     "BaseUrl": "http://localhost:11434",
-    "Model": "llama2",
-    "TimeoutSeconds": 120,
-    "Temperature": 0.7
-  },
-  "FileUpload": {
-    "MaxFileSizeInMB": 50,
-    "AllowedExtensions": [".pdf", ".docx", ".png", ".jpg", ".jpeg"]
+    "Model": "qwen2.5:7b",
+    "AnalysisModel": "qwen2.5:7b",
+    "GenerationModel": "qwen2.5:7b",
+    "VerificationModel": "qwen2.5:7b",
+    "TimeoutSeconds": 300
   }
 }
 ```
 
-**Lưu ý**: Thay đổi `Username` và `Password` nếu bạn dùng credentials khác.
+## API Endpoints
 
----
+### Auth
 
-## 🎮 Hướng dẫn sử dụng hệ thống
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
 
-### 1. Upload Document
-- Truy cập http://localhost:3000
-- Click "Choose File" và chọn file PDF/DOCX/Image
-- Click "Upload & Process"
-- Hệ thống sẽ tự động:
-  - Trích xuất text (OCR nếu là scan/image)
-  - Phân tích nội dung bằng AI
-  - Lưu vào database
+### Documents
 
-### 2. Generate Questions
-- Vào "My Documents"
-- Đợi document status = "Completed"
-- Click "Generate Questions"
-- AI sẽ tạo 10 câu hỏi trắc nghiệm
+- `POST /api/documents/upload`
+- `GET /api/documents/{id}`
+- `GET /api/documents/{id}/progress`
+- `GET /api/documents/{id}/structure`
+- `POST /api/documents/{id}/analyze-structure`
+- `GET /api/documents/user/{userId}`
+- `DELETE /api/documents/{id}`
 
-### 3. Play Games
-- **Quiz Game**: Click "Play Quiz" để chơi game trắc nghiệm
-- **Flashcards**: Click "Flashcards" để học với flashcard
+### Questions
 
----
+- `POST /api/questions/generate/start`
+- `GET /api/questions/generate/progress/{jobId}`
+- `POST /api/questions/generate` legacy/synchronous
+- `GET /api/questions/document/{documentId}`
+- `GET /api/questions/{id}`
+- `PUT /api/questions/{id}`
+- `DELETE /api/questions/{id}`
 
-## ⚠️ Troubleshooting
+### Games and Learning
 
-### PostgreSQL không kết nối được:
+- `POST /api/games/sessions`
+- `GET /api/games/sessions/{sessionId}`
+- `POST /api/games/sessions/{sessionId}/start`
+- `POST /api/games/sessions/{sessionId}/submit`
+- `GET /api/games/quiz/{documentId}`
+- `POST /api/games/quiz/{documentId}/answers`
+- `GET /api/games/flashcards/{documentId}`
+- `GET /api/games/user/{userId}`
+- `POST /api/learning/attempts`
+- `POST /api/learning/tests/start`
+- `POST /api/learning/tests/submit`
+- `GET /api/learning/tests/document/{documentId}`
+- `GET /api/learning/tests/summary/{documentId}`
+- `GET /api/learning/progress/document/{documentId}`
+- `GET /api/learning/progress/summary/{documentId}`
+- `GET /api/learning/export/attempts.csv`
+- `GET /api/learning/export/progress.csv`
+- `GET /api/learning/export/test-results.csv`
+
+### Workspaces, Folders, Slides
+
+- `POST /api/workspaces`
+- `GET /api/workspaces/user/{userId}`
+- `GET /api/workspaces/default/user/{userId}`
+- `GET /api/workspaces/{id}`
+- `DELETE /api/workspaces/{id}`
+- `POST /api/workspaces/{id}/sources/upload`
+- `GET /api/workspaces/{id}/sources`
+- `PUT /api/workspaces/{id}/sources/{sourceId}/slide-selection`
+- `POST /api/folders`
+- `GET /api/folders/user/{userId}`
+- `GET /api/folders/{id}`
+- `DELETE /api/folders/{id}`
+- `POST /api/folders/{id}/sources/upload`
+- `GET /api/folders/{id}/sources`
+- `PUT /api/folders/{id}/sources/{sourceId}/slide-selection`
+- `POST /api/slides/generate/start`
+- `POST /api/slides/folders/{folderId}/generate/start`
+- `GET /api/slides/generate/progress/{jobId}`
+- `GET /api/slides/document/{documentId}`
+- `GET /api/slides/document/{documentId}/html`
+- `GET /api/slides/folders/{folderId}`
+- `GET /api/slides/folders/{folderId}/html`
+- `GET /api/slides/{deckId}/export/html`
+- `GET /api/slides/{deckId}/export/print`
+- `GET /api/slides/{deckId}/export/pptx`
+- `PUT /api/slides/{deckId}/items/{itemId}`
+- `POST /api/slides/{deckId}/items/{itemId}/images/refresh`
+- `POST /api/slides/{deckId}/items/{itemId}/images/select`
+
+## Troubleshooting
+
+### PostgreSQL connection failed
+
 ```powershell
-# Kiểm tra PostgreSQL service
-Get-Service postgresql-x64-14
-
-# Start service
-Start-Service postgresql-x64-14
-
-# Test connection
+Get-Service postgresql*
 psql -U postgres -d ELearnGameDB -c "SELECT version();"
 ```
 
-### Migration errors:
-```powershell
-# Xóa database và tạo lại
-cd src\ELearnGamePlatform.API
-dotnet ef database drop
-dotnet ef database update
+### Migration errors
 
-# Hoặc tạo migration mới
-dotnet ef migrations add NewMigrationName
-dotnet ef database update
+```powershell
+cd H:\pbl5\src\ELearnGamePlatform.API
+dotnet ef migrations list --project ..\ELearnGamePlatform.Infrastructure
+dotnet ef database update --project ..\ELearnGamePlatform.Infrastructure
 ```
 
-### Ollama không chạy:
+### Ollama errors
+
 ```powershell
-# Kiểm tra Ollama
 ollama list
-
-# Restart Ollama
-# Windows: Tắt Ollama trong System Tray và mở lại
+curl http://localhost:11434/api/tags
 ```
 
-### OCR không hoạt động:
+### Backend build errors from locked DLL
+
+Stop the running `ELearnGamePlatform.API` process, then rebuild:
+
 ```powershell
-# Kiểm tra Tesseract
-tesseract --version
-
-# Kiểm tra tessdata
-ls "C:\Program Files\Tesseract-OCR\tessdata"
-# Phải có: eng.traineddata
+dotnet build ELearnGamePlatform.sln
 ```
 
-### Backend lỗi khi build:
-```powershell
-# Clean và rebuild
-dotnet clean
-dotnet restore
-dotnet build
-```
+## Next Steps
 
-### Frontend lỗi:
-```powershell
-cd client
-rm -r node_modules
-rm package-lock.json
-npm install
-```
-
----
-
-## 📊 API Endpoints
-
-### Documents:
-- `POST /api/documents/upload` - Upload file
-- `GET /api/documents/{id}` - Get document info
-- `GET /api/documents/user/{userId}` - Get user's documents
-- `DELETE /api/documents/{id}` - Delete document
-
-### Questions:
-- `POST /api/questions/generate` - Generate questions
-- `GET /api/questions/document/{documentId}` - Get questions
-
-### Games:
-- `POST /api/games/sessions` - Create game session
-- `GET /api/games/quiz/{documentId}` - Get quiz
-- `GET /api/games/flashcards/{documentId}` - Get flashcards
-
----
-
-## 🔧 Development Tips
-
-### Xem logs:
-```powershell
-# Backend logs
-cd src\ELearnGamePlatform.API
-dotnet run --verbosity detailed
-
-# PostgreSQL queries
-psql -U postgres -d ELearnGameDB
-
-# Xem data trong tables
-SELECT * FROM documents;
-SELECT * FROM questions;
-SELECT * FROM game_sessions;
-
-# Xem schema
-\dt
-\d+ documents
-```
-
-### Test API với Postman hoặc Swagger:
-- Swagger UI: http://localhost:5000/swagger
-
-### Hot reload:
-- Backend: `dotnet watch run` (trong API folder)
-- Frontend: `npm start` đã có hot reload sẵn
-
----
-
-## 📦 Production Deployment
-
-### Build production:
-```powershell
-# Backend
-dotnet publish -c Release -o ./publish
-
-# Frontend
-cd client
-npm run build
-```
-
-### Docker (Optional):
-```dockerfile
-# Tạo Dockerfile cho backend và frontend
-# Deploy lên Azure, AWS, hoặc server riêng
-```
-
----
-
-## 🎯 Next Steps
-
-1. ✅ Setup authentication (JWT, Identity)
-2. ✅ Implement real-time progress tracking (SignalR)
-3. ✅ Add more game types (Matching, Word Search)
-4. ✅ Improve UI/UX
-5. ✅ Add analytics dashboard
-6. ✅ Multi-language support
-7. ✅ Mobile app (React Native)
-
----
-
-## 📞 Support
-
-Nếu gặp vấn đề, hãy kiểm tra:
-1. Tất cả services đang chạy (PostgreSQL, Ollama)
-2. Port không bị conflict (5000, 3000, 5432, 11434)
-3. Dependencies đã được cài đầy đủ
-4. Cấu hình trong appsettings.json đúng
-5. Database migrations đã được chạy (`dotnet ef database update`)
-6. PostgreSQL user có quyền truy cập database
-
-**Xem thêm**: [POSTGRESQL_MIGRATION.md](POSTGRESQL_MIGRATION.md) để hiểu về database schema và extension methods.
-
-Good luck! 🚀
+- [ ] Move job progress/state from memory to persistent storage.
+- [ ] Replace `Task.Run` jobs with a durable queue or worker service.
+- [ ] Add production auth hardening: refresh tokens, password reset, email verification, rate limiting, audit logs.
+- [ ] Add broader automated tests for auth, upload, question generation, learning, and slide generation.
+- [ ] Add production deployment hardening and health checks.
+- [ ] Continue UI/UX polish for dashboard, learning modes, and Slide Studio.

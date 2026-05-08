@@ -314,7 +314,7 @@ const translations = {
       disableReadingMode: 'Tắt reading mode',
       showAllSlides: 'Hiện tất cả slide',
       hideLowConfidence: 'Ẩn slide điểm thấp',
-      export: 'Export HTML/PDF',
+      export: 'Export HTML',
       liveGeneration: 'Live generation',
       generatingSlides: 'Đang sinh slide',
       lowConfidenceNotice: 'Đang có {{count}} slide cần review do verifier score thấp.',
@@ -720,7 +720,7 @@ const translations = {
       disableReadingMode: 'Disable reading mode',
       showAllSlides: 'Show all slides',
       hideLowConfidence: 'Hide low-score slides',
-      export: 'Export HTML/PDF',
+      export: 'Export HTML',
       liveGeneration: 'Live generation',
       generatingSlides: 'Generating slides',
       lowConfidenceNotice: '{{count}} slides currently need review due to low verifier score.',
@@ -842,7 +842,7 @@ translations.vi.slides = {
   generating: 'Đang tạo... {{percent}}%',
   showAllSlides: 'Hiện tất cả slide',
   hideLowConfidence: 'Ẩn slide điểm thấp',
-  export: 'Xuất HTML/PDF',
+  export: 'Xuất HTML',
   generatingSlides: 'Đang sinh slide',
   deckStructure: 'Cấu trúc slide',
   outlinePanelBody: 'Chọn nhanh từng slide để xem và chỉnh đúng ngữ cảnh.',
@@ -1080,7 +1080,7 @@ translations.en.slides = {
   generating: 'Generating... {{percent}}%',
   showAllSlides: 'Show all slides',
   hideLowConfidence: 'Hide low-score slides',
-  export: 'Export HTML/PDF',
+  export: 'Export HTML',
   generatingSlides: 'Generating slides',
   deckStructure: 'Slide structure',
   outlinePanelBody: 'Jump quickly between slides and review the story flow.',
@@ -2168,6 +2168,52 @@ translations.en.upload = {
 translations.vi.slides.errors = {
   ...translations.vi.slides.errors,
   schemaUnavailable: 'Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.',
+};
+
+translations.vi.slides = {
+  ...translations.vi.slides,
+  export: 'Xuat HTML',
+  downloadHtml: 'Tai HTML',
+  exportingHtml: 'Dang tai HTML...',
+  printPdf: 'In / Luu PDF',
+  openingPrint: 'Dang mo ban in...',
+  downloadPptx: 'Tai PPTX',
+  exportingPptx: 'Dang tai PPTX...',
+  pptxComingSoon: 'PPTX sap co',
+  feedback: {
+    ...(translations.vi.slides.feedback || {}),
+    htmlExported: 'Da tai file HTML.',
+    printOpened: 'Da mo ban In / Luu PDF.',
+    pptxExported: 'Da tai file PPTX.',
+  },
+  errors: {
+    ...(translations.vi.slides.errors || {}),
+    exportFailed: 'Khong the xuat slide deck.',
+    printBlocked: 'Trinh duyet da chan tab in. Hay cho phep popup va thu lai.',
+  },
+};
+
+translations.en.slides = {
+  ...translations.en.slides,
+  export: 'Export HTML',
+  downloadHtml: 'Download HTML',
+  exportingHtml: 'Downloading HTML...',
+  printPdf: 'Print / Save as PDF',
+  openingPrint: 'Opening print view...',
+  downloadPptx: 'Download PPTX',
+  exportingPptx: 'Downloading PPTX...',
+  pptxComingSoon: 'PPTX coming soon',
+  feedback: {
+    ...(translations.en.slides.feedback || {}),
+    htmlExported: 'HTML file downloaded.',
+    printOpened: 'Print / Save as PDF view opened.',
+    pptxExported: 'PPTX file downloaded.',
+  },
+  errors: {
+    ...(translations.en.slides.errors || {}),
+    exportFailed: 'Could not export the slide deck.',
+    printBlocked: 'The browser blocked the print tab. Allow popups and try again.',
+  },
 };
 
 translations.en.slides.errors = {

@@ -7517,6 +7517,36 @@ main {
   gap: 8px;
 }
 
+.study-question-metrics-card {
+  gap: 10px;
+}
+
+.study-question-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.study-missing-topics {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid rgba(234, 88, 12, 0.16);
+}
+
+.study-missing-topics span {
+  color: #9a3412;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.study-missing-topics p {
+  color: #7c2d12;
+  font-size: 0.86rem;
+}
+
 .study-progress-summary-item {
   min-width: 0;
   padding: 9px 10px;

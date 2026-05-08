@@ -1,163 +1,105 @@
-# Package Dependencies Summary
+# Package and Tooling Summary
 
-## Các packages đã được cài đặt/cập nhật trong quá trình migration
+Verified from source: 2026-05-07.
 
-### 1. ELearnGamePlatform.Core
-**Đã xóa:**
-- ❌ MongoDB.Bson
+## .NET SDK and Tools
 
-**Đã thêm:**
-- ✅ Microsoft.EntityFrameworkCore (8.0.0)
+- `global.json` pins .NET SDK `9.0.306`.
+- Projects target `net8.0`.
+- Local tool manifests: `.config/dotnet-tools.json` and root `dotnet-tools.json`.
+- Local `dotnet-ef` version: `8.0.0`.
 
-### 2. ELearnGamePlatform.Infrastructure
-**Đã xóa:**
-- ❌ MongoDB.Driver (2.25.0)
+Use local tools:
 
-**Đã thêm:**
-- ✅ Npgsql.EntityFrameworkCore.PostgreSQL (8.0.0)
-- ✅ Microsoft.EntityFrameworkCore.Design (8.0.0)
-
-**Packages còn lại:**
-- Microsoft.Extensions.Configuration.Abstractions (8.0.0)
-- Microsoft.Extensions.DependencyInjection.Abstractions (8.0.0)
-- Microsoft.Extensions.Options (8.0.0)
-
-### 3. ELearnGamePlatform.Services
-**Không thay đổi packages** - Chỉ cập nhật code để dùng int IDs
-
-**Packages hiện có:**
-- itext7 (8.0.3)
-- PdfPig (0.1.9) 
-- DocumentFormat.OpenXml (3.0.2)
-- Tesseract (5.2.0)
-- SixLabors.ImageSharp (3.1.3) ⚠️ *Có known vulnerabilities, nên update*
-- Microsoft.Extensions.Logging.Abstractions (8.0.0)
-
-### 4. ELearnGamePlatform.API
-**Packages Project References** - Không thay đổi, chỉ cập nhật code
-
-**Packages hiện có:**
-- Swashbuckle.AspNetCore (6.5.0) - Swagger
-- Microsoft.AspNetCore.OpenApi (8.0.0)
-
-### 5. Global Tools
-**Đã cài đặt:**
-- ✅ dotnet-ef (10.0.4) - Entity Framework Core CLI tools
-
-## Packages cần update (Khuyến nghị)
-
-### Security Vulnerabilities
-```bash
-# SixLabors.ImageSharp có vulnerabilities, cập nhật lên version mới nhất
-cd src/ELearnGamePlatform.Services
-dotnet add package SixLabors.ImageSharp --version 3.1.5
-```
-
-## Kiểm tra packages đã cài
-
-### Kiểm tra từng project
 ```powershell
-# Core
-dotnet list src/ELearnGamePlatform.Core/ELearnGamePlatform.Core.csproj package
-
-# Infrastructure  
-dotnet list src/ELearnGamePlatform.Infrastructure/ELearnGamePlatform.Infrastructure.csproj package
-
-# Services
-dotnet list src/ELearnGamePlatform.Services/ELearnGamePlatform.Services.csproj package
-
-# API
-dotnet list src/ELearnGamePlatform.API/ELearnGamePlatform.API.csproj package
-```
-
-### Restore tất cả packages
-```powershell
-dotnet restore H:\PBL5\src\ELearnGamePlatform.API\ELearnGamePlatform.API.csproj
-```
-
-## Package Installation Commands
-
-### Nếu cần cài lại từ đầu:
-```powershell
-# Core - EF Core basics
-cd src/ELearnGamePlatform.Core
-dotnet add package Microsoft.EntityFrameworkCore --version 8.0.0
-
-# Infrastructure - PostgreSQL + EF Core Design
-cd ../ELearnGamePlatform.Infrastructure
-dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL --version 8.0.0
-dotnet add package Microsoft.EntityFrameworkCore.Design --version 8.0.0
-
-# Global Tools - EF Core CLI
-dotnet tool install --global dotnet-ef --version 10.0.4
-# Or update existing:
-dotnet tool update --global dotnet-ef
-```
-
-## Verify Installation
-
-### 1. Build solution
-```powershell
-cd H:\PBL5
-dotnet build src/ELearnGamePlatform.API/ELearnGamePlatform.API.csproj
-```
-
-### 2. Check EF Core tools
-```powershell
+cd H:\pbl5
+dotnet tool restore
 dotnet ef --version
-# Expected: Entity Framework Core .NET Command-line Tools 10.0.4
 ```
 
-### 3. Verify migrations
+Do not require a global `dotnet-ef` install for this repo.
+
+## Backend Packages
+
+### `src/ELearnGamePlatform.Core`
+
+| Package | Version |
+| --- | --- |
+| Microsoft.EntityFrameworkCore | 8.0.0 |
+
+### `src/ELearnGamePlatform.Infrastructure`
+
+| Package | Version |
+| --- | --- |
+| Microsoft.EntityFrameworkCore | 8.0.0 |
+| Microsoft.EntityFrameworkCore.Design | 8.0.0 |
+| Npgsql.EntityFrameworkCore.PostgreSQL | 8.0.0 |
+| Microsoft.Extensions.Options | 8.0.0 |
+
+### `src/ELearnGamePlatform.Services`
+
+| Package | Version |
+| --- | --- |
+| itext7 | 8.0.3 |
+| PdfPig | 0.1.8 |
+| DocumentFormat.OpenXml | 3.0.2 |
+| SixLabors.ImageSharp | 3.1.12 |
+| Tesseract | 5.2.0 |
+| Microsoft.Extensions.Logging.Abstractions | 8.0.0 |
+
+### `src/ELearnGamePlatform.API`
+
+| Package | Version |
+| --- | --- |
+| Microsoft.AspNetCore.Authentication.JwtBearer | 8.0.0 |
+| Microsoft.AspNetCore.OpenApi | 8.0.0 |
+| Swashbuckle.AspNetCore | 6.5.0 |
+| System.IdentityModel.Tokens.Jwt | 8.0.0 |
+
+## Frontend Packages
+
+Verified from `client/package.json`:
+
+| Package | Version |
+| --- | --- |
+| axios | ^1.6.7 |
+| react | ^18.2.0 |
+| react-dom | ^18.2.0 |
+| react-icons | ^5.6.0 |
+| react-router-dom | ^6.22.0 |
+| react-scripts | 5.0.1 |
+
+Frontend proxy:
+
+```text
+http://127.0.0.1:5000
+```
+
+## Package Inspection Commands
+
 ```powershell
-cd src/ELearnGamePlatform.API
-dotnet ef migrations list --project ../ELearnGamePlatform.Infrastructure
-# Expected: 20260311064712_InitialCreate
+dotnet list src\ELearnGamePlatform.Core\ELearnGamePlatform.Core.csproj package
+dotnet list src\ELearnGamePlatform.Infrastructure\ELearnGamePlatform.Infrastructure.csproj package
+dotnet list src\ELearnGamePlatform.Services\ELearnGamePlatform.Services.csproj package
+dotnet list src\ELearnGamePlatform.API\ELearnGamePlatform.API.csproj package
 ```
 
-## Package Versions Matrix
+Frontend:
 
-| Package | Version | Project |
-|---------|---------|---------|
-| Microsoft.EntityFrameworkCore | 8.0.0 | Core |
-| Npgsql.EntityFrameworkCore.PostgreSQL | 8.0.0 | Infrastructure |
-| Microsoft.EntityFrameworkCore.Design | 8.0.0 | Infrastructure |
-| itext7 | 8.0.3 | Services |
-| PdfPig | 0.1.9 | Services |
-| DocumentFormat.OpenXml | 3.0.2 | Services |
-| Tesseract | 5.2.0 | Services |
-| SixLabors.ImageSharp | 3.1.3 → 3.1.5 | Services |
-| Swashbuckle.AspNetCore | 6.5.0 | API |
-
-## Common Issues
-
-### Issue: Package conflicts
 ```powershell
-# Clear NuGet cache
-dotnet nuget locals all --clear
-
-# Restore
-dotnet restore --force
+cd H:\pbl5\client
+npm install
+npm run build
 ```
 
-### Issue: EF Core tools not found
+## Verification Commands
+
 ```powershell
-# Make sure global tools path is in PATH
-# Windows: %USERPROFILE%\.dotnet\tools
-# Linux/Mac: ~/.dotnet/tools
-
-# Reinstall
-dotnet tool uninstall --global dotnet-ef
-dotnet tool install --global dotnet-ef
+cd H:\pbl5
+dotnet tool restore
+dotnet ef --version
+dotnet restore
+dotnet build ELearnGamePlatform.sln
 ```
 
-### Issue: Migration build errors
-```powershell
-# Clean and rebuild
-dotnet clean
-dotnet build
-
-# Then try migration again
-cd src/ELearnGamePlatform.API
-dotnet ef migrations add MigrationName --project ../ELearnGamePlatform.Infrastructure
-```
+Expected EF tool output should report `8.0.0`.
