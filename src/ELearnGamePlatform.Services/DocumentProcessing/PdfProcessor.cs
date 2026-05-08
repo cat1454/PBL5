@@ -4,6 +4,7 @@ using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
+using ELearnGamePlatform.Services.OCR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using UglyToad.PdfPig;
@@ -111,7 +112,14 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
                 });
             });
 
-            var ocrResultsByPage = await _ocrService.ExtractPageResultsFromPdfPagesAsync(filePath, extraction.PagesNeedingOcr, progress: ocrProgress);
+            var ocrResultsByPage = await _ocrService.ExtractPageResultsFromPdfPagesAsync(
+                filePath,
+                extraction.PagesNeedingOcr,
+                new OcrExtractionOptions
+                {
+                    PreprocessingProfiles = new[] { TesseractOcrService.ProfileOriginal }
+                },
+                progress: ocrProgress);
             var ocrTextByPage = ocrResultsByPage
                 .Where(item => !string.IsNullOrWhiteSpace(item.Value.Text))
                 .ToDictionary(item => item.Key, item => item.Value.Text);
@@ -282,7 +290,8 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         double? confidence = null,
         string? selectedVariant = null,
         string? selectedPass = null,
-        string? failureWarning = null)
+        string? failureWarning = null,
+        IReadOnlyCollection<string>? preprocessingSkipReasons = null)
     {
         var normalized = TextCleanupUtility.NormalizeForAi(text, preserveLineBreaks: true);
         var charCount = normalized.Length;
@@ -329,6 +338,7 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             QualityScore = qualityScore,
             SelectedVariant = selectedVariant,
             SelectedPass = selectedPass,
+            PreprocessingSkipReasons = preprocessingSkipReasons?.ToList() ?? new List<string>(),
             Warnings = warnings
         };
     }
@@ -370,6 +380,7 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             AveragePageQuality = pageReports.Count == 0 ? 0d : Math.Round(pageReports.Average(report => report.QualityScore), 2),
             TotalEstimatedTokens = pageReports.Sum(report => report.EstimatedTokenCount),
             Pages = pageReports,
+            PreprocessingEffectiveness = BuildPreprocessingEffectivenessSummary(pageReports),
             Warnings = warnings
                 .Concat(pageReports.SelectMany(report => report.Warnings))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -392,6 +403,7 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         var maxRetryPerPage = Math.Max(0, _settings.MaxRetryPerPage);
         if (maxRetryPerPage == 0)
         {
+            MarkPreprocessingSkipped(extraction, "retry-policy-disabled");
             return;
         }
 
@@ -399,6 +411,13 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             .Where(pageNumber => extraction.PageReports.TryGetValue(pageNumber, out var report)
                 && report.QualityScore < _settings.RetryThreshold)
             .ToList();
+        foreach (var pageNumber in extraction.PagesNeedingOcr.Except(pagesToRetry))
+        {
+            if (extraction.PageReports.TryGetValue(pageNumber, out var report))
+            {
+                report.PreprocessingSkipReasons.Add("retry-policy-skipped-quality-above-threshold");
+            }
+        }
 
         if (pagesToRetry.Count == 0)
         {
@@ -426,6 +445,7 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             StageCount = 6
         });
 
+        var documentLowGainPreprocessingAttempts = 0;
         for (var pageIndex = 0; pageIndex < pagesToRetry.Count; pageIndex++)
         {
             var pageNumber = pagesToRetry[pageIndex];
@@ -433,9 +453,10 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             initialOcrResultsByPage.TryGetValue(pageNumber, out var initialOcrResult);
             var bestReport = initialReport;
             var bestOcrResult = initialOcrResult;
+            var preprocessingSkipReasons = new List<string>();
             var attempts = new List<DocumentPageOcrAttemptMetadata>
             {
-                BuildAttemptMetadata("initial", initialReport, initialOcrResult)
+                BuildAttemptMetadata("initial", initialReport, initialOcrResult, initialReport.QualityScore)
             };
 
             _logger.LogInformation(
@@ -446,15 +467,70 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
                 _settings.RetryPdfDpi,
                 maxRetryPerPage);
 
-            for (var retryIndex = 1; retryIndex <= maxRetryPerPage; retryIndex++)
+            var fallbackProfiles = ResolveFallbackProfiles();
+            if (ShouldTryPreprocessingFallback(initialReport, documentLowGainPreprocessingAttempts, fallbackProfiles, preprocessingSkipReasons))
+            {
+                foreach (var profile in fallbackProfiles.Take(Math.Max(1, _settings.MaxPreprocessingVariantsPerPage)))
+                {
+                    var fallbackResults = await _ocrService.ExtractPageResultsFromPdfPagesAsync(
+                        filePath,
+                        new[] { pageNumber },
+                        new OcrExtractionOptions
+                        {
+                            PreprocessingProfiles = new[] { profile },
+                            IsPreprocessingFallback = true
+                        });
+                    fallbackResults.TryGetValue(pageNumber, out var fallbackResult);
+                    var fallbackReport = BuildReportFromOcrResult(pageNumber, fallbackResult);
+                    var fallbackAttempt = BuildAttemptMetadata($"preprocess-{profile}", fallbackReport, fallbackResult, initialReport.QualityScore);
+                    attempts.Add(fallbackAttempt);
+
+                    if (fallbackAttempt.IsLowGain)
+                    {
+                        documentLowGainPreprocessingAttempts++;
+                    }
+
+                    _logger.LogInformation(
+                        "OCR preprocessing fallback {Profile} for page {PageNumber}: beforeQuality={BeforeQuality}, fallbackQuality={FallbackQuality}, gain={QualityGain}, durationMs={DurationMs}",
+                        profile,
+                        pageNumber,
+                        initialReport.QualityScore,
+                        fallbackReport.QualityScore,
+                        fallbackAttempt.QualityGain,
+                        fallbackAttempt.DurationMs);
+
+                    if (fallbackReport.QualityScore > bestReport.QualityScore)
+                    {
+                        bestReport = fallbackReport;
+                        bestOcrResult = fallbackResult;
+                    }
+
+                    if (bestReport.QualityScore >= _settings.RetryThreshold)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            var shouldRunHighDpiRetry = ShouldRunHighDpiRetry(bestReport);
+            if (!shouldRunHighDpiRetry)
+            {
+                preprocessingSkipReasons.Add("high-dpi-skipped-text-signal-enough");
+            }
+
+            for (var retryIndex = 1; shouldRunHighDpiRetry && retryIndex <= maxRetryPerPage; retryIndex++)
             {
                 var retryResults = await _ocrService.ExtractPageResultsFromPdfPagesAsync(
                     filePath,
                     new[] { pageNumber },
+                    new OcrExtractionOptions
+                    {
+                        PreprocessingProfiles = new[] { TesseractOcrService.ProfileOriginal }
+                    },
                     _settings.RetryPdfDpi);
                 retryResults.TryGetValue(pageNumber, out var retryResult);
                 var retryReport = BuildReportFromOcrResult(pageNumber, retryResult);
-                attempts.Add(BuildAttemptMetadata($"retry-{retryIndex}", retryReport, retryResult));
+                attempts.Add(BuildAttemptMetadata($"retry-{retryIndex}", retryReport, retryResult, initialReport.QualityScore));
 
                 _logger.LogInformation(
                     "OCR retry attempt {RetryIndex} for page {PageNumber}: beforeQuality={BeforeQuality}, retryQuality={RetryQuality}, variant={Variant}, pass={Pass}",
@@ -480,6 +556,10 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             var selectedAttempt = attempts
                 .OrderByDescending(attempt => attempt.QualityScore)
                 .FirstOrDefault()?.Attempt ?? "initial";
+            foreach (var attempt in attempts)
+            {
+                attempt.IsSelectedBest = string.Equals(attempt.Attempt, selectedAttempt, StringComparison.OrdinalIgnoreCase);
+            }
             bestReport.OcrRetry = new DocumentPageOcrRetryMetadata
             {
                 WasRetried = true,
@@ -489,8 +569,10 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
                 InitialQualityScore = initialReport.QualityScore,
                 SelectedQualityScore = bestReport.QualityScore,
                 SelectedAttempt = selectedAttempt,
-                Attempts = attempts
+                Attempts = attempts,
+                PreprocessingSkipReasons = preprocessingSkipReasons.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
             };
+            bestReport.PreprocessingSkipReasons = bestReport.OcrRetry.PreprocessingSkipReasons;
 
             extraction.PageReports[pageNumber] = bestReport;
             if (bestOcrResult != null && !string.IsNullOrWhiteSpace(bestOcrResult.Text))
@@ -548,11 +630,14 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             ocrResult.FailureReason);
     }
 
-    private static DocumentPageOcrAttemptMetadata BuildAttemptMetadata(
+    private DocumentPageOcrAttemptMetadata BuildAttemptMetadata(
         string attempt,
         DocumentPageProcessingReport report,
-        OcrPageExtractionResult? ocrResult)
+        OcrPageExtractionResult? ocrResult,
+        int initialQualityScore)
     {
+        var qualityGain = report.QualityScore - initialQualityScore;
+        var isPreprocessingFallback = ocrResult?.IsPreprocessingFallback == true;
         return new DocumentPageOcrAttemptMetadata
         {
             Attempt = attempt,
@@ -561,8 +646,128 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             Confidence = report.Confidence,
             SelectedVariant = report.SelectedVariant,
             SelectedPass = report.SelectedPass,
+            PreprocessingProfile = ocrResult?.PreprocessingProfile,
+            IsPreprocessingFallback = isPreprocessingFallback,
+            DurationMs = ocrResult?.DurationMs ?? 0,
+            QualityGain = qualityGain,
+            IsLowGain = isPreprocessingFallback && qualityGain < _settings.MinPreprocessingGainThreshold,
+            IsSelectedBest = false,
             FailureReason = ocrResult?.FailureReason
         };
+    }
+
+    private List<string> ResolveFallbackProfiles()
+    {
+        var profiles = new List<string>();
+        if (_settings.EnableCropBorder)
+        {
+            profiles.Add(TesseractOcrService.ProfileCropBorder);
+        }
+
+        if (_settings.EnableThresholdFallback)
+        {
+            profiles.Add(TesseractOcrService.ProfileThresholdSoft);
+            profiles.Add(TesseractOcrService.ProfileBinaryStrong);
+        }
+
+        profiles.Add(TesseractOcrService.ProfileContrastEnhanced);
+        return profiles
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(0, _settings.MaxPreprocessingVariantsPerPage))
+            .ToList();
+    }
+
+    private bool ShouldTryPreprocessingFallback(
+        DocumentPageProcessingReport initialReport,
+        int documentLowGainPreprocessingAttempts,
+        IReadOnlyCollection<string> fallbackProfiles,
+        List<string> skipReasons)
+    {
+        if (!_settings.EnablePreprocessingFallback)
+        {
+            skipReasons.Add("preprocessing-disabled");
+            return false;
+        }
+
+        if (fallbackProfiles.Count == 0 || _settings.MaxPreprocessingVariantsPerPage <= 0)
+        {
+            skipReasons.Add("preprocessing-variant-cap-reached");
+            return false;
+        }
+
+        if (HasEnoughTextSignal(initialReport))
+        {
+            skipReasons.Add("text-signal-enough");
+            return false;
+        }
+
+        if (documentLowGainPreprocessingAttempts >= Math.Max(1, _settings.MaxLowGainPreprocessingAttemptsPerDocument))
+        {
+            skipReasons.Add("document-preprocessing-low-gain-limit");
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ShouldRunHighDpiRetry(DocumentPageProcessingReport bestReport)
+        => bestReport.QualityScore < _settings.RetryThreshold && !HasEnoughTextSignal(bestReport);
+
+    private static bool HasEnoughTextSignal(DocumentPageProcessingReport report)
+        => report.WordCount >= 80
+            && report.CharCount >= 300
+            && report.SignalRatio >= 0.62d
+            && report.NoiseScore < 20
+            && (report.Confidence == null || report.Confidence >= 0.55d);
+
+    private DocumentPreprocessingEffectivenessSummary BuildPreprocessingEffectivenessSummary(
+        IReadOnlyCollection<DocumentPageProcessingReport> reportsByPage)
+    {
+        var pages = reportsByPage.ToList();
+        var attempts = pages
+            .SelectMany(page => page.OcrRetry?.Attempts ?? new List<DocumentPageOcrAttemptMetadata>())
+            .Where(attempt => attempt.IsPreprocessingFallback)
+            .ToList();
+        var profileGroups = attempts
+            .Where(attempt => !string.IsNullOrWhiteSpace(attempt.PreprocessingProfile))
+            .GroupBy(attempt => attempt.PreprocessingProfile!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                Profile = group.Key,
+                AverageGain = group.Average(attempt => attempt.QualityGain),
+                Wins = group.Count(attempt => attempt.IsSelectedBest)
+            })
+            .ToList();
+
+        return new DocumentPreprocessingEffectivenessSummary
+        {
+            AttemptCount = attempts.Count,
+            SelectedAttemptCount = attempts.Count(attempt => attempt.IsSelectedBest),
+            LowGainAttemptCount = attempts.Count(attempt => attempt.IsLowGain),
+            AverageQualityGain = attempts.Count == 0 ? 0d : Math.Round(attempts.Average(attempt => attempt.QualityGain), 2),
+            AverageDurationMs = attempts.Count == 0 ? 0d : Math.Round(attempts.Average(attempt => attempt.DurationMs), 2),
+            BestProfile = profileGroups.OrderByDescending(group => group.AverageGain).ThenByDescending(group => group.Wins).FirstOrDefault()?.Profile,
+            WorstProfile = profileGroups.OrderBy(group => group.AverageGain).FirstOrDefault()?.Profile,
+            ProfileWinCounts = profileGroups
+                .Where(group => group.Wins > 0)
+                .ToDictionary(group => group.Profile, group => group.Wins, StringComparer.OrdinalIgnoreCase),
+            SkipReasonCounts = pages
+                .SelectMany(page => page.OcrRetry?.PreprocessingSkipReasons ?? page.PreprocessingSkipReasons)
+                .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                .GroupBy(reason => reason, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private static void MarkPreprocessingSkipped(DirectPdfExtractionResult extraction, string reason)
+    {
+        foreach (var pageNumber in extraction.PagesNeedingOcr)
+        {
+            if (extraction.PageReports.TryGetValue(pageNumber, out var report))
+            {
+                report.PreprocessingSkipReasons.Add(reason);
+            }
+        }
     }
 
     private int CalculatePageQualityScore(

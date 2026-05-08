@@ -48,6 +48,9 @@ public class DocumentPageProcessingReport
     [JsonPropertyName("ocrRetry")]
     public DocumentPageOcrRetryMetadata? OcrRetry { get; set; }
 
+    [JsonPropertyName("preprocessingSkipReasons")]
+    public List<string> PreprocessingSkipReasons { get; set; } = new();
+
     [JsonPropertyName("warnings")]
     public List<string> Warnings { get; set; } = new();
 }
@@ -77,6 +80,9 @@ public class DocumentPageOcrRetryMetadata
 
     [JsonPropertyName("attempts")]
     public List<DocumentPageOcrAttemptMetadata> Attempts { get; set; } = new();
+
+    [JsonPropertyName("preprocessingSkipReasons")]
+    public List<string> PreprocessingSkipReasons { get; set; } = new();
 }
 
 public class DocumentPageOcrAttemptMetadata
@@ -99,8 +105,56 @@ public class DocumentPageOcrAttemptMetadata
     [JsonPropertyName("selectedPass")]
     public string? SelectedPass { get; set; }
 
+    [JsonPropertyName("preprocessingProfile")]
+    public string? PreprocessingProfile { get; set; }
+
+    [JsonPropertyName("isPreprocessingFallback")]
+    public bool IsPreprocessingFallback { get; set; }
+
+    [JsonPropertyName("durationMs")]
+    public long DurationMs { get; set; }
+
+    [JsonPropertyName("qualityGain")]
+    public double QualityGain { get; set; }
+
+    [JsonPropertyName("isLowGain")]
+    public bool IsLowGain { get; set; }
+
+    [JsonPropertyName("isSelectedBest")]
+    public bool IsSelectedBest { get; set; }
+
     [JsonPropertyName("failureReason")]
     public string? FailureReason { get; set; }
+}
+
+public class DocumentPreprocessingEffectivenessSummary
+{
+    [JsonPropertyName("attemptCount")]
+    public int AttemptCount { get; set; }
+
+    [JsonPropertyName("selectedAttemptCount")]
+    public int SelectedAttemptCount { get; set; }
+
+    [JsonPropertyName("lowGainAttemptCount")]
+    public int LowGainAttemptCount { get; set; }
+
+    [JsonPropertyName("averageQualityGain")]
+    public double AverageQualityGain { get; set; }
+
+    [JsonPropertyName("averageDurationMs")]
+    public double AverageDurationMs { get; set; }
+
+    [JsonPropertyName("bestProfile")]
+    public string? BestProfile { get; set; }
+
+    [JsonPropertyName("worstProfile")]
+    public string? WorstProfile { get; set; }
+
+    [JsonPropertyName("profileWinCounts")]
+    public Dictionary<string, int> ProfileWinCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("skipReasonCounts")]
+    public Dictionary<string, int> SkipReasonCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class DocumentInputQualityReport
@@ -131,6 +185,9 @@ public class DocumentInputQualityReport
 
     [JsonPropertyName("pages")]
     public List<DocumentPageProcessingReport> Pages { get; set; } = new();
+
+    [JsonPropertyName("preprocessingEffectiveness")]
+    public DocumentPreprocessingEffectivenessSummary PreprocessingEffectiveness { get; set; } = new();
 
     [JsonPropertyName("warnings")]
     public List<string> Warnings { get; set; } = new();

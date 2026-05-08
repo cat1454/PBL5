@@ -9,5 +9,7 @@ public class OcrPageExtractionResult
     public long? DurationMs { get; set; }
     public string? SelectedVariant { get; set; }
     public string? SelectedPass { get; set; }
+    public string? PreprocessingProfile { get; set; }
+    public bool IsPreprocessingFallback { get; set; }
     public string? FailureReason { get; set; }
 }

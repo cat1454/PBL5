@@ -10,4 +10,10 @@ public class OcrSettings
     public int RetryThreshold { get; set; } = 55;
     public int MaxRetryPerPage { get; set; } = 2;
     public bool EnableQualityProfile { get; set; } = true;
+    public bool EnablePreprocessingFallback { get; set; } = true;
+    public bool EnableCropBorder { get; set; } = true;
+    public bool EnableThresholdFallback { get; set; } = true;
+    public int MaxPreprocessingVariantsPerPage { get; set; } = 3;
+    public int MinPreprocessingGainThreshold { get; set; } = 3;
+    public int MaxLowGainPreprocessingAttemptsPerDocument { get; set; } = 3;
 }

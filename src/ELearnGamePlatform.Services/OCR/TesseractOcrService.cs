@@ -18,6 +18,21 @@ namespace ELearnGamePlatform.Services.OCR;
 public class TesseractOcrService : IOcrService
 {
     private const int RescueVariantCount = 2;
+    public const string ProfileOriginal = "original";
+    public const string ProfileContrastEnhanced = "contrast-enhanced";
+    public const string ProfileThresholdSoft = "threshold-soft";
+    public const string ProfileBinaryStrong = "binary-strong";
+    public const string ProfileCropBorder = "crop-border";
+    public const string ProfileInvertedBinary = "inverted-binary";
+
+    public static readonly IReadOnlyList<string> LowCostFallbackProfiles =
+    [
+        ProfileCropBorder,
+        ProfileThresholdSoft,
+        ProfileBinaryStrong,
+        ProfileContrastEnhanced
+    ];
+
     private readonly ILogger<TesseractOcrService> _logger;
     private readonly OcrSettings _settings;
     private readonly string _tessDataPath;
@@ -100,7 +115,21 @@ public class TesseractOcrService : IOcrService
         IReadOnlyCollection<int> pageNumbers,
         int? pdfDpi = null,
         IProgress<DocumentProcessingProgressUpdate>? progress = null)
+        => await ExtractPageResultsFromPdfPagesAsync(
+            pdfPath,
+            pageNumbers,
+            new OcrExtractionOptions(),
+            pdfDpi,
+            progress);
+
+    public async Task<IReadOnlyDictionary<int, OcrPageExtractionResult>> ExtractPageResultsFromPdfPagesAsync(
+        string pdfPath,
+        IReadOnlyCollection<int> pageNumbers,
+        OcrExtractionOptions options,
+        int? pdfDpi = null,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
+        options ??= new OcrExtractionOptions();
         var renderDpi = ResolvePdfDpi(pdfDpi);
         var orderedPages = pageNumbers
             .Where(page => page > 0)
@@ -154,7 +183,7 @@ public class TesseractOcrService : IOcrService
                     continue;
                 }
 
-                var pageResult = await ExtractBestResultFromImageWithEngineAsync(imagePath, engine);
+                var pageResult = await ExtractBestResultFromImageWithEngineAsync(imagePath, engine, options);
                 pageStopwatch.Stop();
                 if (pageResult != null)
                 {
@@ -166,7 +195,9 @@ public class TesseractOcrService : IOcrService
                         PdfDpi = renderDpi,
                         DurationMs = pageStopwatch.ElapsedMilliseconds,
                         SelectedVariant = pageResult.Variant,
-                        SelectedPass = pageResult.PassName
+                        SelectedPass = pageResult.PassName,
+                        PreprocessingProfile = pageResult.Variant,
+                        IsPreprocessingFallback = options.IsPreprocessingFallback
                     };
                 }
                 else
@@ -243,9 +274,12 @@ public class TesseractOcrService : IOcrService
         return best?.Text ?? string.Empty;
     }
 
-    private async Task<OcrCandidateResult?> ExtractBestResultFromImageWithEngineAsync(string imagePath, TesseractEngine engine)
+    private async Task<OcrCandidateResult?> ExtractBestResultFromImageWithEngineAsync(
+        string imagePath,
+        TesseractEngine engine,
+        OcrExtractionOptions? options = null)
     {
-        var candidates = await BuildOcrCandidatesAsync(imagePath);
+        var candidates = await BuildOcrCandidatesAsync(imagePath, options);
 
         try
         {
@@ -390,61 +424,82 @@ public class TesseractOcrService : IOcrService
     private int ResolvePdfDpi(int? pdfDpi)
         => Math.Clamp(pdfDpi ?? _settings.DefaultPdfDpi, 72, 600);
 
-    private async Task<List<OcrCandidate>> BuildOcrCandidatesAsync(string imagePath)
+    private async Task<List<OcrCandidate>> BuildOcrCandidatesAsync(string imagePath, OcrExtractionOptions? options = null)
     {
-        var candidates = new List<OcrCandidate>
+        var requestedProfiles = ResolveRequestedProfiles(options);
+        var candidates = new List<OcrCandidate>();
+
+        if (requestedProfiles.Contains(ProfileOriginal))
         {
-            new() { Name = "original", Path = imagePath, DeleteAfterUse = false, ScoreBoost = 0f }
-        };
+            candidates.Add(new() { Name = ProfileOriginal, Path = imagePath, DeleteAfterUse = false, ScoreBoost = 0f });
+        }
 
         using var sourceImage = await Image.LoadAsync<Rgba32>(imagePath);
         var shouldTryInversion = LooksLikeDarkBackground(sourceImage);
 
-        var grayscale = await CreatePreprocessedVariantAsync(
-            sourceImage,
-            imagePath,
-            "grayscale-sharp",
-            brightness: 1.03f,
-            contrast: 1.22f,
-            sharpen: 0.75f,
-            binaryThreshold: null);
-        if (grayscale != null)
+        if (requestedProfiles.Contains(ProfileContrastEnhanced))
         {
-            candidates.Add(grayscale);
+            var contrastEnhanced = await CreatePreprocessedVariantAsync(
+                sourceImage,
+                imagePath,
+                ProfileContrastEnhanced,
+                brightness: 1.03f,
+                contrast: 1.22f,
+                sharpen: 0.75f,
+                binaryThreshold: null);
+            if (contrastEnhanced != null)
+            {
+                candidates.Add(contrastEnhanced);
+            }
         }
 
-        var binaryStrong = await CreatePreprocessedVariantAsync(
-            sourceImage,
-            imagePath,
-            "binary-strong",
-            brightness: 1.05f,
-            contrast: 1.42f,
-            sharpen: 0.95f,
-            binaryThreshold: 0.61f);
-        if (binaryStrong != null)
+        if (requestedProfiles.Contains(ProfileBinaryStrong))
         {
-            candidates.Add(binaryStrong);
+            var binaryStrong = await CreatePreprocessedVariantAsync(
+                sourceImage,
+                imagePath,
+                ProfileBinaryStrong,
+                brightness: 1.05f,
+                contrast: 1.42f,
+                sharpen: 0.95f,
+                binaryThreshold: 0.61f);
+            if (binaryStrong != null)
+            {
+                candidates.Add(binaryStrong);
+            }
         }
 
-        var binarySoft = await CreatePreprocessedVariantAsync(
-            sourceImage,
-            imagePath,
-            "binary-soft",
-            brightness: 1.02f,
-            contrast: 1.28f,
-            sharpen: 0.6f,
-            binaryThreshold: 0.54f);
-        if (binarySoft != null)
+        if (requestedProfiles.Contains(ProfileThresholdSoft))
         {
-            candidates.Add(binarySoft);
+            var thresholdSoft = await CreatePreprocessedVariantAsync(
+                sourceImage,
+                imagePath,
+                ProfileThresholdSoft,
+                brightness: 1.02f,
+                contrast: 1.28f,
+                sharpen: 0.6f,
+                binaryThreshold: 0.54f);
+            if (thresholdSoft != null)
+            {
+                candidates.Add(thresholdSoft);
+            }
         }
 
-        if (shouldTryInversion)
+        if (requestedProfiles.Contains(ProfileCropBorder))
+        {
+            var croppedBorder = await CreateCropBorderVariantAsync(sourceImage, imagePath);
+            if (croppedBorder != null)
+            {
+                candidates.Add(croppedBorder);
+            }
+        }
+
+        if (shouldTryInversion && requestedProfiles.Contains(ProfileInvertedBinary))
         {
             var inverted = await CreatePreprocessedVariantAsync(
                 sourceImage,
                 imagePath,
-                "inverted-binary",
+                ProfileInvertedBinary,
                 brightness: 1.08f,
                 contrast: 1.34f,
                 sharpen: 0.8f,
@@ -456,7 +511,35 @@ public class TesseractOcrService : IOcrService
             }
         }
 
+        if (candidates.Count == 0)
+        {
+            candidates.Add(new() { Name = ProfileOriginal, Path = imagePath, DeleteAfterUse = false, ScoreBoost = 0f });
+        }
+
         return candidates;
+    }
+
+    private static HashSet<string> ResolveRequestedProfiles(OcrExtractionOptions? options)
+    {
+        if (options?.PreprocessingProfiles == null || options.PreprocessingProfiles.Count == 0)
+        {
+            return new HashSet<string>(
+                new[]
+                {
+                    ProfileOriginal,
+                    ProfileContrastEnhanced,
+                    ProfileBinaryStrong,
+                    ProfileThresholdSoft,
+                    ProfileCropBorder,
+                    ProfileInvertedBinary
+                },
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        return options.PreprocessingProfiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile))
+            .Select(profile => profile.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task<OcrCandidate?> CreatePreprocessedVariantAsync(
@@ -522,6 +605,47 @@ public class TesseractOcrService : IOcrService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error preprocessing image variant {VariantName}, skipping: {ImagePath}", variantName, imagePath);
+            return null;
+        }
+    }
+
+    private async Task<OcrCandidate?> CreateCropBorderVariantAsync(Image<Rgba32> sourceImage, string imagePath)
+    {
+        try
+        {
+            using var image = sourceImage.Clone();
+            var cropRectangle = DetectContentBounds(image);
+            if (cropRectangle.Width >= image.Width * 0.98 && cropRectangle.Height >= image.Height * 0.98)
+            {
+                return null;
+            }
+
+            image.Mutate(context =>
+            {
+                context.AutoOrient();
+                context.Crop(cropRectangle);
+                context.Grayscale();
+                context.Brightness(1.02f);
+                context.Contrast(1.18f);
+                context.GaussianSharpen(0.45f);
+            });
+
+            var preprocessedPath = Path.Combine(
+                Path.GetDirectoryName(imagePath) ?? string.Empty,
+                $"{ProfileCropBorder}_{Guid.NewGuid():N}_{Path.GetFileNameWithoutExtension(imagePath)}.png");
+
+            await image.SaveAsync(preprocessedPath);
+            return new OcrCandidate
+            {
+                Name = ProfileCropBorder,
+                Path = preprocessedPath,
+                DeleteAfterUse = true,
+                ScoreBoost = 0.025f
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error preprocessing image variant {VariantName}, skipping: {ImagePath}", ProfileCropBorder, imagePath);
             return null;
         }
     }
@@ -744,6 +868,47 @@ public class TesseractOcrService : IOcrService
         }
 
         return samples > 0 && (brightnessTotal / samples) < 0.45d;
+    }
+
+    private static Rectangle DetectContentBounds(Image<Rgba32> image)
+    {
+        var minX = image.Width;
+        var minY = image.Height;
+        var maxX = 0;
+        var maxY = 0;
+        var step = Math.Max(1, Math.Min(image.Width, image.Height) / 900);
+
+        for (var y = 0; y < image.Height; y += step)
+        {
+            for (var x = 0; x < image.Width; x += step)
+            {
+                var pixel = image[x, y];
+                var brightness = ((0.2126d * pixel.R) + (0.7152d * pixel.G) + (0.0722d * pixel.B)) / 255d;
+                if (brightness > 0.94d)
+                {
+                    continue;
+                }
+
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (minX >= maxX || minY >= maxY)
+        {
+            return new Rectangle(0, 0, image.Width, image.Height);
+        }
+
+        var paddingX = Math.Max(8, image.Width / 100);
+        var paddingY = Math.Max(8, image.Height / 100);
+        var left = Math.Max(0, minX - paddingX);
+        var top = Math.Max(0, minY - paddingY);
+        var right = Math.Min(image.Width - 1, maxX + paddingX);
+        var bottom = Math.Min(image.Height - 1, maxY + paddingY);
+
+        return new Rectangle(left, top, Math.Max(1, right - left + 1), Math.Max(1, bottom - top + 1));
     }
 
     private void TrySetEngineVariable(TesseractEngine engine, string name, string value)

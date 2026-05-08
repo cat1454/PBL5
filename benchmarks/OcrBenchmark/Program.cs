@@ -237,6 +237,12 @@ static OcrSettings LoadOcrSettings(string repositoryRoot)
     settings.RetryThreshold = ReadInt(section, nameof(OcrSettings.RetryThreshold), settings.RetryThreshold);
     settings.MaxRetryPerPage = ReadInt(section, nameof(OcrSettings.MaxRetryPerPage), settings.MaxRetryPerPage);
     settings.EnableQualityProfile = ReadBool(section, nameof(OcrSettings.EnableQualityProfile), settings.EnableQualityProfile);
+    settings.EnablePreprocessingFallback = ReadBool(section, nameof(OcrSettings.EnablePreprocessingFallback), settings.EnablePreprocessingFallback);
+    settings.EnableCropBorder = ReadBool(section, nameof(OcrSettings.EnableCropBorder), settings.EnableCropBorder);
+    settings.EnableThresholdFallback = ReadBool(section, nameof(OcrSettings.EnableThresholdFallback), settings.EnableThresholdFallback);
+    settings.MaxPreprocessingVariantsPerPage = ReadInt(section, nameof(OcrSettings.MaxPreprocessingVariantsPerPage), settings.MaxPreprocessingVariantsPerPage);
+    settings.MinPreprocessingGainThreshold = ReadInt(section, nameof(OcrSettings.MinPreprocessingGainThreshold), settings.MinPreprocessingGainThreshold);
+    settings.MaxLowGainPreprocessingAttemptsPerDocument = ReadInt(section, nameof(OcrSettings.MaxLowGainPreprocessingAttemptsPerDocument), settings.MaxLowGainPreprocessingAttemptsPerDocument);
     return settings;
 }
 
@@ -299,6 +305,13 @@ static string RenderMarkdown(OcrBenchmarkRun run)
     builder.AppendLine($"- Retried pages: {run.Summary.RetriedPages}");
     builder.AppendLine($"- Retry improvements: {run.Summary.RetryImprovedPages}");
     builder.AppendLine($"- Average retry gain: {run.Summary.AverageRetryQualityGain}");
+    builder.AppendLine($"- Preprocessing attempts: {run.Summary.PreprocessingAttemptCount}");
+    builder.AppendLine($"- Selected preprocessing attempts: {run.Summary.SelectedPreprocessingAttemptCount}");
+    builder.AppendLine($"- Low-gain preprocessing attempts: {run.Summary.LowGainPreprocessingAttemptCount}");
+    builder.AppendLine($"- Average preprocessing gain: {run.Summary.AveragePreprocessingGain}");
+    builder.AppendLine($"- Average preprocessing duration: {run.Summary.AveragePreprocessingDurationMs} ms");
+    builder.AppendLine($"- Top preprocessing profiles: {FormatCounts(run.Summary.ProfileWinCounts)}");
+    builder.AppendLine($"- Preprocessing skip reasons: {FormatCounts(run.Summary.SkipReasonCounts)}");
     builder.AppendLine();
     builder.AppendLine("## Threshold Recommendations");
     builder.AppendLine();
@@ -323,18 +336,26 @@ static string RenderMarkdown(OcrBenchmarkRun run)
         builder.AppendLine($"- Estimated tokens: {document.EstimatedTokenCount}");
         builder.AppendLine($"- Average quality: {document.AveragePageQuality}");
         builder.AppendLine($"- Low quality pages: {document.LowQualityPages}");
+        builder.AppendLine($"- Preprocessing attempts: {document.PreprocessingEffectiveness.AttemptCount}");
+        builder.AppendLine($"- Selected preprocessing attempts: {document.PreprocessingEffectiveness.SelectedAttemptCount}");
+        builder.AppendLine($"- Low-gain preprocessing attempts: {document.PreprocessingEffectiveness.LowGainAttemptCount}");
+        builder.AppendLine($"- Average preprocessing gain: {document.PreprocessingEffectiveness.AverageQualityGain}");
+        builder.AppendLine($"- Average preprocessing duration: {document.PreprocessingEffectiveness.AverageDurationMs} ms");
+        builder.AppendLine($"- Best preprocessing profile: {document.PreprocessingEffectiveness.BestProfile ?? ""}");
+        builder.AppendLine($"- Worst preprocessing profile: {document.PreprocessingEffectiveness.WorstProfile ?? ""}");
+        builder.AppendLine($"- Preprocessing skip reasons: {FormatCounts(document.PreprocessingEffectiveness.SkipReasonCounts)}");
         if (!string.IsNullOrWhiteSpace(document.Error))
         {
             builder.AppendLine($"- Error: {document.Error}");
         }
 
         builder.AppendLine();
-        builder.AppendLine("| Page | Method | Quality | Confidence | Chars | Words | Tokens | Retry | Variant | Pass | Warnings |");
-        builder.AppendLine("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |");
+        builder.AppendLine("| Page | Method | Quality | Confidence | Chars | Words | Tokens | Retry | Variant | Pass | Preprocess | Warnings |");
+        builder.AppendLine("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |");
         foreach (var page in document.Pages)
         {
             builder.AppendLine(
-                $"| {page.PageNumber} | {page.Method} | {page.QualityScore} | {FormatNullable(page.Confidence)} | {page.CharCount} | {page.WordCount} | {page.EstimatedTokenCount} | {page.RetrySummary} | {page.SelectedVariant ?? ""} | {page.SelectedPass ?? ""} | {string.Join("<br>", page.Warnings)} |");
+                $"| {page.PageNumber} | {page.Method} | {page.QualityScore} | {FormatNullable(page.Confidence)} | {page.CharCount} | {page.WordCount} | {page.EstimatedTokenCount} | {page.RetrySummary} | {page.SelectedVariant ?? ""} | {page.SelectedPass ?? ""} | {page.PreprocessingSummary} | {string.Join("<br>", page.Warnings)} |");
         }
 
         if (document.StageTimings.Count > 0)
@@ -356,6 +377,11 @@ static string RenderMarkdown(OcrBenchmarkRun run)
 
 static string FormatNullable(double? value)
     => value.HasValue ? value.Value.ToString("0.####") : "";
+
+static string FormatCounts(IReadOnlyDictionary<string, int> counts)
+    => counts.Count == 0
+        ? ""
+        : string.Join(", ", counts.OrderByDescending(item => item.Value).ThenBy(item => item.Key).Select(item => $"{item.Key}={item.Value}"));
 
 sealed class BenchmarkProgressCollector : IProgress<DocumentProcessingProgressUpdate>
 {
@@ -480,6 +506,27 @@ sealed class OcrBenchmarkRun
             recommendations.Add($"Retries improved few pages; consider lowering RetryThreshold from {settings.RetryThreshold} or reviewing image preprocessing before increasing retries.");
         }
 
+        if (!settings.EnablePreprocessingFallback)
+        {
+            recommendations.Add("Preprocessing fallback is disabled; enable it only after adding representative low-quality scanned pages to the benchmark corpus.");
+        }
+        else if (summary.PreprocessingAttemptCount == 0)
+        {
+            recommendations.Add("Preprocessing fallback did not run; current pages either had enough signal or retry policy did not allow fallback.");
+        }
+        else if (summary.SelectedPreprocessingAttemptCount > 0 && summary.AveragePreprocessingGain >= settings.MinPreprocessingGainThreshold)
+        {
+            recommendations.Add($"Keep preprocessing fallback enabled; average gain is {summary.AveragePreprocessingGain} point(s) over {summary.PreprocessingAttemptCount} attempt(s).");
+        }
+        else if (summary.LowGainPreprocessingAttemptCount >= Math.Max(1, summary.PreprocessingAttemptCount * 0.75d))
+        {
+            recommendations.Add("Preprocessing fallback is mostly low-gain on this corpus; keep it selective or lower MaxPreprocessingVariantsPerPage before increasing high-DPI retries.");
+        }
+        else
+        {
+            recommendations.Add("Preprocessing fallback produced mixed results; compare profile win counts before enabling more variants.");
+        }
+
         if (percentile25 > settings.MinAcceptablePageQuality)
         {
             recommendations.Add($"The 25th percentile quality score is {percentile25}; a stricter minimum may be reasonable after manual spot checks.");
@@ -497,6 +544,12 @@ sealed class OcrBenchmarkSettingsSnapshot
     public int RetryThreshold { get; set; }
     public int MaxRetryPerPage { get; set; }
     public bool EnableQualityProfile { get; set; }
+    public bool EnablePreprocessingFallback { get; set; }
+    public bool EnableCropBorder { get; set; }
+    public bool EnableThresholdFallback { get; set; }
+    public int MaxPreprocessingVariantsPerPage { get; set; }
+    public int MinPreprocessingGainThreshold { get; set; }
+    public int MaxLowGainPreprocessingAttemptsPerDocument { get; set; }
 
     public static OcrBenchmarkSettingsSnapshot From(OcrSettings settings)
         => new()
@@ -506,7 +559,13 @@ sealed class OcrBenchmarkSettingsSnapshot
             MinAcceptablePageQuality = settings.MinAcceptablePageQuality,
             RetryThreshold = settings.RetryThreshold,
             MaxRetryPerPage = settings.MaxRetryPerPage,
-            EnableQualityProfile = settings.EnableQualityProfile
+            EnableQualityProfile = settings.EnableQualityProfile,
+            EnablePreprocessingFallback = settings.EnablePreprocessingFallback,
+            EnableCropBorder = settings.EnableCropBorder,
+            EnableThresholdFallback = settings.EnableThresholdFallback,
+            MaxPreprocessingVariantsPerPage = settings.MaxPreprocessingVariantsPerPage,
+            MinPreprocessingGainThreshold = settings.MinPreprocessingGainThreshold,
+            MaxLowGainPreprocessingAttemptsPerDocument = settings.MaxLowGainPreprocessingAttemptsPerDocument
         };
 }
 
@@ -523,6 +582,13 @@ sealed class OcrBenchmarkSummary
     public int RetriedPages { get; set; }
     public int RetryImprovedPages { get; set; }
     public double AverageRetryQualityGain { get; set; }
+    public int PreprocessingAttemptCount { get; set; }
+    public int SelectedPreprocessingAttemptCount { get; set; }
+    public int LowGainPreprocessingAttemptCount { get; set; }
+    public double AveragePreprocessingGain { get; set; }
+    public double AveragePreprocessingDurationMs { get; set; }
+    public Dictionary<string, int> ProfileWinCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> SkipReasonCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static OcrBenchmarkSummary Build(IReadOnlyCollection<OcrBenchmarkDocumentResult> documents)
     {
@@ -530,6 +596,10 @@ sealed class OcrBenchmarkSummary
         var retriedPages = pages.Where(page => page.OcrRetry?.WasRetried == true).ToList();
         var retryGains = retriedPages
             .Select(page => Math.Max(0, (page.OcrRetry?.SelectedQualityScore ?? page.QualityScore) - (page.OcrRetry?.InitialQualityScore ?? page.QualityScore)))
+            .ToList();
+        var preprocessingAttempts = pages
+            .SelectMany(page => page.OcrRetry?.Attempts ?? new List<DocumentPageOcrAttemptMetadata>())
+            .Where(attempt => attempt.IsPreprocessingFallback)
             .ToList();
 
         return new OcrBenchmarkSummary
@@ -544,7 +614,21 @@ sealed class OcrBenchmarkSummary
             TotalEstimatedTokens = documents.Sum(document => document.EstimatedTokenCount),
             RetriedPages = retriedPages.Count,
             RetryImprovedPages = retryGains.Count(gain => gain > 0),
-            AverageRetryQualityGain = retryGains.Count == 0 ? 0d : Math.Round(retryGains.Average(), 2)
+            AverageRetryQualityGain = retryGains.Count == 0 ? 0d : Math.Round(retryGains.Average(), 2),
+            PreprocessingAttemptCount = preprocessingAttempts.Count,
+            SelectedPreprocessingAttemptCount = preprocessingAttempts.Count(attempt => attempt.IsSelectedBest),
+            LowGainPreprocessingAttemptCount = preprocessingAttempts.Count(attempt => attempt.IsLowGain),
+            AveragePreprocessingGain = preprocessingAttempts.Count == 0 ? 0d : Math.Round(preprocessingAttempts.Average(attempt => attempt.QualityGain), 2),
+            AveragePreprocessingDurationMs = preprocessingAttempts.Count == 0 ? 0d : Math.Round(preprocessingAttempts.Average(attempt => attempt.DurationMs), 2),
+            ProfileWinCounts = preprocessingAttempts
+                .Where(attempt => attempt.IsSelectedBest && !string.IsNullOrWhiteSpace(attempt.PreprocessingProfile))
+                .GroupBy(attempt => attempt.PreprocessingProfile!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase),
+            SkipReasonCounts = pages
+                .SelectMany(page => page.OcrRetry?.PreprocessingSkipReasons ?? page.PreprocessingSkipReasons)
+                .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                .GroupBy(reason => reason, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase)
         };
     }
 }
@@ -568,6 +652,7 @@ sealed class OcrBenchmarkDocumentResult
     public string? Error { get; set; }
     public List<string> Warnings { get; set; } = new();
     public List<OcrBenchmarkPageResult> Pages { get; set; } = new();
+    public DocumentPreprocessingEffectivenessSummary PreprocessingEffectiveness { get; set; } = new();
     public IReadOnlyCollection<StageTiming> StageTimings { get; set; } = Array.Empty<StageTiming>();
 
     public static OcrBenchmarkDocumentResult Build(
@@ -601,6 +686,7 @@ sealed class OcrBenchmarkDocumentResult
             Error = error,
             Warnings = report.Warnings,
             Pages = report.Pages.Select(OcrBenchmarkPageResult.From).ToList(),
+            PreprocessingEffectiveness = report.PreprocessingEffectiveness,
             StageTimings = stageTimings
         };
     }
@@ -620,6 +706,8 @@ sealed class OcrBenchmarkPageResult
     public string? SelectedVariant { get; set; }
     public string? SelectedPass { get; set; }
     public string RetrySummary { get; set; } = "not-retried";
+    public string PreprocessingSummary { get; set; } = string.Empty;
+    public List<string> PreprocessingSkipReasons { get; set; } = new();
     public DocumentPageOcrRetryMetadata? OcrRetry { get; set; }
     public List<string> Warnings { get; set; } = new();
 
@@ -628,6 +716,11 @@ sealed class OcrBenchmarkPageResult
         var retrySummary = page.OcrRetry?.WasRetried == true
             ? $"{page.OcrRetry.InitialQualityScore}->{page.OcrRetry.SelectedQualityScore} ({page.OcrRetry.SelectedAttempt})"
             : "not-retried";
+        var preprocessingAttempts = page.OcrRetry?.Attempts
+            .Where(attempt => attempt.IsPreprocessingFallback)
+            .Select(attempt => $"{attempt.PreprocessingProfile}:{attempt.QualityScore} ({attempt.QualityGain:+#;-#;0}, {attempt.DurationMs}ms{(attempt.IsSelectedBest ? ", selected" : "")}{(attempt.IsLowGain ? ", low-gain" : "")})")
+            .ToList() ?? new List<string>();
+        var skipReasons = page.OcrRetry?.PreprocessingSkipReasons ?? page.PreprocessingSkipReasons;
 
         return new OcrBenchmarkPageResult
         {
@@ -643,6 +736,10 @@ sealed class OcrBenchmarkPageResult
             SelectedVariant = page.SelectedVariant,
             SelectedPass = page.SelectedPass,
             RetrySummary = retrySummary,
+            PreprocessingSummary = preprocessingAttempts.Count == 0
+                ? string.Join("<br>", skipReasons)
+                : string.Join("<br>", preprocessingAttempts),
+            PreprocessingSkipReasons = skipReasons,
             OcrRetry = page.OcrRetry,
             Warnings = page.Warnings
         };

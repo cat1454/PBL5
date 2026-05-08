@@ -15,4 +15,10 @@ public interface IOcrService
         IReadOnlyCollection<int> pageNumbers,
         int? pdfDpi = null,
         IProgress<DocumentProcessingProgressUpdate>? progress = null);
+    Task<IReadOnlyDictionary<int, OcrPageExtractionResult>> ExtractPageResultsFromPdfPagesAsync(
+        string pdfPath,
+        IReadOnlyCollection<int> pageNumbers,
+        OcrExtractionOptions options,
+        int? pdfDpi = null,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null);
 }
