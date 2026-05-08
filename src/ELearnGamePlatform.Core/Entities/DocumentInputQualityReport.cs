@@ -10,6 +10,25 @@ public static class DocumentPageProcessingMethods
     public const string Failed = "failed";
 }
 
+public static class DocumentPageRoles
+{
+    public const string Cover = "cover";
+    public const string Title = "title";
+    public const string TableOfContents = "toc";
+    public const string Body = "body";
+    public const string References = "references";
+    public const string FootnoteHeavy = "footnote_heavy";
+    public const string Empty = "empty";
+}
+
+public static class DocumentQualityStatuses
+{
+    public const string Accepted = "Accepted";
+    public const string AcceptedWithWarnings = "AcceptedWithWarnings";
+    public const string NeedsReview = "NeedsReview";
+    public const string Rejected = "Rejected";
+}
+
 public class DocumentPageProcessingReport
 {
     [JsonPropertyName("pageNumber")]
@@ -38,6 +57,33 @@ public class DocumentPageProcessingReport
 
     [JsonPropertyName("qualityScore")]
     public int QualityScore { get; set; }
+
+    [JsonPropertyName("pageRole")]
+    public string? PageRole { get; set; }
+
+    [JsonPropertyName("excludedFromDocumentQualityAverage")]
+    public bool ExcludedFromDocumentQualityAverage { get; set; }
+
+    [JsonPropertyName("qualityAdjustments")]
+    public List<string> QualityAdjustments { get; set; } = new();
+
+    [JsonPropertyName("artifactRatio")]
+    public double ArtifactRatio { get; set; }
+
+    [JsonPropertyName("symbolRatio")]
+    public double SymbolRatio { get; set; }
+
+    [JsonPropertyName("digitOnlyLineRatio")]
+    public double DigitOnlyLineRatio { get; set; }
+
+    [JsonPropertyName("footnoteRatio")]
+    public double FootnoteRatio { get; set; }
+
+    [JsonPropertyName("paragraphCoherenceScore")]
+    public double ParagraphCoherenceScore { get; set; }
+
+    [JsonPropertyName("vietnameseDiacriticRatio")]
+    public double VietnameseDiacriticRatio { get; set; }
 
     [JsonPropertyName("selectedVariant")]
     public string? SelectedVariant { get; set; }
@@ -179,6 +225,36 @@ public class DocumentInputQualityReport
 
     [JsonPropertyName("averagePageQuality")]
     public double AveragePageQuality { get; set; }
+
+    [JsonPropertyName("averagePageQualityRaw")]
+    public double AveragePageQualityRaw { get; set; }
+
+    [JsonPropertyName("averagePageQualityWeighted")]
+    public double AveragePageQualityWeighted { get; set; }
+
+    [JsonPropertyName("bodyPageQualityAverage")]
+    public double BodyPageQualityAverage { get; set; }
+
+    [JsonPropertyName("excludedPageCount")]
+    public int ExcludedPageCount { get; set; }
+
+    [JsonPropertyName("bodyPageCount")]
+    public int BodyPageCount { get; set; }
+
+    [JsonPropertyName("coverTitlePageCount")]
+    public int CoverTitlePageCount { get; set; }
+
+    [JsonPropertyName("footnoteHeavyPageCount")]
+    public int FootnoteHeavyPageCount { get; set; }
+
+    [JsonPropertyName("qualityStatus")]
+    public string QualityStatus { get; set; } = DocumentQualityStatuses.NeedsReview;
+
+    [JsonPropertyName("qualityDecisionReason")]
+    public string QualityDecisionReason { get; set; } = string.Empty;
+
+    [JsonPropertyName("topQualityPenalties")]
+    public List<string> TopQualityPenalties { get; set; } = new();
 
     [JsonPropertyName("totalEstimatedTokens")]
     public int TotalEstimatedTokens { get; set; }

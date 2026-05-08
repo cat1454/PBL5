@@ -25,8 +25,9 @@ The benchmark uses the runtime OCR settings from `src/ELearnGamePlatform.API/app
 
 Each report includes:
 
-- Document-level duration, size, character count, word count, estimated token count, average quality, low-quality page count, and warnings.
-- Page-level method, quality score, confidence, signal ratio, noise score, selected OCR variant/pass, retry summary, and warnings.
+- Document-level duration, size, character count, word count, estimated token count, raw average quality, weighted average quality, body-page quality average, low-quality page count, quality status, and warnings.
+- Direct text page count vs OCR page count, page role counts, excluded page count, clean chunk count, and clean chunk token count.
+- Page-level role, method, quality score, confidence, signal ratio, noise score, selected OCR variant/pass, retry summary, exclusion flag, and warnings.
 - Stage timing from progress callbacks where the processor emits progress.
 - Run-level summary metrics across all documents.
 - Threshold recommendations for `MinAcceptablePageQuality`, `RetryThreshold`, `RetryPdfDpi`, and retry effectiveness.
@@ -41,3 +42,5 @@ Useful signals:
 - Effective retries show up as retried pages with positive quality gain.
 - No retried pages means the current `RetryThreshold` did not trigger on the selected corpus; add noisier scanned pages before lowering retry settings.
 - A high 25th percentile quality score can justify a stricter quality threshold after manual spot checks.
+- For readable Vietnamese text-layer PDFs, prefer the weighted/body quality averages over raw average page quality. Cover/title pages, empty pages, footnote-heavy pages, citation blocks, and short Vietnamese function words should explain warnings, not automatically force rejection.
+- Benchmark recommendations such as "Readable text-layer PDF with extraction artifacts", "Prefer direct text cleanup/chunk gating", "OCR fallback not needed", and "External OCR not justified" mean the direct text layer is usable enough that PaddleOCR/EasyOCR/cloud OCR would add cost without solving the main issue.

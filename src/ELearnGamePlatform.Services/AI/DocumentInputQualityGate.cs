@@ -30,7 +30,9 @@ public class DocumentInputQualityGate : IDocumentInputQualityGate
         var signalRatio = nonWhitespaceCount == 0 ? 0d : signalCount / (double)nonWhitespaceCount;
         var garbageRatio = nonWhitespaceCount == 0 ? 1d : suspiciousCount / (double)nonWhitespaceCount;
         var shortTokenRatio = wordCount == 0 ? 1d : shortTokenCount / (double)wordCount;
-        var tokenWasteRatio = Math.Clamp(Math.Max(garbageRatio, shortTokenRatio), 0d, 1d);
+        var hasHealthyVietnameseText = wordCount >= 250 && signalRatio >= 0.50d && ContainsVietnameseSignal(normalized);
+        var effectiveShortTokenRatio = hasHealthyVietnameseText ? Math.Min(shortTokenRatio, 0.30d) : shortTokenRatio;
+        var tokenWasteRatio = Math.Clamp(Math.Max(garbageRatio, effectiveShortTokenRatio), 0d, 1d);
         var estimatedTokenCount = _tokenEstimator.EstimateTokens(normalized);
         var qualityScore = CalculateQualityScore(
             charCount,
@@ -184,4 +186,10 @@ public class DocumentInputQualityGate : IDocumentInputQualityGate
         => !char.IsLetterOrDigit(ch)
             && !char.IsWhiteSpace(ch)
             && ",.;:?!()[]\"'/%+-_:".IndexOf(ch) < 0;
+
+    private static bool ContainsVietnameseSignal(string text)
+        => Regex.IsMatch(
+            text,
+            @"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]|\b(và|là|của|được|trong|không|chương|phần|mục)\b",
+            RegexOptions.IgnoreCase);
 }

@@ -168,6 +168,7 @@ public class DocumentIngestionService : IDocumentIngestionService
             var qualityResult = qualityGate.Evaluate(extractedText);
             var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
             var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
+            ApplyPageQualityCalibration(qualityResult, pageQualityReport, budgetPlan);
             var metadata = document.GetProcessingMetadata();
             metadata.InputQuality = qualityResult;
             metadata.PageQualityReport = pageQualityReport;
@@ -454,5 +455,41 @@ public class DocumentIngestionService : IDocumentIngestionService
         var estimatedTotalSeconds = elapsedSeconds / Math.Max(0.03d, state.Percent / 100d);
         var estimatedRemaining = Math.Max(1, (int)Math.Round(estimatedTotalSeconds - elapsedSeconds));
         state.EstimatedRemainingSeconds = estimatedRemaining;
+    }
+
+    private static void ApplyPageQualityCalibration(
+        DocumentInputQualityResult qualityResult,
+        DocumentInputQualityReport? pageQualityReport,
+        TokenBudgetPlan budgetPlan)
+    {
+        if (pageQualityReport == null)
+        {
+            return;
+        }
+
+        var readableStatus = pageQualityReport.QualityStatus is DocumentQualityStatuses.Accepted
+            or DocumentQualityStatuses.AcceptedWithWarnings
+            or DocumentQualityStatuses.NeedsReview;
+        if (!readableStatus || pageQualityReport.BodyPageCount <= 0)
+        {
+            return;
+        }
+
+        if (pageQualityReport.BodyPageQualityAverage >= 60 && pageQualityReport.DirectTextPages >= Math.Max(1, pageQualityReport.TotalPages / 2))
+        {
+            qualityResult.Classification = DocumentInputQualityClassifications.UsableWithWarning;
+            qualityResult.QualityScore = Math.Max(qualityResult.QualityScore, (int)Math.Round(pageQualityReport.BodyPageQualityAverage));
+            qualityResult.Warnings.Add("Page-level calibration accepted readable direct-text body pages despite cover, footnote, or token-budget artifacts.");
+        }
+        else if (pageQualityReport.BodyPageQualityAverage >= 45 && !budgetPlan.IsWithinBudget)
+        {
+            qualityResult.Classification = DocumentInputQualityClassifications.NeedReview;
+            qualityResult.QualityScore = Math.Max(qualityResult.QualityScore, (int)Math.Round(pageQualityReport.BodyPageQualityAverage));
+            qualityResult.Warnings.Add("Page-level calibration marked the document NeedsReview: readable body pages exist, but chunk selection should control token budget.");
+        }
+
+        qualityResult.Warnings = qualityResult.Warnings
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 }

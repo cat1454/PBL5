@@ -16,4 +16,9 @@ public class OcrSettings
     public int MaxPreprocessingVariantsPerPage { get; set; } = 3;
     public int MinPreprocessingGainThreshold { get; set; } = 3;
     public int MaxLowGainPreprocessingAttemptsPerDocument { get; set; } = 3;
+    public bool EnableTextLayerQualityCalibration { get; set; } = true;
+    public bool ExcludeCoverPagesFromQualityAverage { get; set; } = true;
+    public bool EnableVietnameseTextNormalization { get; set; } = true;
+    public int MinBodyPageQualityForAccepted { get; set; } = 60;
+    public int MinBodyPageQualityForNeedsReview { get; set; } = 45;
 }

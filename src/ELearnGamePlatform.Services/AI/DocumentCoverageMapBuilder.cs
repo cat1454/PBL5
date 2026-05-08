@@ -5,7 +5,7 @@ using ELearnGamePlatform.Core.Entities;
 
 namespace ELearnGamePlatform.Services.AI;
 
-internal static class DocumentCoverageMapBuilder
+public static class DocumentCoverageMapBuilder
 {
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {

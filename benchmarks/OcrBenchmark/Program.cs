@@ -87,6 +87,7 @@ static async Task<OcrBenchmarkDocumentResult> BenchmarkDocumentAsync(
         extractedText,
         error,
         pageQualityReport,
+        tokenEstimator,
         progress.StageTimings);
 }
 
@@ -159,6 +160,7 @@ static DocumentInputQualityReport BuildSinglePageQualityReport(
         NoiseScore = noiseScore,
         EstimatedTokenCount = tokenEstimator.EstimateTokens(normalized),
         QualityScore = qualityScore,
+        PageRole = charCount == 0 ? DocumentPageRoles.Empty : DocumentPageRoles.Body,
         Warnings = warnings
     };
 
@@ -171,6 +173,17 @@ static DocumentInputQualityReport BuildSinglePageQualityReport(
         FailedPages = error != null ? 1 : 0,
         LowQualityPages = qualityScore < settings.MinAcceptablePageQuality ? 1 : 0,
         AveragePageQuality = qualityScore,
+        AveragePageQualityRaw = qualityScore,
+        AveragePageQualityWeighted = qualityScore,
+        BodyPageQualityAverage = charCount == 0 ? 0 : qualityScore,
+        ExcludedPageCount = charCount == 0 ? 1 : 0,
+        BodyPageCount = charCount == 0 ? 0 : 1,
+        QualityStatus = qualityScore >= settings.MinBodyPageQualityForAccepted
+            ? DocumentQualityStatuses.Accepted
+            : qualityScore >= settings.MinBodyPageQualityForNeedsReview
+                ? DocumentQualityStatuses.NeedsReview
+                : DocumentQualityStatuses.Rejected,
+        QualityDecisionReason = error ?? "Single-page benchmark quality score.",
         TotalEstimatedTokens = page.EstimatedTokenCount,
         Pages = new List<DocumentPageProcessingReport> { page },
         Warnings = warnings
@@ -243,6 +256,11 @@ static OcrSettings LoadOcrSettings(string repositoryRoot)
     settings.MaxPreprocessingVariantsPerPage = ReadInt(section, nameof(OcrSettings.MaxPreprocessingVariantsPerPage), settings.MaxPreprocessingVariantsPerPage);
     settings.MinPreprocessingGainThreshold = ReadInt(section, nameof(OcrSettings.MinPreprocessingGainThreshold), settings.MinPreprocessingGainThreshold);
     settings.MaxLowGainPreprocessingAttemptsPerDocument = ReadInt(section, nameof(OcrSettings.MaxLowGainPreprocessingAttemptsPerDocument), settings.MaxLowGainPreprocessingAttemptsPerDocument);
+    settings.EnableTextLayerQualityCalibration = ReadBool(section, nameof(OcrSettings.EnableTextLayerQualityCalibration), settings.EnableTextLayerQualityCalibration);
+    settings.ExcludeCoverPagesFromQualityAverage = ReadBool(section, nameof(OcrSettings.ExcludeCoverPagesFromQualityAverage), settings.ExcludeCoverPagesFromQualityAverage);
+    settings.EnableVietnameseTextNormalization = ReadBool(section, nameof(OcrSettings.EnableVietnameseTextNormalization), settings.EnableVietnameseTextNormalization);
+    settings.MinBodyPageQualityForAccepted = ReadInt(section, nameof(OcrSettings.MinBodyPageQualityForAccepted), settings.MinBodyPageQualityForAccepted);
+    settings.MinBodyPageQualityForNeedsReview = ReadInt(section, nameof(OcrSettings.MinBodyPageQualityForNeedsReview), settings.MinBodyPageQualityForNeedsReview);
     return settings;
 }
 
@@ -299,9 +317,15 @@ static string RenderMarkdown(OcrBenchmarkRun run)
     builder.AppendLine($"- OCR pages: {run.Summary.OcrPages}");
     builder.AppendLine($"- Empty pages: {run.Summary.EmptyPages}");
     builder.AppendLine($"- Failed pages: {run.Summary.FailedPages}");
-    builder.AppendLine($"- Low quality pages: {run.Summary.LowQualityPages}");
-    builder.AppendLine($"- Average page quality: {run.Summary.AveragePageQuality}");
-    builder.AppendLine($"- Estimated tokens: {run.Summary.TotalEstimatedTokens}");
+        builder.AppendLine($"- Low quality pages: {run.Summary.LowQualityPages}");
+        builder.AppendLine($"- Average page quality raw: {run.Summary.AveragePageQualityRaw}");
+        builder.AppendLine($"- Average page quality weighted: {run.Summary.AveragePageQualityWeighted}");
+        builder.AppendLine($"- Body page quality average: {run.Summary.BodyPageQualityAverage}");
+        builder.AppendLine($"- Excluded pages: {run.Summary.ExcludedPageCount}");
+        builder.AppendLine($"- Body pages: {run.Summary.BodyPageCount}");
+        builder.AppendLine($"- Cover/title pages: {run.Summary.CoverTitlePageCount}");
+        builder.AppendLine($"- Footnote-heavy pages: {run.Summary.FootnoteHeavyPageCount}");
+        builder.AppendLine($"- Estimated tokens: {run.Summary.TotalEstimatedTokens}");
     builder.AppendLine($"- Retried pages: {run.Summary.RetriedPages}");
     builder.AppendLine($"- Retry improvements: {run.Summary.RetryImprovedPages}");
     builder.AppendLine($"- Average retry gain: {run.Summary.AverageRetryQualityGain}");
@@ -334,8 +358,17 @@ static string RenderMarkdown(OcrBenchmarkRun run)
         builder.AppendLine($"- Chars: {document.CharCount}");
         builder.AppendLine($"- Words: {document.WordCount}");
         builder.AppendLine($"- Estimated tokens: {document.EstimatedTokenCount}");
-        builder.AppendLine($"- Average quality: {document.AveragePageQuality}");
+        builder.AppendLine($"- Quality status: {document.QualityStatus}");
+        builder.AppendLine($"- Quality decision: {document.QualityDecisionReason}");
+        builder.AppendLine($"- Average quality raw: {document.AveragePageQualityRaw}");
+        builder.AppendLine($"- Average quality weighted: {document.AveragePageQualityWeighted}");
+        builder.AppendLine($"- Body quality average: {document.BodyPageQualityAverage}");
         builder.AppendLine($"- Low quality pages: {document.LowQualityPages}");
+        builder.AppendLine($"- Page role counts: {FormatCounts(document.PageRoleCounts)}");
+        builder.AppendLine($"- Excluded pages: {document.ExcludedPageCount}");
+        builder.AppendLine($"- Clean chunk count: {document.CleanChunkCount}");
+        builder.AppendLine($"- Clean chunk token count: {document.CleanChunkTokenCount}");
+        builder.AppendLine($"- Top quality penalties: {string.Join("; ", document.TopQualityPenalties)}");
         builder.AppendLine($"- Preprocessing attempts: {document.PreprocessingEffectiveness.AttemptCount}");
         builder.AppendLine($"- Selected preprocessing attempts: {document.PreprocessingEffectiveness.SelectedAttemptCount}");
         builder.AppendLine($"- Low-gain preprocessing attempts: {document.PreprocessingEffectiveness.LowGainAttemptCount}");
@@ -350,12 +383,12 @@ static string RenderMarkdown(OcrBenchmarkRun run)
         }
 
         builder.AppendLine();
-        builder.AppendLine("| Page | Method | Quality | Confidence | Chars | Words | Tokens | Retry | Variant | Pass | Preprocess | Warnings |");
-        builder.AppendLine("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |");
+        builder.AppendLine("| Page | Role | Method | Quality | Confidence | Chars | Words | Tokens | Excluded | Retry | Variant | Pass | Preprocess | Warnings |");
+        builder.AppendLine("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |");
         foreach (var page in document.Pages)
         {
             builder.AppendLine(
-                $"| {page.PageNumber} | {page.Method} | {page.QualityScore} | {FormatNullable(page.Confidence)} | {page.CharCount} | {page.WordCount} | {page.EstimatedTokenCount} | {page.RetrySummary} | {page.SelectedVariant ?? ""} | {page.SelectedPass ?? ""} | {page.PreprocessingSummary} | {string.Join("<br>", page.Warnings)} |");
+                $"| {page.PageNumber} | {page.PageRole ?? ""} | {page.Method} | {page.QualityScore} | {FormatNullable(page.Confidence)} | {page.CharCount} | {page.WordCount} | {page.EstimatedTokenCount} | {page.ExcludedFromDocumentQualityAverage} | {page.RetrySummary} | {page.SelectedVariant ?? ""} | {page.SelectedPass ?? ""} | {page.PreprocessingSummary} | {string.Join("<br>", page.Warnings)} |");
         }
 
         if (document.StageTimings.Count > 0)
@@ -480,6 +513,14 @@ sealed class OcrBenchmarkRun
             recommendations.Add("Review failed or empty pages before changing thresholds; missing Poppler/tessdata or unreadable inputs can skew quality scores.");
         }
 
+        if (summary.DirectTextPages > summary.OcrPages && summary.BodyPageQualityAverage >= settings.MinBodyPageQualityForNeedsReview)
+        {
+            recommendations.Add("Readable text-layer PDF with extraction artifacts.");
+            recommendations.Add("Prefer direct text cleanup/chunk gating.");
+            recommendations.Add("OCR fallback not needed for most pages.");
+            recommendations.Add("External OCR not justified for this corpus unless body-page clean coverage drops.");
+        }
+
         if (lowQualityRate > 0.30d)
         {
             recommendations.Add($"More than 30% of pages are below MinAcceptablePageQuality={settings.MinAcceptablePageQuality}; inspect samples before raising the threshold.");
@@ -550,6 +591,11 @@ sealed class OcrBenchmarkSettingsSnapshot
     public int MaxPreprocessingVariantsPerPage { get; set; }
     public int MinPreprocessingGainThreshold { get; set; }
     public int MaxLowGainPreprocessingAttemptsPerDocument { get; set; }
+    public bool EnableTextLayerQualityCalibration { get; set; }
+    public bool ExcludeCoverPagesFromQualityAverage { get; set; }
+    public bool EnableVietnameseTextNormalization { get; set; }
+    public int MinBodyPageQualityForAccepted { get; set; }
+    public int MinBodyPageQualityForNeedsReview { get; set; }
 
     public static OcrBenchmarkSettingsSnapshot From(OcrSettings settings)
         => new()
@@ -565,7 +611,12 @@ sealed class OcrBenchmarkSettingsSnapshot
             EnableThresholdFallback = settings.EnableThresholdFallback,
             MaxPreprocessingVariantsPerPage = settings.MaxPreprocessingVariantsPerPage,
             MinPreprocessingGainThreshold = settings.MinPreprocessingGainThreshold,
-            MaxLowGainPreprocessingAttemptsPerDocument = settings.MaxLowGainPreprocessingAttemptsPerDocument
+            MaxLowGainPreprocessingAttemptsPerDocument = settings.MaxLowGainPreprocessingAttemptsPerDocument,
+            EnableTextLayerQualityCalibration = settings.EnableTextLayerQualityCalibration,
+            ExcludeCoverPagesFromQualityAverage = settings.ExcludeCoverPagesFromQualityAverage,
+            EnableVietnameseTextNormalization = settings.EnableVietnameseTextNormalization,
+            MinBodyPageQualityForAccepted = settings.MinBodyPageQualityForAccepted,
+            MinBodyPageQualityForNeedsReview = settings.MinBodyPageQualityForNeedsReview
         };
 }
 
@@ -578,6 +629,13 @@ sealed class OcrBenchmarkSummary
     public int FailedPages { get; set; }
     public int LowQualityPages { get; set; }
     public double AveragePageQuality { get; set; }
+    public double AveragePageQualityRaw { get; set; }
+    public double AveragePageQualityWeighted { get; set; }
+    public double BodyPageQualityAverage { get; set; }
+    public int ExcludedPageCount { get; set; }
+    public int BodyPageCount { get; set; }
+    public int CoverTitlePageCount { get; set; }
+    public int FootnoteHeavyPageCount { get; set; }
     public int TotalEstimatedTokens { get; set; }
     public int RetriedPages { get; set; }
     public int RetryImprovedPages { get; set; }
@@ -611,6 +669,13 @@ sealed class OcrBenchmarkSummary
             FailedPages = documents.Sum(document => document.FailedPages),
             LowQualityPages = documents.Sum(document => document.LowQualityPages),
             AveragePageQuality = pages.Count == 0 ? 0d : Math.Round(pages.Average(page => page.QualityScore), 2),
+            AveragePageQualityRaw = documents.Count == 0 ? 0d : Math.Round(documents.Average(document => document.AveragePageQualityRaw), 2),
+            AveragePageQualityWeighted = documents.Count == 0 ? 0d : Math.Round(documents.Average(document => document.AveragePageQualityWeighted), 2),
+            BodyPageQualityAverage = documents.Count == 0 ? 0d : Math.Round(documents.Average(document => document.BodyPageQualityAverage), 2),
+            ExcludedPageCount = documents.Sum(document => document.ExcludedPageCount),
+            BodyPageCount = documents.Sum(document => document.BodyPageCount),
+            CoverTitlePageCount = documents.Sum(document => document.CoverTitlePageCount),
+            FootnoteHeavyPageCount = documents.Sum(document => document.FootnoteHeavyPageCount),
             TotalEstimatedTokens = documents.Sum(document => document.EstimatedTokenCount),
             RetriedPages = retriedPages.Count,
             RetryImprovedPages = retryGains.Count(gain => gain > 0),
@@ -649,6 +714,19 @@ sealed class OcrBenchmarkDocumentResult
     public int FailedPages { get; set; }
     public int LowQualityPages { get; set; }
     public double AveragePageQuality { get; set; }
+    public double AveragePageQualityRaw { get; set; }
+    public double AveragePageQualityWeighted { get; set; }
+    public double BodyPageQualityAverage { get; set; }
+    public int ExcludedPageCount { get; set; }
+    public int BodyPageCount { get; set; }
+    public int CoverTitlePageCount { get; set; }
+    public int FootnoteHeavyPageCount { get; set; }
+    public string QualityStatus { get; set; } = string.Empty;
+    public string QualityDecisionReason { get; set; } = string.Empty;
+    public int CleanChunkCount { get; set; }
+    public int CleanChunkTokenCount { get; set; }
+    public Dictionary<string, int> PageRoleCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> TopQualityPenalties { get; set; } = new();
     public string? Error { get; set; }
     public List<string> Warnings { get; set; } = new();
     public List<OcrBenchmarkPageResult> Pages { get; set; } = new();
@@ -663,6 +741,7 @@ sealed class OcrBenchmarkDocumentResult
         string extractedText,
         string? error,
         DocumentInputQualityReport? pageQualityReport,
+        ITokenEstimator tokenEstimator,
         IReadOnlyCollection<StageTiming> stageTimings)
     {
         var normalized = TextCleanupUtility.NormalizeForAi(extractedText, preserveLineBreaks: true);
@@ -683,6 +762,21 @@ sealed class OcrBenchmarkDocumentResult
             FailedPages = report.FailedPages,
             LowQualityPages = report.LowQualityPages,
             AveragePageQuality = report.AveragePageQuality,
+            AveragePageQualityRaw = report.AveragePageQualityRaw == 0d ? report.AveragePageQuality : report.AveragePageQualityRaw,
+            AveragePageQualityWeighted = report.AveragePageQualityWeighted == 0d ? report.AveragePageQuality : report.AveragePageQualityWeighted,
+            BodyPageQualityAverage = report.BodyPageQualityAverage,
+            ExcludedPageCount = report.ExcludedPageCount,
+            BodyPageCount = report.BodyPageCount,
+            CoverTitlePageCount = report.CoverTitlePageCount,
+            FootnoteHeavyPageCount = report.FootnoteHeavyPageCount,
+            QualityStatus = report.QualityStatus,
+            QualityDecisionReason = report.QualityDecisionReason,
+            CleanChunkCount = CountCleanChunks(normalized, tokenEstimator, out var cleanChunkTokens),
+            CleanChunkTokenCount = cleanChunkTokens,
+            PageRoleCounts = report.Pages
+                .GroupBy(page => string.IsNullOrWhiteSpace(page.PageRole) ? "unknown" : page.PageRole!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase),
+            TopQualityPenalties = report.TopQualityPenalties,
             Error = error,
             Warnings = report.Warnings,
             Pages = report.Pages.Select(OcrBenchmarkPageResult.From).ToList(),
@@ -690,12 +784,26 @@ sealed class OcrBenchmarkDocumentResult
             StageTimings = stageTimings
         };
     }
+
+    private static int CountCleanChunks(string normalizedText, ITokenEstimator tokenEstimator, out int tokenCount)
+    {
+        var chunks = DocumentCoverageMapBuilder.Build(normalizedText)
+            .Where(chunk =>
+                chunk.Label.Length >= 12
+                && chunk.EvidenceExcerpt.Length >= 120
+                && !Regex.IsMatch($"{chunk.Label} {chunk.Summary}", @"\b(muc luc|mục lục|table of contents|tài liệu tham khảo|tai lieu tham khao)\b", RegexOptions.IgnoreCase))
+            .ToList();
+        tokenCount = chunks.Sum(chunk => tokenEstimator.EstimateTokens($"{chunk.Label}\n{chunk.Summary}\n{chunk.EvidenceExcerpt}\n{string.Join(" ", chunk.KeyFacts)}"));
+        return chunks.Count;
+    }
 }
 
 sealed class OcrBenchmarkPageResult
 {
     public int PageNumber { get; set; }
     public string Method { get; set; } = string.Empty;
+    public string? PageRole { get; set; }
+    public bool ExcludedFromDocumentQualityAverage { get; set; }
     public int CharCount { get; set; }
     public int WordCount { get; set; }
     public double SignalRatio { get; set; }
@@ -726,6 +834,8 @@ sealed class OcrBenchmarkPageResult
         {
             PageNumber = page.PageNumber,
             Method = page.Method,
+            PageRole = page.PageRole,
+            ExcludedFromDocumentQualityAverage = page.ExcludedFromDocumentQualityAverage,
             CharCount = page.CharCount,
             WordCount = page.WordCount,
             SignalRatio = page.SignalRatio,

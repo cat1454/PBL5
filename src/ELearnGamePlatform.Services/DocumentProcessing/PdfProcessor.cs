@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
@@ -18,6 +19,8 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
     private readonly ITokenEstimator _tokenEstimator;
     private readonly OcrSettings _settings;
     private static readonly Regex WordRegex = new(@"\b[\p{L}\p{N}]+\b", RegexOptions.Compiled);
+    private static readonly Regex SentenceRegex = new(@"[.!?;:]\s+|\n", RegexOptions.Compiled);
+    private static readonly Regex VietnameseDiacriticRegex = new(@"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public PdfProcessor(
         ILogger<PdfProcessor> logger,
@@ -293,34 +296,65 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         string? failureWarning = null,
         IReadOnlyCollection<string>? preprocessingSkipReasons = null)
     {
-        var normalized = TextCleanupUtility.NormalizeForAi(text, preserveLineBreaks: true);
+        var normalized = NormalizeExtractedTextForQuality(text);
         var charCount = normalized.Length;
         var wordCount = WordRegex.Matches(normalized).Count;
         var nonWhitespaceCount = normalized.Count(ch => !char.IsWhiteSpace(ch));
         var signalCount = normalized.Count(char.IsLetterOrDigit);
         var suspiciousCount = normalized.Count(IsSuspiciousCharacter);
+        var symbolCount = normalized.Count(ch => !char.IsLetterOrDigit(ch) && !char.IsWhiteSpace(ch));
+        var replacementCharacterCount = normalized.Count(ch => ch == '\uFFFD');
         var shortTokenCount = WordRegex.Matches(normalized)
             .Select(match => match.Value)
             .Count(word => word.Length <= 2);
+        var lines = normalized
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+        var digitOnlyLineCount = lines.Count(line => Regex.IsMatch(line, @"^\d{1,4}$"));
+        var footnoteLineCount = lines.Count(LooksLikeFootnoteLine);
         var signalRatio = nonWhitespaceCount == 0 ? 0d : signalCount / (double)nonWhitespaceCount;
         var garbageRatio = nonWhitespaceCount == 0 ? 1d : suspiciousCount / (double)nonWhitespaceCount;
+        var symbolRatio = nonWhitespaceCount == 0 ? 0d : symbolCount / (double)nonWhitespaceCount;
+        var replacementCharacterRatio = nonWhitespaceCount == 0 ? 0d : replacementCharacterCount / (double)nonWhitespaceCount;
         var shortTokenRatio = wordCount == 0 ? 1d : shortTokenCount / (double)wordCount;
+        var digitOnlyLineRatio = lines.Count == 0 ? 0d : digitOnlyLineCount / (double)lines.Count;
+        var footnoteRatio = lines.Count == 0 ? 0d : footnoteLineCount / (double)lines.Count;
+        var paragraphCoherenceScore = CalculateParagraphCoherenceScore(normalized, lines);
+        var vietnameseDiacriticRatio = CalculateVietnameseDiacriticRatio(normalized);
+        var pageRole = ClassifyPageRole(pageNumber, method, normalized, charCount, wordCount, footnoteRatio, digitOnlyLineRatio);
+        var excluded = ShouldExcludeFromDocumentQualityAverage(pageRole, charCount);
         var noiseScore = TextCleanupUtility.EstimateNoiseScore(normalized);
+        var qualityAdjustments = new List<string>();
         var qualityScore = CalculatePageQualityScore(
             charCount,
             wordCount,
             signalRatio,
             garbageRatio,
+            symbolRatio,
+            replacementCharacterRatio,
             shortTokenRatio,
+            digitOnlyLineRatio,
+            footnoteRatio,
+            paragraphCoherenceScore,
+            vietnameseDiacriticRatio,
             noiseScore,
-            confidence);
+            confidence,
+            method,
+            pageRole,
+            qualityAdjustments);
         var warnings = BuildPageWarnings(
             method,
+            pageRole,
             charCount,
             wordCount,
             signalRatio,
             garbageRatio,
+            symbolRatio,
+            replacementCharacterRatio,
             shortTokenRatio,
+            digitOnlyLineRatio,
+            footnoteRatio,
             noiseScore,
             qualityScore,
             failureWarning);
@@ -336,6 +370,15 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             EstimatedTokenCount = _tokenEstimator.EstimateTokens(normalized),
             Confidence = confidence.HasValue ? Math.Round(confidence.Value, 4) : null,
             QualityScore = qualityScore,
+            PageRole = pageRole,
+            ExcludedFromDocumentQualityAverage = excluded,
+            QualityAdjustments = qualityAdjustments.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            ArtifactRatio = Math.Round(Math.Max(garbageRatio, replacementCharacterRatio), 4),
+            SymbolRatio = Math.Round(symbolRatio, 4),
+            DigitOnlyLineRatio = Math.Round(digitOnlyLineRatio, 4),
+            FootnoteRatio = Math.Round(footnoteRatio, 4),
+            ParagraphCoherenceScore = Math.Round(paragraphCoherenceScore, 4),
+            VietnameseDiacriticRatio = Math.Round(vietnameseDiacriticRatio, 4),
             SelectedVariant = selectedVariant,
             SelectedPass = selectedPass,
             PreprocessingSkipReasons = preprocessingSkipReasons?.ToList() ?? new List<string>(),
@@ -358,6 +401,27 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             .Where(report => report.QualityScore < _settings.MinAcceptablePageQuality)
             .Select(report => report.PageNumber)
             .ToList();
+        var bodyPages = pageReports
+            .Where(IsBodyQualityPage)
+            .ToList();
+        var weightedPages = pageReports
+            .Select(report => new { Report = report, Weight = GetPageQualityWeight(report) })
+            .Where(item => item.Weight > 0d)
+            .ToList();
+        var rawAverage = pageReports.Count == 0 ? 0d : Math.Round(pageReports.Average(report => report.QualityScore), 2);
+        var weightedAverage = weightedPages.Count == 0
+            ? rawAverage
+            : Math.Round(weightedPages.Sum(item => item.Report.QualityScore * item.Weight) / weightedPages.Sum(item => item.Weight), 2);
+        var bodyAverage = bodyPages.Count == 0
+            ? weightedAverage
+            : Math.Round(bodyPages.Average(report => report.QualityScore), 2);
+        var directTextMajority = pageReports.Count > 0
+            && pageReports.Count(report => report.Method == DocumentPageProcessingMethods.DirectText) >= pageReports.Count * 0.60d;
+        var cleanBodyPages = bodyPages.Count(report =>
+            report.QualityScore >= Math.Max(45, _settings.MinBodyPageQualityForNeedsReview)
+            && report.WordCount >= 80
+            && report.SignalRatio >= 0.50d);
+        var documentStatus = ClassifyDocumentQualityStatus(bodyAverage, weightedAverage, bodyPages.Count, cleanBodyPages, directTextMajority, pageReports);
 
         if (lowQualityPages.Count > 0)
         {
@@ -369,6 +433,11 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             warnings.Add("One or more PDF pages failed extraction/OCR.");
         }
 
+        if (directTextMajority)
+        {
+            warnings.Add("Readable text-layer PDF with extraction artifacts; prefer direct text cleanup and chunk gating before OCR fallback.");
+        }
+
         return new DocumentInputQualityReport
         {
             TotalPages = totalPages,
@@ -377,7 +446,17 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             EmptyPages = pageReports.Count(report => report.Method == DocumentPageProcessingMethods.Empty),
             FailedPages = pageReports.Count(report => report.Method == DocumentPageProcessingMethods.Failed),
             LowQualityPages = lowQualityPages.Count,
-            AveragePageQuality = pageReports.Count == 0 ? 0d : Math.Round(pageReports.Average(report => report.QualityScore), 2),
+            AveragePageQuality = weightedAverage,
+            AveragePageQualityRaw = rawAverage,
+            AveragePageQualityWeighted = weightedAverage,
+            BodyPageQualityAverage = bodyAverage,
+            ExcludedPageCount = pageReports.Count(report => report.ExcludedFromDocumentQualityAverage),
+            BodyPageCount = bodyPages.Count,
+            CoverTitlePageCount = pageReports.Count(report => report.PageRole is DocumentPageRoles.Cover or DocumentPageRoles.Title),
+            FootnoteHeavyPageCount = pageReports.Count(report => report.PageRole == DocumentPageRoles.FootnoteHeavy),
+            QualityStatus = documentStatus.Status,
+            QualityDecisionReason = documentStatus.Reason,
+            TopQualityPenalties = BuildTopQualityPenalties(pageReports),
             TotalEstimatedTokens = pageReports.Sum(report => report.EstimatedTokenCount),
             Pages = pageReports,
             PreprocessingEffectiveness = BuildPreprocessingEffectivenessSummary(pageReports),
@@ -775,9 +854,18 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         int wordCount,
         double signalRatio,
         double garbageRatio,
+        double symbolRatio,
+        double replacementCharacterRatio,
         double shortTokenRatio,
+        double digitOnlyLineRatio,
+        double footnoteRatio,
+        double paragraphCoherenceScore,
+        double vietnameseDiacriticRatio,
         int noiseScore,
-        double? confidence)
+        double? confidence,
+        string method,
+        string pageRole,
+        List<string> qualityAdjustments)
     {
         var score = 100;
 
@@ -806,7 +894,19 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
 
         score -= (int)Math.Round(Math.Clamp(0.70d - signalRatio, 0d, 0.70d) * 55);
         score -= (int)Math.Round(Math.Clamp(garbageRatio, 0d, 1d) * 40);
-        score -= (int)Math.Round(Math.Clamp(shortTokenRatio - 0.35d, 0d, 1d) * 25);
+        score -= (int)Math.Round(Math.Clamp(symbolRatio - 0.28d, 0d, 1d) * 16);
+        score -= (int)Math.Round(Math.Clamp(replacementCharacterRatio, 0d, 1d) * 70);
+        if (ShouldPenalizeShortTokens(wordCount, signalRatio, garbageRatio, symbolRatio, replacementCharacterRatio, shortTokenRatio))
+        {
+            score -= (int)Math.Round(Math.Clamp(shortTokenRatio - 0.45d, 0d, 1d) * 18);
+        }
+        else if (shortTokenRatio > 0.50d)
+        {
+            qualityAdjustments.Add("Short Vietnamese function words treated as signal because word count and signal ratio are healthy.");
+        }
+
+        score -= (int)Math.Round(Math.Clamp(digitOnlyLineRatio - 0.18d, 0d, 1d) * 12);
+        score -= (int)Math.Round(Math.Clamp(0.35d - paragraphCoherenceScore, 0d, 0.35d) * 22);
         score -= Math.Min(35, noiseScore);
 
         if (confidence.HasValue)
@@ -814,16 +914,45 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             score -= (int)Math.Round(Math.Clamp(0.78d - confidence.Value, 0d, 0.78d) * 25);
         }
 
+        if (method == DocumentPageProcessingMethods.DirectText && wordCount >= 120 && signalRatio >= 0.55d)
+        {
+            score += 8;
+            qualityAdjustments.Add("Direct text layer with enough readable words.");
+        }
+
+        if (vietnameseDiacriticRatio >= 0.12d && wordCount >= 80 && signalRatio >= 0.50d)
+        {
+            score += 6;
+            qualityAdjustments.Add("Vietnamese diacritics indicate real text signal.");
+        }
+
+        if (pageRole == DocumentPageRoles.FootnoteHeavy && wordCount >= 80 && signalRatio >= 0.48d)
+        {
+            score += 6;
+            qualityAdjustments.Add("Footnotes/citations are warnings, not hard quality failures.");
+        }
+
+        if (pageRole is DocumentPageRoles.Cover or DocumentPageRoles.Title && charCount < 250)
+        {
+            score = Math.Max(score, 55);
+            qualityAdjustments.Add("Cover/title page excluded from document average.");
+        }
+
         return Math.Clamp(score, 0, 100);
     }
 
     private List<string> BuildPageWarnings(
         string method,
+        string pageRole,
         int charCount,
         int wordCount,
         double signalRatio,
         double garbageRatio,
+        double symbolRatio,
+        double replacementCharacterRatio,
         double shortTokenRatio,
+        double digitOnlyLineRatio,
+        double footnoteRatio,
         int noiseScore,
         int qualityScore,
         string? failureWarning)
@@ -855,7 +984,22 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
             warnings.Add("Page contains many suspicious OCR characters.");
         }
 
-        if (shortTokenRatio > 0.50d)
+        if (symbolRatio > 0.38d || replacementCharacterRatio > 0.02d)
+        {
+            warnings.Add("Page contains many extraction artifact symbols.");
+        }
+
+        if (digitOnlyLineRatio > 0.20d)
+        {
+            warnings.Add("Page contains many digit-only lines or page markers.");
+        }
+
+        if (footnoteRatio > 0.18d || pageRole == DocumentPageRoles.FootnoteHeavy)
+        {
+            warnings.Add("Page is footnote/citation heavy; treat as review signal, not hard rejection.");
+        }
+
+        if (shortTokenRatio > 0.58d && wordCount < 250 && signalRatio < 0.55d)
         {
             warnings.Add("Page has many very short tokens, which can indicate OCR noise.");
         }
@@ -873,6 +1017,142 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         return warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    private static bool ShouldPenalizeShortTokens(
+        int wordCount,
+        double signalRatio,
+        double garbageRatio,
+        double symbolRatio,
+        double replacementCharacterRatio,
+        double shortTokenRatio)
+    {
+        if (wordCount >= 250 && signalRatio >= 0.50d)
+        {
+            return garbageRatio > 0.12d
+                || symbolRatio > 0.36d
+                || replacementCharacterRatio > 0.01d
+                || shortTokenRatio > 0.68d;
+        }
+
+        return shortTokenRatio > 0.45d;
+    }
+
+    private static string ClassifyPageRole(
+        int pageNumber,
+        string method,
+        string text,
+        int charCount,
+        int wordCount,
+        double footnoteRatio,
+        double digitOnlyLineRatio)
+    {
+        if (method == DocumentPageProcessingMethods.Empty || charCount == 0)
+        {
+            return DocumentPageRoles.Empty;
+        }
+
+        var lowered = text.ToLowerInvariant();
+        if (Regex.IsMatch(lowered, @"\b(mục lục|muc luc|table of contents|contents)\b", RegexOptions.IgnoreCase)
+            || LooksLikeTableOfContents(text))
+        {
+            return DocumentPageRoles.TableOfContents;
+        }
+
+        if (Regex.IsMatch(lowered, @"\b(tài liệu tham khảo|tai lieu tham khao|tham khảo|references|bibliography)\b", RegexOptions.IgnoreCase))
+        {
+            return DocumentPageRoles.References;
+        }
+
+        if (pageNumber <= 2 && (charCount < 900 || Regex.IsMatch(lowered, @"\b(nhà xuất bản|nha xuat ban|giáo trình|giao trinh|bộ giáo dục|ban tuyên giáo|title)\b", RegexOptions.IgnoreCase)))
+        {
+            return pageNumber == 1 ? DocumentPageRoles.Cover : DocumentPageRoles.Title;
+        }
+
+        if (footnoteRatio >= 0.18d || (digitOnlyLineRatio >= 0.16d && wordCount >= 80))
+        {
+            return DocumentPageRoles.FootnoteHeavy;
+        }
+
+        return DocumentPageRoles.Body;
+    }
+
+    private bool ShouldExcludeFromDocumentQualityAverage(string pageRole, int charCount)
+    {
+        if (pageRole == DocumentPageRoles.Empty)
+        {
+            return true;
+        }
+
+        return _settings.ExcludeCoverPagesFromQualityAverage
+            && pageRole is DocumentPageRoles.Cover or DocumentPageRoles.Title
+            && charCount < 900;
+    }
+
+    private static double GetPageQualityWeight(DocumentPageProcessingReport report)
+        => report.ExcludedFromDocumentQualityAverage
+            ? 0d
+            : report.PageRole switch
+            {
+                DocumentPageRoles.Body => 1.0d,
+                DocumentPageRoles.TableOfContents => 0.6d,
+                DocumentPageRoles.References => 0.5d,
+                DocumentPageRoles.FootnoteHeavy => 0.5d,
+                DocumentPageRoles.Cover or DocumentPageRoles.Title => 0.1d,
+                DocumentPageRoles.Empty => 0d,
+                _ => 1.0d
+            };
+
+    private static bool IsBodyQualityPage(DocumentPageProcessingReport report)
+        => report.PageRole is DocumentPageRoles.Body or DocumentPageRoles.FootnoteHeavy
+            || (string.IsNullOrWhiteSpace(report.PageRole)
+                && report.Method is DocumentPageProcessingMethods.DirectText or DocumentPageProcessingMethods.Ocr);
+
+    private (string Status, string Reason) ClassifyDocumentQualityStatus(
+        double bodyAverage,
+        double weightedAverage,
+        int bodyPageCount,
+        int cleanBodyPageCount,
+        bool directTextMajority,
+        IReadOnlyCollection<DocumentPageProcessingReport> pages)
+    {
+        var bodyCoverage = bodyPageCount == 0 ? 0d : cleanBodyPageCount / (double)bodyPageCount;
+        var mostlyFailed = pages.Count > 0
+            && pages.Count(page => page.Method is DocumentPageProcessingMethods.Empty or DocumentPageProcessingMethods.Failed) > pages.Count * 0.50d;
+
+        if (bodyPageCount == 0 || mostlyFailed || bodyCoverage < 0.20d)
+        {
+            return (DocumentQualityStatuses.Rejected, "Body pages are mostly empty, failed, or too noisy for clean chunk coverage.");
+        }
+
+        if (bodyAverage >= _settings.MinBodyPageQualityForAccepted)
+        {
+            var status = pages.Any(page => page.QualityScore < _settings.MinAcceptablePageQuality)
+                ? DocumentQualityStatuses.AcceptedWithWarnings
+                : DocumentQualityStatuses.Accepted;
+            var reason = directTextMajority
+                ? "Readable text-layer PDF with extraction artifacts; OCR fallback not needed for most pages."
+                : "Readable body pages pass weighted quality thresholds.";
+            return (status, reason);
+        }
+
+        if (bodyAverage >= _settings.MinBodyPageQualityForNeedsReview && (bodyCoverage >= 0.35d || weightedAverage >= _settings.MinBodyPageQualityForNeedsReview))
+        {
+            return (DocumentQualityStatuses.NeedsReview, "Readable but noisy body pages have enough clean coverage for cautious AI processing.");
+        }
+
+        return (DocumentQualityStatuses.Rejected, "Body page quality and clean coverage are below configured thresholds.");
+    }
+
+    private static List<string> BuildTopQualityPenalties(IReadOnlyCollection<DocumentPageProcessingReport> pageReports)
+        => pageReports
+            .SelectMany(page => page.Warnings)
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .GroupBy(warning => warning, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Take(8)
+            .Select(group => $"{group.Key} ({group.Count()} page(s))")
+            .ToList();
+
     private static string BuildMergedPdfText(
         int totalPages,
         IReadOnlyDictionary<int, string> directTextByPage,
@@ -884,13 +1164,13 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         {
             if (ocrTextByPage.TryGetValue(pageNumber, out var ocrText) && !string.IsNullOrWhiteSpace(ocrText))
             {
-                combinedPages[pageNumber] = ocrText.Trim();
+                combinedPages[pageNumber] = NormalizeExtractedTextForChunking(ocrText);
                 continue;
             }
 
             if (directTextByPage.TryGetValue(pageNumber, out var directText) && !string.IsNullOrWhiteSpace(directText))
             {
-                combinedPages[pageNumber] = directText.Trim();
+                combinedPages[pageNumber] = NormalizeExtractedTextForChunking(directText);
             }
         }
 
@@ -924,15 +1204,90 @@ public class PdfProcessor : IDocumentProcessor, IDocumentInputQualityReportProvi
         var signalRatio = alphanumericCount / (double)Math.Max(1, text.Length);
         var noiseScore = TextCleanupUtility.EstimateNoiseScore(text);
 
-        return alphanumericCount >= 40
-            && wordCount >= 12
+        return alphanumericCount >= 18
+            && wordCount >= 3
             && signalRatio >= 0.35d
-            && noiseScore <= Math.Max(4, wordCount / 18);
+            && noiseScore <= Math.Max(8, wordCount / 10);
     }
 
     private static string NormalizeDirectPdfText(string text)
+        => NormalizeExtractedTextForChunking(text);
+
+    private static string NormalizeExtractedTextForQuality(string text)
     {
-        return TextCleanupUtility.CleanPageText(text);
+        var normalized = NormalizeVietnameseText(text);
+        normalized = TextCleanupUtility.NormalizeForAi(normalized, preserveLineBreaks: true);
+        normalized = Regex.Replace(normalized, @"(?m)^\s*(?:trang|page)\s+\d{1,4}(?:\s*/\s*\d{1,4})?\s*$", string.Empty, RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"(?m)^\s*\d{1,4}\s*$", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?m)^\s*[\[\(]?\d{1,3}[\]\)]?\s+(?=\p{Ll})", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?<=\p{Ll})-\s*\n\s*(?=\p{Ll})", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?<=[\p{Ll},;])\s*\n\s*(?=\p{Ll})", " ");
+        normalized = Regex.Replace(normalized, @"[ \t]{2,}", " ");
+        normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
+        return normalized.Trim();
+    }
+
+    private static string NormalizeExtractedTextForChunking(string text)
+    {
+        var normalized = NormalizeVietnameseText(text);
+        normalized = TextCleanupUtility.NormalizeForAi(normalized, preserveLineBreaks: true);
+        normalized = Regex.Replace(normalized, @"(?m)^\s*(?:trang|page)\s+\d{1,4}(?:\s*/\s*\d{1,4})?\s*$", string.Empty, RegexOptions.IgnoreCase);
+        normalized = Regex.Replace(normalized, @"(?m)^\s*\d{1,4}\s*$", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?<=\p{Ll})-\s*\n\s*(?=\p{Ll})", string.Empty);
+        normalized = Regex.Replace(normalized, @"(?<=[\p{Ll},;])\s*\n\s*(?=\p{Ll})", " ");
+        normalized = Regex.Replace(normalized, @"[ \t]{2,}", " ");
+        normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
+        return normalized.Trim();
+    }
+
+    private static string NormalizeVietnameseText(string text)
+        => string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : text.Normalize(NormalizationForm.FormC);
+
+    private static bool LooksLikeFootnoteLine(string line)
+        => Regex.IsMatch(line, @"^\s*(?:\d{1,3}|[\*\u2020])\s+[\p{L}\(\[""]", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(line, @"\b(sđd|ibid|tlđd|tr\.\s*\d+|nxb|xem:|xem thêm:)\b", RegexOptions.IgnoreCase);
+
+    private static bool LooksLikeTableOfContents(string text)
+    {
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length < 6)
+        {
+            return false;
+        }
+
+        var tocLineCount = lines.Count(line => Regex.IsMatch(line, @"\.{2,}\s*\d{1,4}$|^\s*(chuong|chương|phan|phần|muc|mục)\b.*\d{1,4}$", RegexOptions.IgnoreCase));
+        return tocLineCount >= Math.Max(4, lines.Length / 3);
+    }
+
+    private static double CalculateParagraphCoherenceScore(string text, IReadOnlyCollection<string> lines)
+    {
+        if (string.IsNullOrWhiteSpace(text) || lines.Count == 0)
+        {
+            return 0d;
+        }
+
+        var coherentLines = lines.Count(line =>
+        {
+            var words = WordRegex.Matches(line).Count;
+            return words >= 5 && line.Count(char.IsLetterOrDigit) >= Math.Max(12, line.Length * 0.45d);
+        });
+        var sentenceCount = SentenceRegex.Split(text).Count(sentence => WordRegex.Matches(sentence).Count >= 5);
+        var lineScore = coherentLines / (double)Math.Max(1, lines.Count);
+        var sentenceScore = Math.Min(1d, sentenceCount / Math.Max(2d, lines.Count / 3d));
+        return Math.Clamp((lineScore * 0.65d) + (sentenceScore * 0.35d), 0d, 1d);
+    }
+
+    private static double CalculateVietnameseDiacriticRatio(string text)
+    {
+        var letterCount = text.Count(char.IsLetter);
+        if (letterCount == 0)
+        {
+            return 0d;
+        }
+
+        return VietnameseDiacriticRegex.Matches(text).Count / (double)letterCount;
     }
 
     private static bool IsSuspiciousCharacter(char ch)
