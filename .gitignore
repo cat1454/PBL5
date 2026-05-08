@@ -56,6 +56,12 @@ temp/
 .dotnet/
 .dotnet-cli/
 
+# Local OCR benchmark artifacts
+benchmarks/input-documents/*
+!benchmarks/input-documents/.gitkeep
+benchmarks/output/*
+!benchmarks/output/.gitkeep
+
 # Environment variables
 .env
 .env.local
