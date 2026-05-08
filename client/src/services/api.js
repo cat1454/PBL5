@@ -368,6 +368,11 @@ export const questionService = {
     const response = await apiClient.get(`/questions/document/${documentId}`);
     return response.data;
   },
+
+  getQuestionMetrics: async (documentId) => {
+    const response = await apiClient.get(`/questions/document/${documentId}/metrics`);
+    return response.data;
+  },
 };
 
 export const learningService = {

@@ -5,6 +5,7 @@ using System.Data.Common;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Enums;
+using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Infrastructure.Configuration;
 using ELearnGamePlatform.Infrastructure.Data;
 using ELearnGamePlatform.Infrastructure.Repositories;
@@ -58,6 +59,8 @@ builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection(JwtSettings.SectionName));
 builder.Services.Configure<AdminSeedSettings>(
     builder.Configuration.GetSection(AdminSeedSettings.SectionName));
+builder.Services.Configure<LocalLlmSettings>(
+    builder.Configuration.GetSection(LocalLlmSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JwtSettings configuration is required.");
@@ -99,6 +102,10 @@ builder.Services.AddScoped<IDocumentProcessor, PdfProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, DocxProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, ImageProcessor>();
 builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
+builder.Services.AddScoped<ITokenEstimator, TokenEstimator>();
+builder.Services.AddScoped<IDocumentInputQualityGate, DocumentInputQualityGate>();
+builder.Services.AddScoped<ITokenBudgetPlanner, TokenBudgetPlanner>();
+builder.Services.AddScoped<IPromptAssembler, PromptAssembler>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<ISlideExportService, SlideExportService>();
@@ -107,6 +114,7 @@ builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
+builder.Services.AddScoped<IQuestionMetricsService, QuestionMetricsService>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");
