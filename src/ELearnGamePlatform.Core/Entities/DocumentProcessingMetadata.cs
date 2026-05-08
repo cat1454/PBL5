@@ -31,6 +31,8 @@ public class DocumentProcessingMetadata
     public int? MainContentStartPage { get; set; }
     public List<DocumentSectionDescriptor> Structure { get; set; } = new();
     public List<ExcludedContentDescriptor> ExcludedContent { get; set; } = new();
+    public DocumentInputQualityResult? InputQuality { get; set; }
+    public TokenBudgetPlan? AnalysisTokenBudget { get; set; }
 }
 
 public class DocumentSectionDescriptor

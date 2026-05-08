@@ -99,6 +99,8 @@ public class DocumentIngestionService : IDocumentIngestionService
         using var scope = _serviceScopeFactory.CreateScope();
         var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
         var contentAnalyzer = scope.ServiceProvider.GetRequiredService<IContentAnalyzer>();
+        var qualityGate = scope.ServiceProvider.GetRequiredService<IDocumentInputQualityGate>();
+        var tokenBudgetPlanner = scope.ServiceProvider.GetRequiredService<ITokenBudgetPlanner>();
         var documentProcessors = scope.ServiceProvider.GetRequiredService<IEnumerable<IDocumentProcessor>>();
         var documentJobStore = scope.ServiceProvider.GetRequiredService<IDocumentProcessingJobStore>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<DocumentIngestionService>>();
@@ -161,19 +163,67 @@ public class DocumentIngestionService : IDocumentIngestionService
 
             var extractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress);
             document.ExtractedText = extractedText;
+            var qualityResult = qualityGate.Evaluate(extractedText);
+            var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
+            var metadata = document.GetProcessingMetadata();
+            metadata.InputQuality = qualityResult;
+            metadata.AnalysisTokenBudget = budgetPlan;
+            document.SetProcessingMetadata(metadata);
+
+            logger.LogInformation(
+                "Document {DocumentId} input quality: {Classification}, score={QualityScore}, chars={CharCount}, words={WordCount}, estimatedTokens={EstimatedTokenCount}, withinBudget={IsWithinBudget}",
+                documentId,
+                qualityResult.Classification,
+                qualityResult.QualityScore,
+                qualityResult.CharCount,
+                qualityResult.WordCount,
+                qualityResult.EstimatedTokenCount,
+                budgetPlan.IsWithinBudget);
+
+            foreach (var warning in qualityResult.Warnings.Concat(budgetPlan.Warnings).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                logger.LogWarning("Document {DocumentId} quality/budget warning: {Warning}", documentId, warning);
+            }
 
             documentJobStore.UpdateJob(documentId, state =>
             {
                 state.Status = "running";
                 state.Percent = Math.Max(state.Percent, 60);
-                state.Stage = "extracting";
-                state.StageLabel = "Trich xuat van ban";
-                state.Message = "Da xong buoc trich xuat van ban";
-                state.Detail = $"Da lay duoc {extractedText.Length} ky tu, chuan bi phan tich noi dung";
-                state.StageIndex = 2;
+                state.Stage = "quality-gate";
+                state.StageLabel = "Kiem tra chat luong";
+                state.Message = "Da xong buoc trich xuat van ban, dang kiem tra chat luong dau vao";
+                state.Detail = $"Quality={qualityResult.Classification}, score={qualityResult.QualityScore}, tokens={qualityResult.EstimatedTokenCount}/{budgetPlan.MaxInputTokens}";
+                state.StageIndex = 3;
                 state.StageCount = 6;
                 UpdateEta(state);
             });
+
+            if (qualityResult.IsRejected)
+            {
+                document.Status = DocumentStatus.Failed;
+                document.UpdatedAt = DateTime.UtcNow;
+                await documentRepository.UpdateAsync(documentId, document);
+
+                documentJobStore.UpdateJob(documentId, state =>
+                {
+                    state.Status = "failed";
+                    state.Percent = 100;
+                    state.Stage = "quality-gate";
+                    state.StageLabel = "Khong du chat luong";
+                    state.Message = "Tai lieu bi dung truoc buoc AI vi van ban trich xuat qua thap";
+                    state.Detail = string.Join(" ", qualityResult.Warnings.DefaultIfEmpty("Document input quality gate rejected the extracted text."));
+                    state.Error = "Document input quality gate rejected the extracted text";
+                    state.StageIndex = 3;
+                    state.StageCount = 6;
+                    state.EstimatedRemainingSeconds = 0;
+                    UpdateEta(state);
+                });
+
+                logger.LogWarning(
+                    "Document {DocumentId} rejected before AI analysis. Qwen analysis was not called.",
+                    documentId);
+                return;
+            }
 
             document.Status = DocumentStatus.Analyzing;
             await documentRepository.UpdateAsync(documentId, document);
@@ -197,7 +247,9 @@ public class DocumentIngestionService : IDocumentIngestionService
                 Title = processedContent.Title,
                 MainContentStartPage = processedContent.MainContentStartPage,
                 Structure = processedContent.Structure,
-                ExcludedContent = processedContent.ExcludedContent
+                ExcludedContent = processedContent.ExcludedContent,
+                InputQuality = qualityResult,
+                AnalysisTokenBudget = budgetPlan
             });
             document.Summary = processedContent.Summary;
             document.Language = processedContent.Language;
