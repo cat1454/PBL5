@@ -8,5 +8,7 @@ public class TokenBudgetPlan
     public int EstimatedInputTokens { get; set; }
     public bool IsWithinBudget { get; set; }
     public bool WasTruncated { get; set; }
+    public List<DocumentCoverageChunk> SelectedChunks { get; set; } = new();
+    public List<DocumentCoverageChunk> OmittedChunks { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
 }

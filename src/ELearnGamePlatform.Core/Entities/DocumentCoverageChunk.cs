@@ -14,14 +14,23 @@ public class DocumentCoverageChunk
     public string? HeadingPath { get; set; }
     public string? ParentHeadingPath { get; set; }
     public string? SectionKey { get; set; }
+    public string CoverageZone { get; set; } = "giua";
     public bool IsPrimarySection { get; set; }
     public string Classification { get; set; } = ChunkClassifications.LessonContent;
     public int TeachabilityScore { get; set; } = 50;
+    public int ChunkQualityScore { get; set; } = 50;
+    public int EstimatedTokenCount { get; set; }
+    public int TokenEfficiencyScore { get; set; }
+    public int KeyFactDensityScore { get; set; }
     public List<string> PositiveSignals { get; set; } = new();
     public List<string> NegativeSignals { get; set; } = new();
     public string SelectionReason { get; set; } = string.Empty;
     public int? StartPage { get; set; }
     public int? EndPage { get; set; }
+    public int? SourcePageStart { get; set; }
+    public int? SourcePageEnd { get; set; }
+    public bool IsEligibleForQuestionGeneration { get; set; } = true;
+    public List<string> Warnings { get; set; } = new();
     public string Summary { get; set; } = string.Empty;
     public string EvidenceExcerpt { get; set; } = string.Empty;
     public List<string> KeyFacts { get; set; } = new();

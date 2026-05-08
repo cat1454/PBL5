@@ -9,12 +9,12 @@ internal static class DocumentCoverageMapBuilder
 {
     private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "va", "la", "cua", "cho", "voi", "trong", "tren", "duoc", "mot", "nhung", "cac", "khi", "neu",
-        "thi", "tai", "theo", "ve", "den", "tu", "co", "khong", "nay", "do", "day", "sau", "truoc",
-        "hoac", "nhu", "da", "dang", "can", "phan", "page", "from", "with", "that", "this", "have",
+        "và", "là", "của", "cho", "với", "trong", "trên", "được", "một", "những", "các", "khi", "nếu",
+        "thì", "tại", "theo", "về", "đến", "từ", "có", "không", "này", "đó", "đây", "sau", "trước",
+        "hoặc", "như", "đã", "đang", "cần", "phần", "trang", "từ", "với", "khiến", "này", "có",
+        "vào", "page", "from", "with", "that", "this", "have",
         "into", "about", "their", "there", "would", "should", "could", "while", "where", "which"
     };
-
     public static List<DocumentCoverageChunk> Build(string content, int chunkSize = 2200, int overlap = 320)
     {
         var normalized = NormalizeContent(content);
@@ -33,11 +33,13 @@ internal static class DocumentCoverageMapBuilder
             var parentHeadingPath = BuildParentHeadingPath(headingStack, heading);
             var headingText = heading?.HeadingText ?? heading?.Title;
             var sectionKey = BuildSectionKey(headingPath, heading, chunkNumber);
+            var coverageZone = ResolveCoverageZone(chunkNumber, rawChunks.Count);
             chunks.Add(new DocumentCoverageChunk
             {
                 ChunkNumber = chunkNumber,
                 ChunkId = $"C{chunkNumber:00}",
-                Zone = ResolveCoverageZone(chunkNumber, rawChunks.Count),
+                Zone = coverageZone,
+                CoverageZone = coverageZone,
                 Label = BuildChunkLabel(chunkText, chunkNumber, rawChunks.Count),
                 HeadingKind = heading?.Kind,
                 HeadingLevel = heading?.Level,

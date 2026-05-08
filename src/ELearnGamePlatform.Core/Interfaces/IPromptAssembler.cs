@@ -5,4 +5,5 @@ namespace ELearnGamePlatform.Core.Interfaces;
 public interface IPromptAssembler
 {
     PromptAssemblyResult BuildAnalysisPrompt(string inputText, TokenBudgetPlan budgetPlan);
+    PromptAssemblyResult BuildAnalysisPrompt(IReadOnlyList<DocumentCoverageChunk> selectedChunks, TokenBudgetPlan budgetPlan);
 }

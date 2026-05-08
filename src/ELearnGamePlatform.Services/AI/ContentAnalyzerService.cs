@@ -9,6 +9,8 @@ namespace ELearnGamePlatform.Services.AI;
 public class ContentAnalyzerService : IContentAnalyzer
 {
     private readonly IOllamaService _ollamaService;
+    private readonly ITokenBudgetPlanner _tokenBudgetPlanner;
+    private readonly IPromptAssembler _promptAssembler;
     private readonly ILogger<ContentAnalyzerService> _logger;
     private const int ChunkSize = 1800;
     private const int ChunkOverlap = 260;
@@ -17,9 +19,15 @@ public class ContentAnalyzerService : IContentAnalyzer
     private const int MaxChunkAnalysesBeforeCompaction = 6;
     private static readonly Regex PageRegex = new(@"\[Page\s+(\d+)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public ContentAnalyzerService(IOllamaService ollamaService, ILogger<ContentAnalyzerService> logger)
+    public ContentAnalyzerService(
+        IOllamaService ollamaService,
+        ITokenBudgetPlanner tokenBudgetPlanner,
+        IPromptAssembler promptAssembler,
+        ILogger<ContentAnalyzerService> logger)
     {
         _ollamaService = ollamaService;
+        _tokenBudgetPlanner = tokenBudgetPlanner;
+        _promptAssembler = promptAssembler;
         _logger = logger;
     }
 
@@ -31,24 +39,44 @@ public class ContentAnalyzerService : IContentAnalyzer
             var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText);
             var enrichedCoverageMap = EnrichCoverageMap(rawCoverageMap, normalizedText);
             var cleanCoverageMap = BuildCleanCoverageMap(enrichedCoverageMap);
-            var chunks = BuildAnalysisChunks(cleanCoverageMap);
+            var budgetPlan = _tokenBudgetPlanner.PlanChunks(cleanCoverageMap, "analysis");
+            var selectedCoverageMap = budgetPlan.SelectedChunks.Any() || budgetPlan.OmittedChunks.Any()
+                ? budgetPlan.SelectedChunks
+                : cleanCoverageMap;
+            var promptAssembly = _promptAssembler.BuildAnalysisPrompt(selectedCoverageMap, budgetPlan);
+            var coverageMapWithBudgetSelection = MarkBudgetSelection(enrichedCoverageMap, budgetPlan);
+            var chunks = BuildAnalysisChunks(selectedCoverageMap);
 
-            if (chunks.Count == 0)
+            if (chunks.Count == 0 && cleanCoverageMap.Count == 0)
             {
                 chunks = SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap);
             }
 
+            if (chunks.Count == 0)
+            {
+                _logger.LogWarning("No eligible chunks were selected for local Qwen analysis; using local fallback content analysis.");
+                return CreateFallbackProcessedContent(text, coverageMapWithBudgetSelection);
+            }
+
             _logger.LogInformation(
-                "Analyzing document content using {ChunkCount} chunks with max parallelism {MaxParallelChunkAnalyses}",
+                "Analyzing document content using {ChunkCount} selected chunks ({OmittedChunkCount} omitted), estimatedTokens={EstimatedInputTokens}/{MaxInputTokens}, max parallelism {MaxParallelChunkAnalyses}",
                 chunks.Count,
+                budgetPlan.OmittedChunks.Count,
+                budgetPlan.EstimatedInputTokens,
+                budgetPlan.MaxInputTokens,
                 Math.Min(MaxParallelChunkAnalyses, Math.Max(1, chunks.Count)));
+
+            foreach (var warning in promptAssembly.Warnings)
+            {
+                _logger.LogWarning("Document analysis prompt warning: {Warning}", warning);
+            }
 
             var chunkAnalyses = await AnalyzeChunksInParallelAsync(chunks, progress);
 
             if (!chunkAnalyses.Any())
             {
                 _logger.LogWarning("No chunk analyses were produced, using fallback");
-                return CreateFallbackProcessedContent(text, enrichedCoverageMap);
+                return CreateFallbackProcessedContent(text, coverageMapWithBudgetSelection);
             }
 
             var preparedAnalyses = CompactChunkAnalysesLocally(chunkAnalyses, progress);
@@ -59,11 +87,11 @@ public class ContentAnalyzerService : IContentAnalyzer
             if (result == null)
             {
                 _logger.LogWarning("Failed to consolidate chunk analyses with AI, using local merge fallback");
-                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, enrichedCoverageMap);
+                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, coverageMapWithBudgetSelection);
             }
 
             ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hoan thien tom tat, topics va key points", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 97);
-            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, enrichedCoverageMap);
+            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, coverageMapWithBudgetSelection);
         }
         catch (Exception ex)
         {
@@ -420,13 +448,64 @@ Respond in JSON format:
                 Environment.NewLine,
                 new[]
                 {
-                    $"[{chunk.ChunkId}] {chunk.Label}",
+                    $"[{chunk.ChunkId}] sectionKey={chunk.SectionKey ?? chunk.ChunkId}; coverageZone={chunk.CoverageZone}; pageRange={BuildPageRange(chunk)}; qualityScore={chunk.ChunkQualityScore}; estimatedTokens={chunk.EstimatedTokenCount}",
+                    chunk.Label,
                     chunk.Summary,
                     chunk.EvidenceExcerpt,
                     string.Join(" ", chunk.KeyFacts)
                 }.Where(value => !string.IsNullOrWhiteSpace(value))))
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
+
+    private static List<DocumentCoverageChunk> MarkBudgetSelection(List<DocumentCoverageChunk> coverageMap, TokenBudgetPlan budgetPlan)
+    {
+        if (!budgetPlan.SelectedChunks.Any() && !budgetPlan.OmittedChunks.Any())
+        {
+            return coverageMap;
+        }
+
+        var omittedIds = budgetPlan.OmittedChunks
+            .Select(chunk => chunk.ChunkId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var plannedById = budgetPlan.SelectedChunks
+            .Concat(budgetPlan.OmittedChunks)
+            .GroupBy(chunk => chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        return coverageMap
+            .Select(chunk =>
+            {
+                var cloned = CloneChunk(chunk);
+                if (plannedById.TryGetValue(cloned.ChunkId, out var planned))
+                {
+                    cloned.EstimatedTokenCount = planned.EstimatedTokenCount;
+                    cloned.TokenEfficiencyScore = planned.TokenEfficiencyScore;
+                    cloned.ChunkQualityScore = planned.ChunkQualityScore;
+                    cloned.KeyFactDensityScore = planned.KeyFactDensityScore;
+                    cloned.IsEligibleForQuestionGeneration = planned.IsEligibleForQuestionGeneration;
+                }
+
+                if (omittedIds.Contains(cloned.ChunkId))
+                {
+                    cloned.Warnings.Add("Chunk omitted from local Qwen analysis prompt because of quality or token budget.");
+                }
+
+                return cloned;
+            })
+            .ToList();
+    }
+
+    private static string BuildPageRange(DocumentCoverageChunk chunk)
+    {
+        var start = chunk.SourcePageStart ?? chunk.StartPage;
+        var end = chunk.SourcePageEnd ?? chunk.EndPage;
+        if (start.HasValue && end.HasValue)
+        {
+            return start == end ? start.Value.ToString() : $"{start}-{end}";
+        }
+
+        return start?.ToString() ?? end?.ToString() ?? "unknown";
+    }
 
     private static List<DocumentCoverageChunk> BuildCleanCoverageMap(List<DocumentCoverageChunk> coverageMap)
     {
@@ -459,6 +538,146 @@ Respond in JSON format:
             or ChunkClassifications.Exercise;
     }
 
+    private static (int Score, int KeyFactDensityScore, List<string> Warnings) ScoreChunkQuality(DocumentCoverageChunk chunk, string classification, int teachabilityScore)
+    {
+        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {string.Join(" ", chunk.KeyFacts)}";
+        var warnings = new List<string>();
+        var lengthScore = ScoreTextLength(text.Length);
+        var signalRatio = ScoreSignalRatio(text);
+        var noiseScore = ScoreNoise(text, classification);
+        var keyFactDensity = ScoreKeyFactDensity(chunk, text);
+        var metadataScore = ScoreMetadata(chunk);
+        var score = (int)Math.Round(
+            (0.26d * lengthScore)
+            + (0.24d * signalRatio)
+            + (0.20d * (100 - noiseScore))
+            + (0.18d * keyFactDensity)
+            + (0.12d * metadataScore));
+
+        score = (int)Math.Round((score * 0.75d) + (teachabilityScore * 0.25d));
+        if (text.Length < 120)
+        {
+            warnings.Add("Chunk text is short.");
+        }
+
+        if (noiseScore >= 45)
+        {
+            warnings.Add("Chunk has likely OCR or formatting noise.");
+        }
+
+        if (keyFactDensity < 25)
+        {
+            warnings.Add("Chunk has low key fact density.");
+        }
+
+        if (classification is ChunkClassifications.Noise or ChunkClassifications.FrontMatter or ChunkClassifications.TableOfContents or ChunkClassifications.Reference)
+        {
+            warnings.Add($"Chunk classified as {classification}.");
+        }
+
+        return (Math.Clamp(score, 0, 100), keyFactDensity, warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private static int ScoreTextLength(int length)
+    {
+        if (length < 80)
+        {
+            return 10;
+        }
+
+        if (length < 240)
+        {
+            return 45;
+        }
+
+        if (length <= 1400)
+        {
+            return 100;
+        }
+
+        if (length <= 2600)
+        {
+            return 82;
+        }
+
+        return 60;
+    }
+
+    private static int ScoreSignalRatio(string text)
+    {
+        var words = Regex.Matches(text, @"\b[\p{L}\p{N}]{2,}\b").Count;
+        if (words == 0)
+        {
+            return 0;
+        }
+
+        var signalMatches = Regex.Matches(text, @"\b(la|gom|bao gom|dinh nghia|concept|definition|nguyen nhan|ket qua|because|therefore|formula|cong thuc|vi du|example|step|buoc)\b|\d", RegexOptions.IgnoreCase).Count;
+        var ratio = Math.Min(1d, signalMatches / Math.Max(8d, words * 0.08d));
+        return Math.Clamp((int)Math.Round(ratio * 100), 0, 100);
+    }
+
+    private static int ScoreNoise(string text, string classification)
+    {
+        var score = 0;
+        if (TextCleanupUtility.HasNoisyArtifacts(text))
+        {
+            score += 42;
+        }
+
+        if (Regex.IsMatch(text, @"(?:[_=~|]{3,}|[^\p{L}\p{N}\s\.,;:\-\(\)\[\]/%]{5,})", RegexOptions.IgnoreCase))
+        {
+            score += 22;
+        }
+
+        if (LooksMostlyNames(text))
+        {
+            score += 16;
+        }
+
+        if (classification is ChunkClassifications.Noise or ChunkClassifications.FrontMatter)
+        {
+            score += 28;
+        }
+
+        return Math.Clamp(score, 0, 100);
+    }
+
+    private static int ScoreKeyFactDensity(DocumentCoverageChunk chunk, string text)
+    {
+        var words = Math.Max(1, Regex.Matches(text, @"\b[\p{L}\p{N}]{2,}\b").Count);
+        var factWeight = chunk.KeyFacts.Count * 18;
+        var numericWeight = Math.Min(24, Regex.Matches(text, @"\d").Count * 2);
+        var definitionWeight = Regex.IsMatch(text, @"\b(la|dinh nghia|definition|concept|formula|cong thuc|nguyen nhan|ket qua)\b", RegexOptions.IgnoreCase) ? 24 : 0;
+        var density = Math.Min(100d, (factWeight + numericWeight + definitionWeight) / Math.Max(1d, words / 90d));
+        return Math.Clamp((int)Math.Round(density), 0, 100);
+    }
+
+    private static int ScoreMetadata(DocumentCoverageChunk chunk)
+    {
+        var score = 35;
+        if (!string.IsNullOrWhiteSpace(chunk.SectionKey))
+        {
+            score += 20;
+        }
+
+        if (!string.IsNullOrWhiteSpace(chunk.HeadingText) || !string.IsNullOrWhiteSpace(chunk.HeadingPath))
+        {
+            score += 20;
+        }
+
+        if (chunk.StartPage.HasValue || chunk.SourcePageStart.HasValue)
+        {
+            score += 15;
+        }
+
+        if (chunk.IsPrimarySection)
+        {
+            score += 10;
+        }
+
+        return Math.Clamp(score, 0, 100);
+    }
+
     private static List<DocumentCoverageChunk> EnrichCoverageMap(List<DocumentCoverageChunk> coverageMap, string normalizedText)
     {
         var documentType = DetectDocumentType(normalizedText, coverageMap);
@@ -478,11 +697,19 @@ Respond in JSON format:
             var cloned = CloneChunk(chunk);
             cloned.Classification = classification;
             cloned.TeachabilityScore = Math.Clamp(score, 0, 100);
+            var quality = ScoreChunkQuality(cloned, classification, cloned.TeachabilityScore);
+            cloned.ChunkQualityScore = quality.Score;
+            cloned.KeyFactDensityScore = quality.KeyFactDensityScore;
             cloned.PositiveSignals = positives;
             cloned.NegativeSignals = negatives;
             cloned.SelectionReason = BuildSelectionReason(cloned, headingBySection.TryGetValue(chunk.SectionKey ?? string.Empty, out var heading) ? heading : null);
             cloned.StartPage = TryGetChunkStartPage(chunk);
             cloned.EndPage = TryGetChunkEndPage(chunk);
+            cloned.SourcePageStart = cloned.StartPage;
+            cloned.SourcePageEnd = cloned.EndPage;
+            cloned.CoverageZone = string.IsNullOrWhiteSpace(cloned.CoverageZone) ? cloned.Zone : cloned.CoverageZone;
+            cloned.IsEligibleForQuestionGeneration = ShouldIncludeChunkInCoverage(cloned) && cloned.ChunkQualityScore >= 35;
+            cloned.Warnings = quality.Warnings;
             result.Add(cloned);
         }
 
@@ -496,6 +723,7 @@ Respond in JSON format:
             ChunkNumber = chunk.ChunkNumber,
             ChunkId = chunk.ChunkId,
             Zone = chunk.Zone,
+            CoverageZone = string.IsNullOrWhiteSpace(chunk.CoverageZone) ? chunk.Zone : chunk.CoverageZone,
             Label = chunk.Label,
             HeadingKind = chunk.HeadingKind,
             HeadingLevel = chunk.HeadingLevel,
@@ -506,6 +734,21 @@ Respond in JSON format:
             ParentHeadingPath = chunk.ParentHeadingPath,
             SectionKey = chunk.SectionKey,
             IsPrimarySection = chunk.IsPrimarySection,
+            Classification = chunk.Classification,
+            TeachabilityScore = chunk.TeachabilityScore,
+            ChunkQualityScore = chunk.ChunkQualityScore,
+            EstimatedTokenCount = chunk.EstimatedTokenCount,
+            TokenEfficiencyScore = chunk.TokenEfficiencyScore,
+            KeyFactDensityScore = chunk.KeyFactDensityScore,
+            PositiveSignals = chunk.PositiveSignals.ToList(),
+            NegativeSignals = chunk.NegativeSignals.ToList(),
+            SelectionReason = chunk.SelectionReason,
+            StartPage = chunk.StartPage,
+            EndPage = chunk.EndPage,
+            SourcePageStart = chunk.SourcePageStart,
+            SourcePageEnd = chunk.SourcePageEnd,
+            IsEligibleForQuestionGeneration = chunk.IsEligibleForQuestionGeneration,
+            Warnings = chunk.Warnings.ToList(),
             Summary = chunk.Summary,
             EvidenceExcerpt = chunk.EvidenceExcerpt,
             KeyFacts = chunk.KeyFacts.ToList()

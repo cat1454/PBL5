@@ -149,6 +149,7 @@ public class QuestionGeneratorService : IQuestionGenerator
         if (processedContent?.CoverageMap.Any() == true)
         {
             var storedChunks = processedContent.CoverageMap
+                .Where(chunk => chunk.IsEligibleForQuestionGeneration)
                 .OrderBy(chunk => chunk.ChunkNumber)
                 .Select(chunk => new DocumentChunk
                 {

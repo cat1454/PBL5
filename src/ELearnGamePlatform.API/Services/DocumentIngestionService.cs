@@ -231,8 +231,8 @@ public class DocumentIngestionService : IDocumentIngestionService
                 state.Status = "running";
                 state.Percent = Math.Max(state.Percent, 60);
                 state.Stage = "quality-gate";
-                state.StageLabel = "Kiem tra chat luong";
-                state.Message = "Da xong buoc trich xuat van ban, dang kiem tra chat luong dau vao";
+                state.StageLabel = "Kiểm tra chất lượng";
+                state.Message = "Đã xong bước trích xuất văn bản, đang kiểm tra chất lượng đầu vào cho AI";
                 state.Detail = $"Quality={qualityResult.Classification}, score={qualityResult.QualityScore}, tokens={qualityResult.EstimatedTokenCount}/{budgetPlan.MaxInputTokens}";
                 state.StageIndex = 3;
                 state.StageCount = 6;
@@ -250,8 +250,8 @@ public class DocumentIngestionService : IDocumentIngestionService
                     state.Status = "failed";
                     state.Percent = 100;
                     state.Stage = "quality-gate";
-                    state.StageLabel = "Khong du chat luong";
-                    state.Message = "Tai lieu bi dung truoc buoc AI vi van ban trich xuat qua thap";
+                    state.StageLabel = "Không đủ chất lượng";
+                    state.Message = "Tài liệu bị từ chối trước bước AI vì văn bản trích xuất quá thấp";
                     state.Detail = string.Join(" ", qualityResult.Warnings.DefaultIfEmpty("Document input quality gate rejected the extracted text."));
                     state.Error = "Document input quality gate rejected the extracted text";
                     state.StageIndex = 3;

@@ -222,6 +222,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
         });
 
         return slideLayoutPart;
+    }
     
     private static P.CommonSlideData CreateCommonSlideData(string name)
     {

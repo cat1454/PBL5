@@ -130,6 +130,7 @@ public class TesseractOcrService : IOcrService
             for (var index = 0; index < orderedPages.Length; index++)
             {
                 var pageNumber = orderedPages[index];
+                var pageStopwatch = Stopwatch.StartNew();
                 ReportPdfPageProgress(
                     progress,
                     Math.Max(5, (int)Math.Round((index / (double)orderedPages.Length) * 100d)),
@@ -141,17 +142,20 @@ public class TesseractOcrService : IOcrService
                 var imagePath = await ConvertPdfPageToImageAsync(pdfPath, tempDirectory, pageNumber, renderDpi);
                 if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
                 {
+                    pageStopwatch.Stop();
                     _logger.LogWarning("Could not convert page {PageNumber} to image for OCR", pageNumber);
                     results[pageNumber] = new OcrPageExtractionResult
                     {
                         PageNumber = pageNumber,
                         PdfDpi = renderDpi,
+                        DurationMs = pageStopwatch.ElapsedMilliseconds,
                         FailureReason = "PDF page could not be converted to image for OCR."
                     };
                     continue;
                 }
 
                 var pageResult = await ExtractBestResultFromImageWithEngineAsync(imagePath, engine);
+                pageStopwatch.Stop();
                 if (pageResult != null)
                 {
                     results[pageNumber] = new OcrPageExtractionResult
@@ -160,6 +164,7 @@ public class TesseractOcrService : IOcrService
                         Text = pageResult.Text,
                         Confidence = Math.Round(pageResult.Confidence, 4),
                         PdfDpi = renderDpi,
+                        DurationMs = pageStopwatch.ElapsedMilliseconds,
                         SelectedVariant = pageResult.Variant,
                         SelectedPass = pageResult.PassName
                     };
@@ -170,6 +175,7 @@ public class TesseractOcrService : IOcrService
                     {
                         PageNumber = pageNumber,
                         PdfDpi = renderDpi,
+                        DurationMs = pageStopwatch.ElapsedMilliseconds,
                         FailureReason = "OCR produced no candidate text."
                     };
                 }
