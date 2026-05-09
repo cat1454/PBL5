@@ -9,6 +9,8 @@ namespace ELearnGamePlatform.Core.Extensions;
 /// </summary>
 public static class EntityExtensions
 {
+    private const string SlideEditorFontFamily = "Lexend";
+
     // Document extensions
     public static List<string> GetMainTopics(this Document document)
     {
@@ -132,7 +134,7 @@ public static class EntityExtensions
             Title = new SlideTextBlockState
             {
                 Text = item.Heading ?? string.Empty,
-                FontFamily = item.SlideType == SlideItemType.Title ? "Georgia" : "Trebuchet MS",
+                FontFamily = SlideEditorFontFamily,
                 FontSize = item.SlideType == SlideItemType.Title ? 34 : 24,
                 Bold = true,
                 Align = "left"
@@ -140,14 +142,14 @@ public static class EntityExtensions
             Subtitle = new SlideTextBlockState
             {
                 Text = item.Subheading ?? string.Empty,
-                FontFamily = "Segoe UI",
+                FontFamily = SlideEditorFontFamily,
                 FontSize = 16,
                 Align = "left"
             },
             Goal = new SlideTextBlockState
             {
                 Text = item.KeyMessage ?? item.Goal ?? string.Empty,
-                FontFamily = "Segoe UI",
+                FontFamily = SlideEditorFontFamily,
                 FontSize = 14,
                 Bold = true,
                 Align = "left"
@@ -155,7 +157,7 @@ public static class EntityExtensions
             Body = new SlideTextBlockState
             {
                 Text = string.Join('\n', item.GetBodyBlocks()),
-                FontFamily = "Segoe UI",
+                FontFamily = SlideEditorFontFamily,
                 FontSize = 18,
                 Align = "left",
                 Bullet = item.SlideType != SlideItemType.Quote
@@ -163,7 +165,7 @@ public static class EntityExtensions
             Notes = new SlideTextBlockState
             {
                 Text = item.SpeakerNotes ?? string.Empty,
-                FontFamily = "Segoe UI",
+                FontFamily = SlideEditorFontFamily,
                 FontSize = 14,
                 Align = "left"
             }

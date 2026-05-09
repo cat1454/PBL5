@@ -15,6 +15,7 @@ public class SlideExportService : ISlideExportService
     private const long EmuPerInch = 914400;
     private const long SlideWidth = 12192000;
     private const long SlideHeight = 6858000;
+    private const string SlideFontFamily = "Lexend";
     private readonly ISlideGenerator _slideGenerator;
 
     public SlideExportService(ISlideGenerator slideGenerator)
@@ -41,31 +42,32 @@ public class SlideExportService : ISlideExportService
         builder.AppendLine($"<title>{title} - Print</title>");
         builder.AppendLine("<style>");
         builder.AppendLine(@"
-:root{color-scheme:light;--text:#17212d;--muted:#596779;--border:#d8dee8;--paper:#fff;--accent:#2458a6;}
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300..900&display=swap');
+:root{color-scheme:light;--text:#17212d;--muted:#596779;--border:#d8dee8;--paper:#fff;--accent:#2458a6;--slide-font-family:'Lexend','Noto Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
 *{box-sizing:border-box;}
-body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica Neue',sans-serif;}
-.deck-shell{max-width:1180px;margin:0 auto;padding:28px 18px 48px;}
-.print-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;color:var(--muted);}
+body{margin:0;background:#eef2f7;color:var(--text);font-family:var(--slide-font-family);}
+.deck-shell{max-width:1180px;margin:0 auto;padding:28px 18px 48px;font-family:inherit;}
+.print-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;color:var(--muted);font-family:inherit;}
 .print-toolbar h1{margin:0;color:var(--text);font-size:24px;line-height:1.2;}
 .print-toolbar p{margin:4px 0 0;line-height:1.5;}
-.print-button{border:0;border-radius:8px;background:var(--accent);color:#fff;padding:10px 16px;font-weight:700;cursor:pointer;}
-.slide-page{width:100%;aspect-ratio:16/9;background:var(--paper);border:1px solid var(--border);box-shadow:0 18px 48px rgba(15,23,42,.14);margin:0 auto 24px;padding:48px;display:flex;flex-direction:column;page-break-after:always;break-after:page;}
+.print-button{border:0;border-radius:8px;background:var(--accent);color:#fff;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;}
+.slide-page{width:100%;aspect-ratio:16/9;background:var(--paper);border:1px solid var(--border);box-shadow:0 18px 48px rgba(15,23,42,.14);margin:0 auto 24px;padding:48px;display:flex;flex-direction:column;page-break-after:always;break-after:page;font-family:inherit;}
 .slide-page:last-child{page-break-after:auto;break-after:auto;}
 .slide-meta{display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}
-.slide-page h2{margin:22px 0 10px;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:1.05;color:var(--text);}
+.slide-page h2{margin:22px 0 10px;font-family:inherit;font-size:42px;line-height:1.05;color:var(--text);}
 .slide-subheading{margin:0 0 14px;color:var(--muted);font-size:20px;line-height:1.45;}
 .slide-goal{display:inline-block;max-width:100%;align-self:flex-start;margin:0 0 20px;padding:8px 12px;border-radius:999px;background:#edf4ff;color:#1d4ed8;font-weight:700;font-size:14px;}
-.slide-body{font-size:22px;line-height:1.42;}
+.slide-body{font-family:inherit;font-size:22px;line-height:1.42;}
 .slide-body ul{margin:0;padding-left:24px;display:grid;gap:12px;}
 .slide-body p{margin:0 0 12px;}
-.speaker-notes{margin-top:auto;border-top:1px solid var(--border);padding-top:14px;color:var(--muted);font-size:14px;line-height:1.5;}
+.speaker-notes{margin-top:auto;border-top:1px solid var(--border);padding-top:14px;color:var(--muted);font-family:inherit;font-size:14px;line-height:1.5;}
 .slide-page.type-title{justify-content:flex-end;background:linear-gradient(180deg,#fff7ed,#fff);}
 .slide-page.type-title h2{font-size:58px;}
 .slide-page.type-sectiondivider{background:#17212d;color:#fff;}
 .slide-page.type-sectiondivider h2,.slide-page.type-sectiondivider .slide-meta{color:#fff;}
 .slide-page.type-sectiondivider .slide-subheading,.slide-page.type-sectiondivider .speaker-notes{color:rgba(255,255,255,.78);}
 .slide-page.type-highlight{background:#f8fbff;}
-.slide-page.type-quote .slide-body{font-family:Georgia,'Times New Roman',serif;font-size:28px;font-style:italic;}
+.slide-page.type-quote .slide-body{font-family:inherit;font-size:28px;font-style:italic;}
 @page{size:16in 9in;margin:0;}
 @media print{
   html,body{width:100%;height:100%;background:#fff;}
@@ -271,7 +273,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
             Inches(0.38),
             Inches(11.8),
             Inches(0.35),
-            new[] { CreateParagraph(slideIndex.HasValue ? $"Slide {slideIndex} | {slideType}" : "Title slide", 11, true, "5B6B7C", "Arial") }));
+            new[] { CreateParagraph(slideIndex.HasValue ? $"Slide {slideIndex} | {slideType}" : "Title slide", 11, true, "5B6B7C") }));
         shapeTree.Append(CreateTextShape(
             shapeId++,
             "Heading",
@@ -279,7 +281,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
             isTitle ? Inches(2.35) : Inches(0.95),
             Inches(11.85),
             isTitle ? Inches(1.35) : Inches(1.15),
-            new[] { CreateParagraph(Truncate(heading, 110), isTitle ? 42 : 30, true, "17212D", "Georgia") }));
+            new[] { CreateParagraph(Truncate(heading, 110), isTitle ? 42 : 30, true, "17212D") }));
 
         var currentY = isTitle ? Inches(3.75) : Inches(2.05);
         if (!string.IsNullOrWhiteSpace(subheading))
@@ -291,7 +293,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
                 currentY,
                 Inches(11.35),
                 Inches(0.72),
-                new[] { CreateParagraph(Truncate(subheading!, 160), isTitle ? 18 : 16, false, "506074", "Arial") }));
+                new[] { CreateParagraph(Truncate(subheading!, 160), isTitle ? 18 : 16, false, "506074") }));
             currentY += Inches(0.7);
         }
 
@@ -304,13 +306,13 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
                 currentY,
                 Inches(11.2),
                 Inches(0.45),
-                new[] { CreateParagraph(Truncate(goal!, 170), 13, true, "1D4ED8", "Arial") }));
+                new[] { CreateParagraph(Truncate(goal!, 170), 13, true, "1D4ED8") }));
             currentY += Inches(0.55);
         }
 
         var paragraphs = bodyBlocks.Any()
-            ? bodyBlocks.Take(5).Select(block => CreateParagraph($"- {Truncate(block, 180)}", isTitle ? 18 : 17, false, "17212D", "Arial")).ToList()
-            : new List<A.Paragraph> { CreateParagraph("Dang cho noi dung...", 16, false, "5B6B7C", "Arial") };
+            ? bodyBlocks.Take(5).Select(block => CreateParagraph($"- {Truncate(block, 180)}", isTitle ? 18 : 17, false, "17212D")).ToList()
+            : new List<A.Paragraph> { CreateParagraph("Dang cho noi dung...", 16, false, "5B6B7C") };
 
         shapeTree.Append(CreateTextShape(
             shapeId++,
@@ -330,7 +332,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
                 Inches(6.45),
                 Inches(11.1),
                 Inches(0.55),
-                new[] { CreateParagraph($"Speaker notes: {Truncate(speakerNotes!, 220)}", 10, false, "5B6B7C", "Arial") }));
+                new[] { CreateParagraph($"Speaker notes: {Truncate(speakerNotes!, 220)}", 10, false, "5B6B7C") }));
         }
 
         slidePart.Slide = new P.Slide(new P.CommonSlideData(shapeTree), new P.ColorMapOverride(new A.MasterColorMapping()));
@@ -378,7 +380,7 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
             new P.ApplicationNonVisualDrawingProperties());
     }
 
-    private static A.Paragraph CreateParagraph(string text, int fontSize, bool bold, string color, string fontFamily)
+    private static A.Paragraph CreateParagraph(string text, int fontSize, bool bold, string color)
     {
         var runProperties = new A.RunProperties
         {
@@ -387,8 +389,8 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:Arial,'Helvetica 
             Bold = bold
         };
         runProperties.Append(new A.SolidFill(new A.RgbColorModelHex { Val = color }));
-        runProperties.Append(new A.LatinFont { Typeface = fontFamily });
-        runProperties.Append(new A.EastAsianFont { Typeface = fontFamily });
+        runProperties.Append(new A.LatinFont { Typeface = SlideFontFamily });
+        runProperties.Append(new A.EastAsianFont { Typeface = SlideFontFamily });
 
         return new A.Paragraph(
             new A.ParagraphProperties { Alignment = A.TextAlignmentTypeValues.Left },

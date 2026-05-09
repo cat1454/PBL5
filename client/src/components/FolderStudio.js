@@ -26,7 +26,7 @@ const DEFAULT_BRIEF = {
   scopePolicy: 'selected-sections-only',
 };
 
-const FONT_OPTIONS = ['Georgia', 'Trebuchet MS', 'Segoe UI', 'Palatino Linotype', 'Courier New'];
+const FONT_OPTIONS = ['Lexend', 'Noto Sans', 'Trebuchet MS', 'Segoe UI', 'Palatino Linotype', 'Courier New'];
 const FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36];
 const THEME_OPTIONS = [
   { value: 'editorial-sunrise', label: 'Editorial Sunrise' },
@@ -158,11 +158,11 @@ function getScopeSectionPreview(section, title) {
 function createFallbackEditorState(item) {
   return item?.editorState || {
     layoutVariant: 'standard',
-    title: { text: item?.heading || '', fontFamily: 'Georgia', fontSize: 28, bold: true, italic: false, underline: false, align: 'left', bullet: false },
-    subtitle: { text: item?.subheading || '', fontFamily: 'Segoe UI', fontSize: 16, bold: false, italic: false, underline: false, align: 'left', bullet: false },
-    goal: { text: item?.goal || '', fontFamily: 'Segoe UI', fontSize: 14, bold: true, italic: false, underline: false, align: 'left', bullet: false },
-    body: { text: Array.isArray(item?.bodyBlocks) ? item.bodyBlocks.join('\n') : '', fontFamily: 'Segoe UI', fontSize: 18, bold: false, italic: false, underline: false, align: 'left', bullet: true },
-    notes: { text: item?.speakerNotes || '', fontFamily: 'Segoe UI', fontSize: 14, bold: false, italic: false, underline: false, align: 'left', bullet: false },
+    title: { text: item?.heading || '', fontFamily: 'Lexend', fontSize: 28, bold: true, italic: false, underline: false, align: 'left', bullet: false },
+    subtitle: { text: item?.subheading || '', fontFamily: 'Lexend', fontSize: 16, bold: false, italic: false, underline: false, align: 'left', bullet: false },
+    goal: { text: item?.goal || '', fontFamily: 'Lexend', fontSize: 14, bold: true, italic: false, underline: false, align: 'left', bullet: false },
+    body: { text: Array.isArray(item?.bodyBlocks) ? item.bodyBlocks.join('\n') : '', fontFamily: 'Lexend', fontSize: 18, bold: false, italic: false, underline: false, align: 'left', bullet: true },
+    notes: { text: item?.speakerNotes || '', fontFamily: 'Lexend', fontSize: 14, bold: false, italic: false, underline: false, align: 'left', bullet: false },
   };
 }
 
@@ -387,7 +387,7 @@ function SourceProcessingProgress({ vm, t, compact = false }) {
 
 function applyTextStyle(block = {}) {
   return {
-    fontFamily: block.fontFamily || 'Segoe UI',
+    fontFamily: block.fontFamily || 'Lexend',
     fontSize: `${block.fontSize || 18}px`,
     fontWeight: block.bold ? 700 : 400,
     fontStyle: block.italic ? 'italic' : 'normal',
@@ -2255,7 +2255,7 @@ function FolderStudio() {
           <section className="folder-studio-center">
             <div className="folder-studio-toolbar">
               <select
-                value={activeFieldState?.fontFamily || 'Segoe UI'}
+                value={activeFieldState?.fontFamily || 'Lexend'}
                 onChange={(event) => handleStyleChange((block) => ({ ...block, fontFamily: event.target.value }))}
                 disabled={!selectedDraft}
               >
