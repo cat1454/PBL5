@@ -18,9 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ELearnGamePlatform.Core\ELearnGamePlatform.Core.csproj" />
-    <Reference Include="ELearnGamePlatform.Services">
-      <HintPath>..\..\src\ELearnGamePlatform.Services\bin\Debug\net8.0\ELearnGamePlatform.Services.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\..\src\ELearnGamePlatform.Services\ELearnGamePlatform.Services.csproj" />
   </ItemGroup>
 
 </Project>
