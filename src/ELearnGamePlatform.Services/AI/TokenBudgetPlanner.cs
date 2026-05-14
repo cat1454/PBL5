@@ -250,6 +250,8 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
                     chunk.SectionKey,
                     chunk.Label,
                     chunk.Summary,
+                    string.Join(" ", chunk.Keywords),
+                    string.Join(" ", chunk.ConceptAnchors),
                     string.Join(" ", chunk.KeyFacts),
                     text
                 }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -268,6 +270,8 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
                 chunk.Label,
                 chunk.Summary,
                 chunk.EvidenceExcerpt,
+                string.Join(" ", chunk.Keywords),
+                string.Join(" ", chunk.ConceptAnchors),
                 string.Join(" ", chunk.KeyFacts)
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
@@ -310,6 +314,9 @@ public class TokenBudgetPlanner : ITokenBudgetPlanner
             Warnings = chunk.Warnings.ToList(),
             Summary = chunk.Summary,
             EvidenceExcerpt = chunk.EvidenceExcerpt,
+            Keywords = chunk.Keywords.ToList(),
+            ConceptAnchors = chunk.ConceptAnchors.ToList(),
+            ChunkingReason = chunk.ChunkingReason,
             KeyFacts = chunk.KeyFacts.ToList(),
             Text = chunk.Text,
             NormalizedText = chunk.NormalizedText,

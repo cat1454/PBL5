@@ -9,11 +9,14 @@ public class LocalLlmSettings
     public int ReservedInstructionTokens { get; set; } = 900;
     public int SafetyMarginTokens { get; set; } = 500;
     public string Profile { get; set; } = "quality";
-    public int TargetChunkTokens { get; set; } = 1600;
-    public int MaxChunkTokens { get; set; } = 2400;
-    public int ChunkOverlapTokens { get; set; } = 180;
+    public int TargetChunkTokens { get; set; } = 700;
+    public int MaxChunkTokens { get; set; } = 1100;
+    public int ChunkOverlapTokens { get; set; } = 80;
     public double TargetInputBudgetFillRatio { get; set; } = 0.80d;
-    public bool IncludeFullSelectedChunkText { get; set; } = true;
+    public bool IncludeFullSelectedChunkText { get; set; } = false;
+    public bool EnableAnalysisRefine { get; set; } = true;
+    public int MinTextLengthForAIRefine { get; set; } = 1500;
+    public int MinCoverageChunksForAIRefine { get; set; } = 3;
 
     public int MaxInputTokens => Math.Max(
         0,

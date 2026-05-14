@@ -4,6 +4,7 @@ using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.Services.AI;
@@ -41,74 +42,89 @@ public class ContentAnalyzerService : IContentAnalyzer
 
     public async Task<ProcessedContent> AnalyzeContentAsync(string text, IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
+        var analysisStopwatch = Stopwatch.StartNew();
+        var coverageStopwatch = Stopwatch.StartNew();
+        var aiRefineCalled = false;
+        var aiRefineSkippedReason = "not-evaluated";
+        var fallbackUsed = false;
+        var coverageChunkCount = 0;
+        var averageChunkTokens = 0d;
+
         try
         {
             var normalizedText = NormalizeText(text);
             var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText, _localLlmSettings, _tokenEstimator);
             var enrichedCoverageMap = EnrichCoverageMap(rawCoverageMap, normalizedText);
             var cleanCoverageMap = BuildCleanCoverageMap(enrichedCoverageMap);
+            coverageChunkCount = cleanCoverageMap.Count;
+            averageChunkTokens = cleanCoverageMap.Count > 0
+                ? Math.Round(cleanCoverageMap.Average(chunk => chunk.TextTokenCount > 0 ? chunk.TextTokenCount : chunk.EstimatedTokenCount), 2)
+                : 0d;
+            coverageStopwatch.Stop();
             var budgetPlan = _tokenBudgetPlanner.PlanChunks(cleanCoverageMap, "analysis");
             var selectedCoverageMap = budgetPlan.SelectedChunks.Any() || budgetPlan.OmittedChunks.Any()
                 ? budgetPlan.SelectedChunks
                 : cleanCoverageMap;
-            var promptAssembly = _promptAssembler.BuildAnalysisPrompt(selectedCoverageMap, budgetPlan);
             var coverageMapWithBudgetSelection = MarkBudgetSelection(enrichedCoverageMap, budgetPlan);
-            var chunks = BuildAnalysisChunks(selectedCoverageMap, _localLlmSettings.IncludeFullSelectedChunkText);
 
-            if (chunks.Count == 0 && cleanCoverageMap.Count == 0)
+            ReportAnalysisProgress(progress, "building-local-analysis", "Lap coverage map", "Dang tao tom tat va y chinh tu evidence cuc bo", cleanCoverageMap.Count, cleanCoverageMap.Count, "chunk", 85);
+            var localResult = BuildLocalProcessedContent(normalizedText, coverageMapWithBudgetSelection);
+            var refineCandidates = selectedCoverageMap.Any() ? selectedCoverageMap : cleanCoverageMap;
+
+            if (ShouldRunAnalysisRefine(normalizedText, cleanCoverageMap, out aiRefineSkippedReason))
             {
-                chunks = SplitIntoChunks(normalizedText, ChunkSize, ChunkOverlap);
+                try
+                {
+                    aiRefineCalled = true;
+                    ReportAnalysisProgress(progress, "refining-analysis", "Tinh chinh AI", "Dang tinh chinh mot lan tu compact evidence", refineCandidates.Count, refineCandidates.Count, "chunk", 93);
+                    var refined = await RefineAnalysisFromEvidenceAsync(localResult, refineCandidates);
+                    if (refined != null)
+                    {
+                        localResult = MergeRefinedProcessedContent(localResult, refined, normalizedText, coverageMapWithBudgetSelection);
+                        aiRefineSkippedReason = "called";
+                    }
+                    else
+                    {
+                        aiRefineSkippedReason = "empty-ai-result";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    aiRefineSkippedReason = "ollama-unavailable-or-failed";
+                    _logger.LogWarning(ex, "AI analysis refine failed; keeping local coverage-based analysis.");
+                }
             }
 
-            if (chunks.Count == 0)
-            {
-                _logger.LogWarning("No eligible chunks were selected for local Qwen analysis; using local fallback content analysis.");
-                return CreateFallbackProcessedContent(text, coverageMapWithBudgetSelection);
-            }
-
-            _logger.LogInformation(
-                "Analyzing document content using {ChunkCount} selected chunks ({OmittedChunkCount} omitted), selectedTextTokens={SelectedTextTokens}/{MaxInputTokens}, budgetFillRatio={BudgetFillRatio:P0}, totalChunks={TotalChunks}, averageChunkTokens={AverageChunkTokens}, includeFullChunkText={IncludeFullChunkText}, max parallelism {MaxParallelChunkAnalyses}",
-                chunks.Count,
-                budgetPlan.OmittedChunks.Count,
-                budgetPlan.SelectedTextTokens,
-                budgetPlan.MaxInputTokens,
-                budgetPlan.BudgetFillRatio,
-                budgetPlan.TotalChunks,
-                budgetPlan.AverageChunkTokens,
-                budgetPlan.IncludeFullChunkText,
-                Math.Min(MaxParallelChunkAnalyses, Math.Max(1, chunks.Count)));
-
-            foreach (var warning in promptAssembly.Warnings)
-            {
-                _logger.LogWarning("Document analysis prompt warning: {Warning}", warning);
-            }
-
-            var chunkAnalyses = await AnalyzeChunksInParallelAsync(chunks, progress);
-
-            if (!chunkAnalyses.Any())
-            {
-                _logger.LogWarning("No chunk analyses were produced, using fallback");
-                return CreateFallbackProcessedContent(text, coverageMapWithBudgetSelection);
-            }
-
-            var preparedAnalyses = CompactChunkAnalysesLocally(chunkAnalyses, progress);
-
-            ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hop nhat ket qua phan tich toan tai lieu", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 92);
-            var result = await ConsolidateChunkAnalysesAsync(preparedAnalyses);
-
-            if (result == null)
-            {
-                _logger.LogWarning("Failed to consolidate chunk analyses with AI, using local merge fallback");
-                return MergeChunkAnalysesLocally(preparedAnalyses, normalizedText, coverageMapWithBudgetSelection);
-            }
-
-            ReportAnalysisProgress(progress, "consolidating-analysis", "Tong hop ket qua", "Dang hoan thien tom tat, topics va key points", preparedAnalyses.Count, preparedAnalyses.Count, "cum phan tich", 97);
-            return EnsureProcessedContentQuality(result, preparedAnalyses, normalizedText, coverageMapWithBudgetSelection);
+            ReportAnalysisProgress(progress, "completed-analysis", "Hoan tat phan tich", "Da tao analysis grounded tu coverage map", cleanCoverageMap.Count, cleanCoverageMap.Count, "chunk", 97);
+            return localResult;
         }
         catch (Exception ex)
         {
+            fallbackUsed = true;
+            coverageStopwatch.Stop();
             _logger.LogError(ex, "Error analyzing content");
             return CreateFallbackProcessedContent(text, EnrichCoverageMap(DocumentCoverageMapBuilder.Build(NormalizeText(text), _localLlmSettings, _tokenEstimator), NormalizeText(text)));
+        }
+        finally
+        {
+            analysisStopwatch.Stop();
+            if (coverageStopwatch.IsRunning)
+            {
+                coverageStopwatch.Stop();
+            }
+
+            var normalizedLength = string.IsNullOrWhiteSpace(text) ? 0 : NormalizeText(text).Length;
+            _logger.LogInformation(
+                "Document analysis metrics: DocumentId={DocumentId} ExtractedTextLength={ExtractedTextLength} CoverageChunkCount={CoverageChunkCount} AverageChunkTokens={AverageChunkTokens} AIRefineCalled={AIRefineCalled} AIRefineSkippedReason={AIRefineSkippedReason} AnalysisDurationMs={AnalysisDurationMs} CoverageBuildDurationMs={CoverageBuildDurationMs} FallbackUsed={FallbackUsed}",
+                "unknown",
+                normalizedLength,
+                coverageChunkCount,
+                averageChunkTokens,
+                aiRefineCalled,
+                aiRefineSkippedReason,
+                analysisStopwatch.ElapsedMilliseconds,
+                coverageStopwatch.ElapsedMilliseconds,
+                fallbackUsed);
         }
     }
 
@@ -140,6 +156,227 @@ public class ContentAnalyzerService : IContentAnalyzer
             _logger.LogError(ex, "Error extracting key points");
             return new List<string> { "Error extracting key points" };
         }
+    }
+
+    private ProcessedContent BuildLocalProcessedContent(string normalizedText, List<DocumentCoverageChunk> coverageMap)
+    {
+        var cleanCoverage = BuildCleanCoverageMap(coverageMap);
+        var localFacts = cleanCoverage
+            .OrderByDescending(chunk => chunk.ChunkQualityScore)
+            .ThenBy(chunk => chunk.ChunkNumber)
+            .SelectMany(chunk => chunk.KeyFacts)
+            .Where(fact => !string.IsNullOrWhiteSpace(fact))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(18)
+            .ToList();
+        var topics = cleanCoverage
+            .SelectMany(chunk => chunk.ConceptAnchors.Concat(chunk.Keywords).Concat(new[] { chunk.HeadingText, chunk.NormalizedHeading, chunk.Label }))
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Select(topic => NormalizeTopic(topic!))
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+        var keyPoints = localFacts.Any()
+            ? localFacts
+            : cleanCoverage
+                .Select(chunk => !string.IsNullOrWhiteSpace(chunk.Summary) ? chunk.Summary : chunk.EvidenceExcerpt)
+                .Where(point => !string.IsNullOrWhiteSpace(point))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(12)
+                .ToList();
+        var summary = BuildLocalSummary(cleanCoverage, normalizedText);
+        var metadata = BuildProcessingMetadata(normalizedText, coverageMap, null);
+
+        return new ProcessedContent
+        {
+            MainTopics = topics.Any() ? topics : new List<string> { "Noi dung tai lieu" },
+            KeyPoints = keyPoints.Any() ? keyPoints : normalizedText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(8).ToList(),
+            Summary = summary,
+            Language = metadata.Language ?? DetectLanguage(normalizedText),
+            DocumentType = metadata.DocumentType,
+            Title = metadata.Title,
+            MainContentStartPage = metadata.MainContentStartPage,
+            Structure = metadata.Structure,
+            ExcludedContent = metadata.ExcludedContent,
+            CoverageMap = cleanCoverage
+        };
+    }
+
+    private bool ShouldRunAnalysisRefine(string normalizedText, IReadOnlyCollection<DocumentCoverageChunk> cleanCoverageMap, out string reason)
+    {
+        if (!_localLlmSettings.EnableAnalysisRefine)
+        {
+            reason = "disabled";
+            return false;
+        }
+
+        if (normalizedText.Length < _localLlmSettings.MinTextLengthForAIRefine)
+        {
+            reason = "text-too-short";
+            return false;
+        }
+
+        if (cleanCoverageMap.Count < _localLlmSettings.MinCoverageChunksForAIRefine)
+        {
+            reason = "not-enough-coverage-chunks";
+            return false;
+        }
+
+        reason = "eligible";
+        return true;
+    }
+
+    private async Task<ProcessedContent?> RefineAnalysisFromEvidenceAsync(ProcessedContent localContent, IReadOnlyList<DocumentCoverageChunk> selectedChunks)
+    {
+        var compactEvidence = BuildCompactAnalysisEvidenceBlock(selectedChunks);
+        if (string.IsNullOrWhiteSpace(compactEvidence))
+        {
+            return null;
+        }
+
+        var prompt = $@"Refine this local educational document analysis using only the compact evidence below.
+
+Do not add facts, topics, or claims unsupported by the evidence.
+Preserve concrete local key facts. If evidence is thin, return conservative output.
+
+Local analysis:
+Summary: {localContent.Summary}
+Topics: {string.Join("; ", localContent.MainTopics)}
+Key points:
+- {string.Join(Environment.NewLine + "- ", localContent.KeyPoints.Take(12))}
+
+Compact evidence:
+{compactEvidence}
+
+Return JSON only:
+{{
+  ""mainTopics"": [""supported topic""],
+  ""keyPoints"": [""supported key point""],
+  ""summary"": ""2-4 sentence Vietnamese summary grounded in evidence"",
+  ""language"": ""Vietnamese or English or mixed""
+}}";
+
+        return await _ollamaService.GenerateStructuredResponseAsync<ProcessedContent>(
+            prompt,
+            "You refine local document analysis from compact evidence only. Never invent unsupported facts.",
+            OllamaModelProfile.Analysis);
+    }
+
+    private static string BuildCompactAnalysisEvidenceBlock(IReadOnlyList<DocumentCoverageChunk> chunks)
+        => string.Join(
+            Environment.NewLine + Environment.NewLine,
+            chunks
+                .OrderByDescending(chunk => chunk.ChunkQualityScore)
+                .ThenBy(chunk => chunk.ChunkNumber)
+                .Take(12)
+                .OrderBy(chunk => chunk.ChunkNumber)
+                .Select(chunk => $@"[{chunk.ChunkId}]
+heading: {chunk.HeadingPath ?? chunk.HeadingText ?? chunk.NormalizedHeading ?? "none"}
+keywords: {string.Join(", ", chunk.Keywords.Take(8))}
+conceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(6))}
+keyFacts:
+- {string.Join(Environment.NewLine + "- ", chunk.KeyFacts.Take(4).DefaultIfEmpty("No key facts extracted."))}
+excerpt: {chunk.EvidenceExcerpt}"));
+
+    private ProcessedContent MergeRefinedProcessedContent(
+        ProcessedContent localContent,
+        ProcessedContent refined,
+        string normalizedText,
+        List<DocumentCoverageChunk> coverageMap)
+    {
+        var supportTokens = BuildCoverageSupportTokens(coverageMap);
+        var refinedTopics = (refined.MainTopics ?? new List<string>())
+            .Where(topic => IsSupportedByCoverage(topic, supportTokens))
+            .ToList();
+        var refinedKeyPoints = (refined.KeyPoints ?? new List<string>())
+            .Where(point => IsSupportedByCoverage(point, supportTokens))
+            .ToList();
+
+        localContent.MainTopics = localContent.MainTopics
+            .Concat(refinedTopics)
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+        localContent.KeyPoints = localContent.KeyPoints
+            .Concat(refinedKeyPoints)
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(18)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(refined.Summary) && IsSupportedByCoverage(refined.Summary, supportTokens))
+        {
+            localContent.Summary = refined.Summary;
+        }
+
+        if (!string.IsNullOrWhiteSpace(refined.Language))
+        {
+            localContent.Language = refined.Language;
+        }
+
+        var metadata = BuildProcessingMetadata(normalizedText, coverageMap, localContent.Language);
+        localContent.DocumentType = metadata.DocumentType;
+        localContent.Title = metadata.Title;
+        localContent.MainContentStartPage = metadata.MainContentStartPage;
+        localContent.Structure = metadata.Structure;
+        localContent.ExcludedContent = metadata.ExcludedContent;
+        localContent.CoverageMap = BuildCleanCoverageMap(coverageMap);
+        return localContent;
+    }
+
+    private static HashSet<string> BuildCoverageSupportTokens(IEnumerable<DocumentCoverageChunk> coverageMap)
+        => DocumentCoverageMapBuilder.BuildSearchTokens(coverageMap.Select(chunk => string.Join(
+            " ",
+            chunk.HeadingPath,
+            chunk.HeadingText,
+            chunk.NormalizedHeading,
+            string.Join(" ", chunk.Keywords),
+            string.Join(" ", chunk.ConceptAnchors),
+            string.Join(" ", chunk.KeyFacts),
+            chunk.EvidenceExcerpt)).ToArray());
+
+    private static bool IsSupportedByCoverage(string? value, HashSet<string> supportTokens)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var tokens = DocumentCoverageMapBuilder.BuildSearchTokens(value);
+        if (tokens.Count == 0)
+        {
+            return false;
+        }
+
+        return tokens.Intersect(supportTokens, StringComparer.OrdinalIgnoreCase).Count() >= Math.Min(2, tokens.Count);
+    }
+
+    private static string BuildLocalSummary(IReadOnlyList<DocumentCoverageChunk> cleanCoverage, string normalizedText)
+    {
+        var facts = cleanCoverage
+            .OrderByDescending(chunk => chunk.ChunkQualityScore)
+            .ThenBy(chunk => chunk.ChunkNumber)
+            .SelectMany(chunk => chunk.KeyFacts)
+            .Where(fact => !string.IsNullOrWhiteSpace(fact))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToList();
+
+        if (facts.Any())
+        {
+            return string.Join(" ", facts);
+        }
+
+        var words = normalizedText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(90);
+        return string.Join(" ", words) + (normalizedText.Length > 0 ? "..." : string.Empty);
+    }
+
+    private static string NormalizeTopic(string value)
+    {
+        var normalized = Regex.Replace(value, @"\s+", " ").Trim();
+        return normalized.Length <= 90 ? normalized : normalized[..90].TrimEnd() + "...";
     }
 
     private async Task<List<ChunkAnalysis>> AnalyzeChunksInParallelAsync(
@@ -434,23 +671,7 @@ Respond in JSON format:
 
     private ProcessedContent CreateFallbackProcessedContent(string text, List<DocumentCoverageChunk> coverageMap)
     {
-        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var metadata = BuildProcessingMetadata(text, coverageMap, null);
-
-        return new ProcessedContent
-        {
-            MainTopics = new List<string> { "Noi dung tai lieu" },
-            KeyPoints = lines.Take(5).ToList(),
-            Summary = string.Join(" ", words.Take(50)) + "...",
-            Language = metadata.Language ?? "Unknown",
-            DocumentType = metadata.DocumentType,
-            Title = metadata.Title,
-            MainContentStartPage = metadata.MainContentStartPage,
-            Structure = metadata.Structure,
-            ExcludedContent = metadata.ExcludedContent,
-            CoverageMap = BuildCleanCoverageMap(coverageMap)
-        };
+        return BuildLocalProcessedContent(NormalizeText(text), coverageMap);
     }
 
     private static List<string> BuildAnalysisChunks(List<DocumentCoverageChunk> cleanCoverageMap, bool includeFullText)
@@ -776,6 +997,9 @@ Respond in JSON format:
             Warnings = chunk.Warnings.ToList(),
             Summary = chunk.Summary,
             EvidenceExcerpt = chunk.EvidenceExcerpt,
+            Keywords = chunk.Keywords.ToList(),
+            ConceptAnchors = chunk.ConceptAnchors.ToList(),
+            ChunkingReason = chunk.ChunkingReason,
             KeyFacts = chunk.KeyFacts.ToList(),
             Text = chunk.Text,
             NormalizedText = chunk.NormalizedText,

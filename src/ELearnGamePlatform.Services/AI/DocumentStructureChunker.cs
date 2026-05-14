@@ -6,6 +6,12 @@ namespace ELearnGamePlatform.Services.AI;
 
 internal static class DocumentStructureChunker
 {
+    private const string HeadingBoundaryReason = "heading-boundary";
+    private const string PageBoundaryReason = "page-boundary";
+    private const string ParagraphBoundaryReason = "paragraph-boundary";
+    private const string KeywordSentenceBoundaryReason = "keyword-sentence-boundary";
+    private const string MaxTokenSplitReason = "max-token-split";
+
     private static readonly Regex PageMarkerRegex = new(@"(?=\[Page\s+\d+\])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NumberedHeadingRegex = new(
         @"^(?:(?:\d+(?:\.\d+){0,4})|(?:[IVXLCM]+)|(?:[A-Z]))[\)\.]?\s+\S+",
@@ -13,6 +19,13 @@ internal static class DocumentStructureChunker
     private static readonly Regex NamedSectionRegex = new(
         @"^(?:(?:chuong|chương|muc|mục|phan|phần|bai|bài|section|chapter|unit)\s+(?:\d+|[ivxlcm]+|[a-z])|(?:chuong|chương|phan|phần|muc|mục|bai|bài)\b)[\s:\-\.]*.+$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly string[] SemanticBoundaryTerms =
+    {
+        "nguyen nhan", "ket qua", "khai niem", "dac diem", "quy trinh", "vi du", "so sanh",
+        "uu diem", "nhuoc diem", "ung dung", "ket luan",
+        "definition", "cause", "result", "example", "process", "compare",
+        "advantage", "disadvantage", "application", "conclusion"
+    };
 
     public static List<string> SplitIntoChunks(string content, int chunkSize, int overlap)
     {
@@ -42,46 +55,57 @@ internal static class DocumentStructureChunker
         int maxTokens,
         int overlapTokens,
         ITokenEstimator? tokenEstimator)
+        => SplitIntoStructuredTokenChunks(content, targetTokens, maxTokens, overlapTokens, tokenEstimator)
+            .Select(chunk => chunk.Text)
+            .ToList();
+
+    internal static List<StructuredDocumentChunk> SplitIntoStructuredTokenChunks(
+        string content,
+        int targetTokens,
+        int maxTokens,
+        int overlapTokens,
+        ITokenEstimator? tokenEstimator)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
-            return new List<string>();
+            return new List<StructuredDocumentChunk>();
         }
 
         targetTokens = Math.Max(200, targetTokens);
         maxTokens = Math.Max(targetTokens, maxTokens);
-        overlapTokens = Math.Clamp(overlapTokens, 0, Math.Max(0, targetTokens / 2));
+        overlapTokens = Math.Clamp(overlapTokens, 0, Math.Max(0, targetTokens / 4));
 
         var normalized = content.Trim();
-        if (EstimateTokens(normalized, tokenEstimator) <= maxTokens)
+        if (EstimateTokens(normalized, tokenEstimator) <= maxTokens && !HasUsefulSplitStructure(normalized))
         {
-            return new List<string> { normalized };
+            return new List<StructuredDocumentChunk>
+            {
+                new(normalized, DetectBoundaryReason(normalized, ParagraphBoundaryReason))
+            };
         }
 
-        var sections = SplitIntoHeadingSections(normalized);
-        if (sections.Count <= 1)
-        {
-            sections = SplitIntoPageOrParagraphSections(normalized);
-        }
+        var sections = SplitIntoReasonedSections(normalized);
 
-        var chunks = new List<string>();
+        var chunks = new List<StructuredDocumentChunk>();
         var builder = new StringBuilder();
+        var builderReason = ParagraphBoundaryReason;
 
         foreach (var section in sections)
         {
-            if (EstimateTokens(section, tokenEstimator) > maxTokens)
+            if (EstimateTokens(section.Text, tokenEstimator) > maxTokens)
             {
-                FlushBuilder(chunks, builder);
-                chunks.AddRange(SplitOversizedSectionByTokens(section, targetTokens, maxTokens, overlapTokens, tokenEstimator));
+                FlushStructuredBuilder(chunks, builder, builderReason);
+                chunks.AddRange(SplitOversizedSectionByTokens(section.Text, targetTokens, maxTokens, overlapTokens, tokenEstimator, section.ChunkingReason));
                 continue;
             }
 
             var candidate = builder.Length == 0
-                ? section
-                : $"{builder}{Environment.NewLine}{Environment.NewLine}{section}";
+                ? section.Text
+                : $"{builder}{Environment.NewLine}{Environment.NewLine}{section.Text}";
             if (builder.Length > 0 && EstimateTokens(candidate, tokenEstimator) > targetTokens)
             {
-                FlushBuilder(chunks, builder);
+                FlushStructuredBuilder(chunks, builder, builderReason);
+                builderReason = section.ChunkingReason;
             }
 
             if (builder.Length > 0)
@@ -90,11 +114,16 @@ internal static class DocumentStructureChunker
                 builder.AppendLine();
             }
 
-            builder.Append(section);
+            if (builder.Length == 0)
+            {
+                builderReason = section.ChunkingReason;
+            }
+
+            builder.Append(section.Text);
         }
 
-        FlushBuilder(chunks, builder);
-        return chunks.SelectMany(chunk => EnsureChunkWithinMaxTokens(chunk, maxTokens, overlapTokens, tokenEstimator)).ToList();
+        FlushStructuredBuilder(chunks, builder, builderReason);
+        return chunks;
     }
 
     public static DocumentHeadingMetadata? AnalyzeHeading(string content)
@@ -187,12 +216,61 @@ internal static class DocumentStructureChunker
             .ToList();
     }
 
+    private static List<StructuredDocumentChunk> SplitIntoReasonedSections(string content)
+    {
+        var headingSections = SplitIntoHeadingSections(content)
+            .Select(section => new StructuredDocumentChunk(section, HeadingBoundaryReason))
+            .ToList();
+        if (headingSections.Count > 1)
+        {
+            return headingSections;
+        }
+
+        var firstLine = content.Split('\n').Select(line => line.Trim()).FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? string.Empty;
+        if (IsPotentialHeadingText(NormalizeHeadingCandidate(firstLine))
+            && content.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length > 1)
+        {
+            return new List<StructuredDocumentChunk> { new(content, HeadingBoundaryReason) };
+        }
+
+        var pages = PageMarkerRegex.Split(content)
+            .Select(page => page.Trim())
+            .Where(page => !string.IsNullOrWhiteSpace(page))
+            .Select(page => new StructuredDocumentChunk(page, PageBoundaryReason))
+            .ToList();
+        if (pages.Count > 1)
+        {
+            return pages;
+        }
+
+        var paragraphs = content
+            .Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(paragraph => !string.IsNullOrWhiteSpace(paragraph))
+            .Select(paragraph => new StructuredDocumentChunk(paragraph, DetectBoundaryReason(paragraph, ParagraphBoundaryReason)))
+            .ToList();
+
+        return paragraphs.Count > 0
+            ? paragraphs
+            : new List<StructuredDocumentChunk> { new(content, ParagraphBoundaryReason) };
+    }
+
     private static List<string> SplitOversizedSectionByTokens(
         string section,
         int targetTokens,
         int maxTokens,
         int overlapTokens,
         ITokenEstimator? tokenEstimator)
+        => SplitOversizedSectionByTokens(section, targetTokens, maxTokens, overlapTokens, tokenEstimator, MaxTokenSplitReason)
+            .Select(chunk => chunk.Text)
+            .ToList();
+
+    private static List<StructuredDocumentChunk> SplitOversizedSectionByTokens(
+        string section,
+        int targetTokens,
+        int maxTokens,
+        int overlapTokens,
+        ITokenEstimator? tokenEstimator,
+        string boundaryReason)
     {
         var lines = section.Split('\n').Select(line => line.TrimEnd()).ToList();
         var firstLine = lines.FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? string.Empty;
@@ -201,17 +279,18 @@ internal static class DocumentStructureChunker
         var body = hasHeading ? string.Join('\n', lines.Skip(1)).Trim() : section.Trim();
         var units = body
             .Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .SelectMany(unit => EnsureChunkWithinMaxTokens(unit, Math.Max(200, maxTokens - EstimateTokens(heading, tokenEstimator)), overlapTokens, tokenEstimator))
+            .SelectMany(unit => SplitOversizedParagraphIntoUnits(unit, Math.Max(200, maxTokens - EstimateTokens(heading, tokenEstimator)), tokenEstimator))
             .Where(unit => !string.IsNullOrWhiteSpace(unit))
             .ToList();
 
         if (units.Count == 0)
         {
-            return EnsureChunkWithinMaxTokens(section, maxTokens, overlapTokens, tokenEstimator).ToList();
+            return EnsureStructuredChunkWithinMaxTokens(section, maxTokens, overlapTokens, tokenEstimator, MaxTokenSplitReason).ToList();
         }
 
-        var chunks = new List<string>();
+        var chunks = new List<StructuredDocumentChunk>();
         var builder = new StringBuilder();
+        var builderReason = !string.IsNullOrWhiteSpace(heading) ? HeadingBoundaryReason : boundaryReason;
         if (!string.IsNullOrWhiteSpace(heading))
         {
             builder.Append(heading);
@@ -219,25 +298,15 @@ internal static class DocumentStructureChunker
 
         foreach (var unit in units)
         {
+            var unitReason = DetectBoundaryReason(unit, boundaryReason);
             var candidate = builder.Length == 0 ? unit : $"{builder}{Environment.NewLine}{Environment.NewLine}{unit}";
             if (builder.Length > heading.Length && EstimateTokens(candidate, tokenEstimator) > targetTokens)
             {
-                FlushBuilder(chunks, builder);
-                var overlap = BuildTokenOverlap(chunks.LastOrDefault(), overlapTokens, tokenEstimator);
+                FlushStructuredBuilder(chunks, builder, builderReason);
                 if (!string.IsNullOrWhiteSpace(heading))
                 {
                     builder.Append(heading);
-                }
-
-                if (!string.IsNullOrWhiteSpace(overlap))
-                {
-                    if (builder.Length > 0)
-                    {
-                        builder.AppendLine();
-                        builder.AppendLine();
-                    }
-
-                    builder.Append(overlap);
+                    builderReason = HeadingBoundaryReason;
                 }
             }
 
@@ -247,11 +316,64 @@ internal static class DocumentStructureChunker
                 builder.AppendLine();
             }
 
+            if (builder.Length == 0)
+            {
+                builderReason = unitReason;
+            }
+
             builder.Append(unit);
         }
 
-        FlushBuilder(chunks, builder);
-        return chunks.SelectMany(chunk => EnsureChunkWithinMaxTokens(chunk, maxTokens, overlapTokens, tokenEstimator)).ToList();
+        FlushStructuredBuilder(chunks, builder, builderReason);
+        return chunks
+            .SelectMany(chunk => EnsureStructuredChunkWithinMaxTokens(chunk.Text, maxTokens, overlapTokens, tokenEstimator, chunk.ChunkingReason))
+            .ToList();
+    }
+
+    private static IEnumerable<string> SplitOversizedParagraphIntoUnits(string paragraph, int maxTokens, ITokenEstimator? tokenEstimator)
+    {
+        if (EstimateTokens(paragraph, tokenEstimator) <= maxTokens)
+        {
+            yield return paragraph;
+            yield break;
+        }
+
+        var sentences = Regex.Split(paragraph, @"(?<=[\.\?\!])\s+")
+            .Select(sentence => sentence.Trim())
+            .Where(sentence => !string.IsNullOrWhiteSpace(sentence))
+            .ToList();
+        if (sentences.Count <= 1)
+        {
+            foreach (var chunk in EnsureChunkWithinMaxTokens(paragraph, maxTokens, 0, tokenEstimator))
+            {
+                yield return chunk;
+            }
+
+            yield break;
+        }
+
+        var builder = new StringBuilder();
+        foreach (var sentence in sentences)
+        {
+            var candidate = builder.Length == 0 ? sentence : $"{builder} {sentence}";
+            if (builder.Length > 0 && (EstimateTokens(candidate, tokenEstimator) > maxTokens || IsSemanticBoundarySentence(sentence)))
+            {
+                yield return builder.ToString().Trim();
+                builder.Clear();
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append(' ');
+            }
+
+            builder.Append(sentence);
+        }
+
+        if (builder.Length > 0)
+        {
+            yield return builder.ToString().Trim();
+        }
     }
 
     private static IEnumerable<string> EnsureChunkWithinMaxTokens(
@@ -266,11 +388,35 @@ internal static class DocumentStructureChunker
             yield break;
         }
 
-        var maxChars = Math.Max(700, (int)Math.Round(maxTokens * 3.5d));
+        var maxChars = Math.Max(120, (int)Math.Round(maxTokens * 3.2d));
         var overlapChars = Math.Max(0, (int)Math.Round(overlapTokens * 3.5d));
         foreach (var chunk in SplitByLength(text, maxChars, overlapChars))
         {
             yield return chunk;
+        }
+    }
+
+    private static IEnumerable<StructuredDocumentChunk> EnsureStructuredChunkWithinMaxTokens(
+        string text,
+        int maxTokens,
+        int overlapTokens,
+        ITokenEstimator? tokenEstimator,
+        string reason)
+    {
+        if (EstimateTokens(text, tokenEstimator) <= maxTokens)
+        {
+            yield return new StructuredDocumentChunk(text.Trim(), reason);
+            yield break;
+        }
+
+        var firstLine = text.Split('\n').Select(line => line.Trim()).FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? string.Empty;
+        var headingPrefix = IsPotentialHeadingText(NormalizeHeadingCandidate(firstLine)) ? firstLine : string.Empty;
+        foreach (var chunk in EnsureChunkWithinMaxTokens(text, maxTokens, overlapTokens, tokenEstimator))
+        {
+            var finalChunk = !string.IsNullOrWhiteSpace(headingPrefix) && !chunk.StartsWith(headingPrefix, StringComparison.OrdinalIgnoreCase)
+                ? $"{headingPrefix}{Environment.NewLine}{Environment.NewLine}{chunk}"
+                : chunk;
+            yield return new StructuredDocumentChunk(finalChunk, MaxTokenSplitReason);
         }
     }
 
@@ -719,11 +865,60 @@ internal static class DocumentStructureChunker
         builder.Clear();
     }
 
+    private static void FlushStructuredBuilder(List<StructuredDocumentChunk> chunks, StringBuilder builder, string reason)
+    {
+        if (builder.Length == 0)
+        {
+            return;
+        }
+
+        var chunk = builder.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(chunk))
+        {
+            chunks.Add(new StructuredDocumentChunk(chunk, reason));
+        }
+
+        builder.Clear();
+    }
+
     private static string NormalizeHeadingCandidate(string? value)
         => string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : Regex.Replace(value, @"\s+", " ").Trim();
+
+    private static string DetectBoundaryReason(string text, string fallback)
+        => IsSemanticBoundarySentence(text) ? KeywordSentenceBoundaryReason : fallback;
+
+    private static bool IsSemanticBoundarySentence(string text)
+    {
+        var normalized = NormalizeForBoundaryMatch(text);
+        return SemanticBoundaryTerms.Any(term => normalized.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasUsefulSplitStructure(string text)
+        => PageMarkerRegex.Matches(text).Count > 1
+            || SplitIntoHeadingSections(text).Count > 1
+            || text.Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length > 1;
+
+    private static string NormalizeForBoundaryMatch(string value)
+    {
+        var decomposed = value.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+        foreach (var ch in decomposed)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            builder.Append(char.IsLetterOrDigit(ch) ? ch : ' ');
+        }
+
+        return Regex.Replace(builder.ToString(), @"\s+", " ").Trim();
+    }
 }
+
+internal sealed record StructuredDocumentChunk(string Text, string ChunkingReason);
 
 internal sealed class DocumentHeadingMetadata
 {

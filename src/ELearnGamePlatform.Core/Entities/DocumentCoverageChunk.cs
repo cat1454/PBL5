@@ -33,6 +33,9 @@ public class DocumentCoverageChunk
     public List<string> Warnings { get; set; } = new();
     public string Summary { get; set; } = string.Empty;
     public string EvidenceExcerpt { get; set; } = string.Empty;
+    public List<string> Keywords { get; set; } = new();
+    public List<string> ConceptAnchors { get; set; } = new();
+    public string ChunkingReason { get; set; } = string.Empty;
     public List<string> KeyFacts { get; set; } = new();
     public string? Text { get; set; }
     public string? NormalizedText { get; set; }

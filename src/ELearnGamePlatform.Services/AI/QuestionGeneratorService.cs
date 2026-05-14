@@ -8,6 +8,7 @@ using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 
 namespace ELearnGamePlatform.Services.AI;
 
@@ -76,6 +77,12 @@ public class QuestionGeneratorService : IQuestionGenerator
         ProcessedContent? processedContent,
         IProgress<QuestionGenerationProgressUpdate>? progress)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+        var planningStopwatch = new Stopwatch();
+        var evidenceStopwatch = new Stopwatch();
+        var coverageChunkCount = 0;
+        var generatedQuestionCount = 0;
+        var fallbackUsed = false;
         var failed = false;
         var completionReported = false;
 
@@ -86,6 +93,7 @@ public class QuestionGeneratorService : IQuestionGenerator
             {
                 ReportProgress(progress, 95, "fallback", "Tai lieu rong, chuyen sang cau hoi du phong", stageLabel: "Fallback", detail: "Khong co noi dung hop le de lap coverage map", stageIndex: 6, stageCount: TotalStageCount);
                 completionReported = true;
+                fallbackUsed = true;
                 return CreateFallbackQuestions(documentId, count, type, plans: null, bundles: null);
             }
 
@@ -102,31 +110,39 @@ public class QuestionGeneratorService : IQuestionGenerator
                 stageIndex: 2,
                 stageCount: TotalStageCount);
             var chunks = GetCoverageChunks(normalizedContent, processedContent, progress);
+            coverageChunkCount = chunks.Count;
             if (!chunks.Any())
             {
                 ReportProgress(progress, 95, "fallback", "Khong tao duoc coverage map, chuyen sang fallback", stageLabel: "Fallback", detail: "Khong tao duoc chunk hop le de sinh cau hoi", stageIndex: 6, stageCount: TotalStageCount);
                 completionReported = true;
+                fallbackUsed = true;
                 return CreateFallbackQuestions(documentId, count, type, plans: null, bundles: null);
             }
 
             ReportProgress(progress, 34, "planning-questions", "Đang lập kế hoạch phủ tài liệu", stageLabel: "Lập kế hoạch câu hỏi", detail: "Dùng coverage map để phân bổ câu hỏi theo đầu, giữa, cuối tài liệu", stageIndex: 3, stageCount: TotalStageCount);
+            planningStopwatch.Start();
             var plans = await BuildQuestionPlansAsync(chunks, processedContent, type, count);
             if (!plans.Any())
             {
                 plans = BuildFallbackPlans(chunks, count, type);
             }
+            planningStopwatch.Stop();
 
             ReportProgress(progress, 52, "retrieving-evidence", "Đang lấy evidence cho từng câu hỏi", stageLabel: "Lấy evidence", detail: "Chọn các chunk liên quan nhất cho mỗi kế hoạch câu hỏi", stageIndex: 4, stageCount: TotalStageCount);
+            evidenceStopwatch.Start();
             var bundles = BuildEvidenceBundles(chunks, plans, progress);
+            evidenceStopwatch.Stop();
 
             ReportProgress(progress, 68, "generating-grounded-questions", "Đang sinh grounded questions", stageLabel: "Sinh grounded questions", detail: "Mỗi batch chỉ được dùng evidence đã chọn", stageIndex: 5, stageCount: TotalStageCount);
             var questions = await GenerateGroundedQuestionsAsync(documentId, type, plans, bundles, progress);
+            generatedQuestionCount = questions.Count;
 
             if (!questions.Any())
             {
                 _logger.LogWarning("Grounded generation returned no questions. Using fallback.");
                 ReportProgress(progress, 92, "fallback", "AI không trả về câu hỏi hợp lệ, chuyển sang fallback", stageLabel: "Fallback", detail: "Sinh bộ câu hỏi dự phòng dựa trên evidence đã thu thập", stageIndex: 6, stageCount: TotalStageCount);
                 completionReported = true;
+                fallbackUsed = true;
                 return CreateFallbackQuestions(documentId, count, type, plans, bundles);
             }
 
@@ -138,12 +154,35 @@ public class QuestionGeneratorService : IQuestionGenerator
         catch (Exception ex)
         {
             failed = true;
+            fallbackUsed = true;
             _logger.LogError(ex, "Error generating grounded {Type} questions", type);
             ReportProgress(progress, 100, "failed", $"Lỗi sinh câu hỏi: {ex.Message}", stageLabel: "Thất bại", detail: ex.Message, stageIndex: TotalStageCount, stageCount: TotalStageCount);
             return CreateFallbackQuestions(documentId, count, type, plans: null, bundles: null);
         }
         finally
         {
+            totalStopwatch.Stop();
+            if (planningStopwatch.IsRunning)
+            {
+                planningStopwatch.Stop();
+            }
+
+            if (evidenceStopwatch.IsRunning)
+            {
+                evidenceStopwatch.Stop();
+            }
+
+            _logger.LogInformation(
+                "Question generation metrics: DocumentId={DocumentId} ExtractedTextLength={ExtractedTextLength} CoverageChunkCount={CoverageChunkCount} QuestionPlanningDurationMs={QuestionPlanningDurationMs} EvidenceRetrievalDurationMs={EvidenceRetrievalDurationMs} GeneratedQuestionCount={GeneratedQuestionCount} FallbackUsed={FallbackUsed} TotalDurationMs={TotalDurationMs}",
+                documentId,
+                content?.Length ?? 0,
+                coverageChunkCount,
+                planningStopwatch.ElapsedMilliseconds,
+                evidenceStopwatch.ElapsedMilliseconds,
+                generatedQuestionCount,
+                fallbackUsed,
+                totalStopwatch.ElapsedMilliseconds);
+
             if (!failed && !completionReported)
             {
                 ReportProgress(progress, 95, "completed", "Hoàn tất sinh câu hỏi", stageLabel: "Hoàn tất sinh câu hỏi", detail: "Cho bước lưu kết quả vào hệ thống", stageIndex: 6, stageCount: TotalStageCount);
@@ -175,6 +214,9 @@ public class QuestionGeneratorService : IQuestionGenerator
                     Summary = chunk.Summary,
                     KeyFacts = chunk.KeyFacts,
                     EvidenceExcerpt = chunk.EvidenceExcerpt,
+                    Keywords = chunk.Keywords,
+                    ConceptAnchors = chunk.ConceptAnchors,
+                    ChunkQualityScore = chunk.ChunkQualityScore,
                     Text = chunk.Text,
                     NormalizedText = chunk.NormalizedText,
                     TextTokenCount = chunk.TextTokenCount,
@@ -223,6 +265,9 @@ public class QuestionGeneratorService : IQuestionGenerator
                 Summary = coverageChunk.Summary,
                 KeyFacts = coverageChunk.KeyFacts,
                 EvidenceExcerpt = coverageChunk.EvidenceExcerpt,
+                Keywords = coverageChunk.Keywords,
+                ConceptAnchors = coverageChunk.ConceptAnchors,
+                ChunkQualityScore = coverageChunk.ChunkQualityScore,
                 Text = coverageChunk.Text,
                 NormalizedText = coverageChunk.NormalizedText,
                 TextTokenCount = coverageChunk.TextTokenCount,
@@ -508,7 +553,7 @@ Return JSON only:
 
         if (preferredIds.Contains(chunk.ChunkId))
         {
-            score += 40;
+            score += 80;
         }
 
         if (string.Equals(plan.CoverageZone, chunk.Zone, StringComparison.OrdinalIgnoreCase))
@@ -517,14 +562,24 @@ Return JSON only:
         }
 
         var overlap = queryTokens.Intersect(chunk.SearchTokens, StringComparer.OrdinalIgnoreCase).Count();
-        score += overlap * 4;
+        score += overlap * 5;
+
+        var keywordTokens = TokenizeForSearch(string.Join(" ", chunk.Keywords));
+        score += keywordTokens.Intersect(queryTokens, StringComparer.OrdinalIgnoreCase).Count() * 7;
+
+        var conceptTokens = TokenizeForSearch(string.Join(" ", chunk.ConceptAnchors));
+        score += conceptTokens.Intersect(queryTokens, StringComparer.OrdinalIgnoreCase).Count() * 8;
+
+        var headingTokens = TokenizeForSearch(chunk.HeadingPath ?? chunk.NormalizedHeading ?? string.Empty);
+        score += headingTokens.Intersect(queryTokens, StringComparer.OrdinalIgnoreCase).Count() * 6;
 
         foreach (var fact in chunk.KeyFacts)
         {
             var factTokens = TokenizeForSearch(fact);
-            score += factTokens.Intersect(queryTokens, StringComparer.OrdinalIgnoreCase).Count() * 2;
+            score += factTokens.Intersect(queryTokens, StringComparer.OrdinalIgnoreCase).Count() * 9;
         }
 
+        score += Math.Clamp(chunk.ChunkQualityScore, 0, 100) / 10;
         return score;
     }
 
@@ -774,7 +829,10 @@ Return JSON only:
         foreach (var chunk in bundle.EvidenceChunks)
         {
             builder.AppendLine($"[{chunk.ChunkId}] {chunk.Label} | zone={chunk.Zone}");
+            builder.AppendLine($"Heading: {chunk.HeadingPath ?? chunk.NormalizedHeading ?? "none"}");
             builder.AppendLine($"Summary: {chunk.Summary}");
+            builder.AppendLine($"Keywords: {string.Join(", ", chunk.Keywords.Take(8))}");
+            builder.AppendLine($"ConceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(6))}");
 
             if (chunk.KeyFacts.Any())
             {
@@ -1812,6 +1870,8 @@ Return JSON only:
             builder.AppendLine($"Heading: {BuildHeadingMeta(chunk)}");
             builder.AppendLine($"Label: {Truncate(chunk.Label, 70)}");
             builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
+            builder.AppendLine($"Keywords: {string.Join(", ", chunk.Keywords.Take(6))}");
+            builder.AppendLine($"ConceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(4))}");
             builder.AppendLine("Study facts:");
             foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
@@ -1837,6 +1897,8 @@ Return JSON only:
         {
             builder.AppendLine($"[{chunk.ChunkId}] {Truncate(chunk.Label, 70)} | zone={chunk.Zone} | heading={BuildHeadingMeta(chunk)}");
             builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
+            builder.AppendLine($"Keywords: {string.Join(", ", chunk.Keywords.Take(8))}");
+            builder.AppendLine($"ConceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(6))}");
             builder.AppendLine("Facts:");
             foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
@@ -2525,6 +2587,9 @@ Return JSON only:
             Summary = plan.Focus,
             KeyFacts = new List<string> { plan.Focus },
             EvidenceExcerpt = plan.Focus,
+            Keywords = TokenizeForSearch($"{plan.TopicName} {plan.Subtopic}").Take(6).ToList(),
+            ConceptAnchors = new List<string> { plan.Focus },
+            ChunkQualityScore = 35,
             Text = plan.Focus,
             NormalizedText = plan.Focus,
             SearchTokens = TokenizeForSearch(plan.Focus)
@@ -2551,6 +2616,9 @@ Return JSON only:
         public string Summary { get; init; } = string.Empty;
         public List<string> KeyFacts { get; init; } = new();
         public string EvidenceExcerpt { get; init; } = string.Empty;
+        public List<string> Keywords { get; init; } = new();
+        public List<string> ConceptAnchors { get; init; } = new();
+        public int ChunkQualityScore { get; init; } = 50;
         public string? Text { get; init; }
         public string? NormalizedText { get; init; }
         public int TextTokenCount { get; init; }

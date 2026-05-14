@@ -136,6 +136,8 @@ estimatedTokens: {(chunk.TextTokenCount > 0 ? chunk.TextTokenCount : chunk.Estim
 heading: {chunk.HeadingPath ?? chunk.HeadingText ?? chunk.NormalizedHeading ?? "none"}
 label: {chunk.Label}
 summary: {chunk.Summary}
+keywords: {string.Join(", ", chunk.Keywords.Take(8))}
+conceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(6))}
 keyFacts:
 - {string.Join(Environment.NewLine + "- ", chunk.KeyFacts.DefaultIfEmpty("No key facts extracted."))}
 evidence:
