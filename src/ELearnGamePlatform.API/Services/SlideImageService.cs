@@ -26,6 +26,7 @@ public class SlideImageService : ISlideImageService
 
     private readonly HttpClient _httpClient;
     private readonly ISlideDeckRepository _slideDeckRepository;
+    private readonly ISlideImagePlannerService _imagePlanner;
     private readonly ImagePipelineSettings _settings;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<SlideImageService> _logger;
@@ -33,12 +34,14 @@ public class SlideImageService : ISlideImageService
     public SlideImageService(
         HttpClient httpClient,
         ISlideDeckRepository slideDeckRepository,
+        ISlideImagePlannerService imagePlanner,
         IOptions<ImagePipelineSettings> settings,
         IWebHostEnvironment environment,
         ILogger<SlideImageService> logger)
     {
         _httpClient = httpClient;
         _slideDeckRepository = slideDeckRepository;
+        _imagePlanner = imagePlanner;
         _settings = settings.Value;
         _environment = environment;
         _logger = logger;
@@ -46,15 +49,27 @@ public class SlideImageService : ISlideImageService
 
     public async Task SourceImagesForItemAsync(SlideItem item, CancellationToken cancellationToken = default)
     {
-        var imagePlan = item.GetImagePlan() ?? new SlideImagePlan();
-        if (!ShouldSource(imagePlan))
+        var imagePlan = await _imagePlanner.PlanAsync(item, item.SlideDeck?.Title, cancellationToken);
+        item.SetImagePlan(imagePlan);
+
+        if (!imagePlan.NeedsImage)
         {
             UpdatePlanState(
                 imagePlan,
-                imagePlan.NeedsImage ? "not-requested" : "no-image-needed",
-                imagePlan.NeedsImage
-                    ? "Image pipeline dang tat hoac slide chua du du lieu de tao anh."
-                    : "Slide nay duoc giu text-only.");
+                string.IsNullOrWhiteSpace(imagePlan.StatusHint) ? "no-image-needed" : imagePlan.StatusHint,
+                imagePlan.LastResultMessage ?? "Slide nay duoc giu text-only.");
+            item.SetImagePlan(imagePlan);
+            item.SetImageCandidates(new List<SlideImageCandidate>());
+            item.SelectedImageKey = null;
+            return;
+        }
+
+        if (!CanGenerate(imagePlan))
+        {
+            UpdatePlanState(
+                imagePlan,
+                "not-requested",
+                "Image generation dang tat hoac generationPrompt chua hop le.");
             item.SetImagePlan(imagePlan);
             item.SetImageCandidates(new List<SlideImageCandidate>());
             item.SelectedImageKey = null;
@@ -63,66 +78,18 @@ public class SlideImageService : ISlideImageService
 
         try
         {
-            var candidates = await SearchWikimediaCommonsAsync(item, imagePlan, cancellationToken);
-            var fallbackReason = ResolveFallbackReason(candidates, imagePlan);
-
-            if (fallbackReason == null)
-            {
-                item.SetImageCandidates(candidates);
-                item.SelectedImageKey = candidates.FirstOrDefault(candidate => candidate.IsSelected)?.Key;
-                UpdatePlanState(
-                    imagePlan,
-                    candidates.Count > 0 ? "ready" : "no-license-safe-image",
-                    candidates.Count > 0
-                        ? $"Da tim thay {candidates.Count} anh tu Wikimedia Commons."
-                        : "Chua tim thay anh web an toan nguon cho slide nay.");
-                item.SetImagePlan(imagePlan);
-                return;
-            }
-
-            try
-            {
-                var generatedCandidate = await GenerateOpenAiCandidateAsync(item, imagePlan, fallbackReason, cancellationToken);
-                candidates = MergeCandidatesWithGenerated(candidates, generatedCandidate);
-                item.SetImageCandidates(candidates);
-                item.SelectedImageKey = generatedCandidate.Key;
-                UpdatePlanState(
-                    imagePlan,
-                    "ready",
-                    BuildFallbackSuccessMessage(candidates.Count, fallbackReason));
-                item.SetImagePlan(imagePlan);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not generate fallback image for slide item {ItemId}", item.Id);
-
-                if (candidates.Count > 0)
-                {
-                    item.SetImageCandidates(candidates);
-                    item.SelectedImageKey = candidates.FirstOrDefault(candidate => candidate.IsSelected)?.Key;
-                    UpdatePlanState(
-                        imagePlan,
-                        "ready",
-                        $"OpenAI fallback khong thanh cong ({fallbackReason}); giu lai {candidates.Count} candidate tu Wikimedia Commons.");
-                    item.SetImagePlan(imagePlan);
-                    return;
-                }
-
-                item.SetImageCandidates(new List<SlideImageCandidate>());
-                item.SelectedImageKey = null;
-                UpdatePlanState(
-                    imagePlan,
-                    "failed",
-                    $"Khong the tao anh cho slide nay sau khi Wikimedia va OpenAI deu that bai ({fallbackReason}).");
-                item.SetImagePlan(imagePlan);
-            }
+            var generatedCandidate = await GenerateOpenAiCandidateAsync(item, imagePlan, "qwen-image-plan", cancellationToken);
+            item.SetImageCandidates(new List<SlideImageCandidate> { generatedCandidate });
+            item.SelectedImageKey = generatedCandidate.Key;
+            UpdatePlanState(imagePlan, "ready", "Da tao anh minh hoa bang OpenAI theo image plan cua Qwen.");
+            item.SetImagePlan(imagePlan);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not source images for slide item {ItemId}", item.Id);
+            _logger.LogWarning(ex, "Could not generate planned image for slide item {ItemId}", item.Id);
             item.SetImageCandidates(new List<SlideImageCandidate>());
             item.SelectedImageKey = null;
-            UpdatePlanState(imagePlan, "failed", $"Tim anh that bai: {ex.Message}");
+            UpdatePlanState(imagePlan, "failed", $"Tao anh that bai: {ex.Message}");
             item.SetImagePlan(imagePlan);
         }
     }
@@ -173,12 +140,11 @@ public class SlideImageService : ISlideImageService
         return await _slideDeckRepository.GetItemAsync(deckId, itemId);
     }
 
-    private bool ShouldSource(SlideImagePlan imagePlan)
-    {
-        return _settings.Enabled
+    private bool CanGenerate(SlideImagePlan imagePlan)
+        => _settings.Enabled
+            && string.Equals(_settings.Generation.Provider, "openai", StringComparison.OrdinalIgnoreCase)
             && imagePlan.NeedsImage
-            && (_settings.WebSources.Enabled || CanAttemptGeneration(imagePlan));
-    }
+            && SlideImagePlannerService.IsValidGenerationPrompt(imagePlan.GenerationPrompt);
 
     private async Task<List<SlideImageCandidate>> SearchWikimediaCommonsAsync(
         SlideItem item,

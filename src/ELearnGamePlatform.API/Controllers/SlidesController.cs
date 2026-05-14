@@ -640,6 +640,18 @@ public class SlidesController : AuthenticatedControllerBase
             persistedDeck.UpdatedAt = DateTime.UtcNow;
             await slideDeckRepository.UpdateDeckAsync(persistedDeck);
 
+            var finalItems = persistedDeck.Items.ToList();
+            var plannedImageCount = finalItems.Count(item => item.GetImagePlan()?.NeedsImage == true);
+            var invalidPlanCount = finalItems.Count(item =>
+                string.Equals(item.GetImagePlan()?.StatusHint, "image-plan-invalid", StringComparison.OrdinalIgnoreCase));
+            var skippedTextOnlyCount = finalItems.Count - plannedImageCount;
+            _logger.LogInformation(
+                "Slide image planning completed for deck {DeckId}: plannedImages={PlannedImageCount}, skippedTextOnly={SkippedTextOnlyCount}, invalidPlans={InvalidPlanCount}",
+                persistedDeck.Id,
+                plannedImageCount,
+                skippedTextOnlyCount,
+                invalidPlanCount);
+
             UpdateJob(jobId, state =>
             {
                 state.Status = "completed";
@@ -750,6 +762,7 @@ public class SlidesController : AuthenticatedControllerBase
         var failedCount = 0;
         var noImageNeededCount = 0;
         var generatedOnlyCount = 0;
+        var invalidPlanCount = 0;
 
         foreach (var item in deck.Items)
         {
@@ -760,6 +773,11 @@ public class SlidesController : AuthenticatedControllerBase
 
             if (!imageState.NeedsImage)
             {
+                if (string.Equals(imageState.Status, "image-plan-invalid", StringComparison.OrdinalIgnoreCase))
+                {
+                    invalidPlanCount += 1;
+                }
+
                 noImageNeededCount += 1;
                 continue;
             }
@@ -859,7 +877,8 @@ public class SlidesController : AuthenticatedControllerBase
             queuedCount,
             noLicenseSafeCount,
             failedCount,
-            generatedOnlyCount
+            generatedOnlyCount,
+            invalidPlanCount
         };
     }
 
@@ -1664,6 +1683,9 @@ public class SlidesController : AuthenticatedControllerBase
         return new SlideImagePlan
         {
             NeedsImage = needsImage,
+            Reason = needsImage
+                ? "Default scaffold before Qwen image planning runs."
+                : "Default scaffold keeps this slide text-only before Qwen image planning runs.",
             VisualRole = visualRole,
             AltText = needsImage
                 ? $"Minh hoa cho slide {item.SlideIndex}: {heading}"
@@ -1793,7 +1815,9 @@ public class SlidesController : AuthenticatedControllerBase
     {
         if (!needsImage)
         {
-            return "no-image-needed";
+            return string.Equals(imagePlan.StatusHint, "image-plan-invalid", StringComparison.OrdinalIgnoreCase)
+                ? "image-plan-invalid"
+                : "no-image-needed";
         }
 
         if (selectedImage != null || candidateCount > 0)
@@ -1819,6 +1843,7 @@ public class SlidesController : AuthenticatedControllerBase
         return status switch
         {
             "no-image-needed" => "Slide nay uu tien text-only de giu nhip doc va de bao toan do ro cua thong diep.",
+            "image-plan-invalid" => "Image plan khong hop le, slide nay tam thoi duoc giu text-only.",
             "ready" when candidateCount > 0 => $"Da co {candidateCount} image candidate cho slide nay.",
             "ready" => "Da co media duoc gan cho slide nay.",
             "queued" => "Image workflow se duoc noi vao o phase tiep theo sau khi slide on dinh.",

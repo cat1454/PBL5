@@ -74,6 +74,7 @@ const normalizeImageStatus = (status) => {
     case 'sourcing-web':
     case 'generating-fallback':
     case 'no-image-needed':
+    case 'image-plan-invalid':
     case 'no-license-safe-image':
       return normalized.toLowerCase().replace(/[\s_]+/g, '-');
     default:
@@ -213,6 +214,8 @@ const getImageStatusLabel = (status, t = fallbackTranslate) => {
       return t('slides.imageStates.failed', 'Media workflow failed');
     case 'no-image-needed':
       return t('slides.imageStates.noImageNeeded', 'This slide works best as text-only');
+    case 'image-plan-invalid':
+      return t('slides.imageStates.imagePlanInvalid', 'Image plan skipped');
     case 'no-license-safe-image':
       return t('slides.imageStates.noLicenseSafeImage', 'No license-safe image found yet');
     case 'not-requested':

@@ -524,6 +524,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
   const selectedSlide = previewItems.find((item) => item.id === selectedSlideId) || previewItems[0] || null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide, t) : null;
+  const selectedSlideNeedsMedia = selectedImageVm?.needsImage !== false;
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
   const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
@@ -839,7 +840,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
             {selectedSlide ? (
               <div className="studio-canvas-stage" style={getZoomStyle(canvasZoom)}>
-                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}`}>
+                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideNeedsMedia ? '' : ' text-only-slide'}`}>
                   <div className="studio-slide-meta">
                     <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                     <div className="quality-toolbar">
@@ -873,19 +874,21 @@ function SlideStudio({ documentId: propDocumentId }) {
                       {selectedSlide.speakerNotes && <p className="studio-slide-notes">{selectedSlide.speakerNotes}</p>}
                     </div>
 
-                    <div className={`studio-media-frame tone-${selectedImageVm?.badgeTone || 'muted'}${selectedImageVm?.selectedImage ? ' has-image' : ''}`}>
-                      {selectedImageVm?.selectedImage?.localAssetUrl ? (
-                        <img
-                          src={selectedImageVm.selectedImage.localAssetUrl}
-                          alt={selectedImageVm.selectedImage.altText || selectedSlide.heading || t('slides.slideLabel', { index: selectedSlide.slideIndex })}
-                        />
-                      ) : (
-                        <div className="studio-media-placeholder">
-                          <strong>{selectedImageVm?.badgeLabel}</strong>
-                          <span>{selectedImageVm?.statusLabel}</span>
-                        </div>
-                      )}
-                    </div>
+                    {selectedSlideNeedsMedia && (
+                      <div className={`studio-media-frame tone-${selectedImageVm?.badgeTone || 'muted'}${selectedImageVm?.selectedImage ? ' has-image' : ''}`}>
+                        {selectedImageVm?.selectedImage?.localAssetUrl ? (
+                          <img
+                            src={selectedImageVm.selectedImage.localAssetUrl}
+                            alt={selectedImageVm.selectedImage.altText || selectedSlide.heading || t('slides.slideLabel', { index: selectedSlide.slideIndex })}
+                          />
+                        ) : (
+                          <div className="studio-media-placeholder">
+                            <strong>{selectedImageVm?.badgeLabel}</strong>
+                            <span>{selectedImageVm?.statusLabel}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {(selectedSlide.quality?.isLowConfidence || selectedSlide.quality?.isUnknown) && (
@@ -1006,6 +1009,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                       </div>
                     </div>
 
+                    {selectedSlideNeedsMedia && (
                     <div className="studio-inspector-block">
                       <div className="studio-inspector-block-head">
                         <strong>{t('slides.mediaPanelTitle')}</strong>
@@ -1021,8 +1025,9 @@ function SlideStudio({ documentId: propDocumentId }) {
                       <p>{selectedImageVm?.helperText}</p>
                       {selectedImageVm?.attributionText && <small>{selectedImageVm.attributionText}</small>}
                     </div>
+                    )}
 
-                    {expandedMediaSlideId === selectedSlide.id && (
+                    {selectedSlideNeedsMedia && expandedMediaSlideId === selectedSlide.id && (
                       <div className="studio-media-manager">
                         {selectedImageVm?.needsImage && (
                           <button

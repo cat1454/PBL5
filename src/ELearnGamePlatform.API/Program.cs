@@ -111,6 +111,7 @@ builder.Services.AddScoped<IPromptAssembler, PromptAssembler>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<ISlideExportService, SlideExportService>();
+builder.Services.AddScoped<ISlideImagePlannerService, SlideImagePlannerService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();

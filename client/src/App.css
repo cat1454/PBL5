@@ -4440,6 +4440,10 @@ main {
   min-height: 0;
 }
 
+.studio-slide-frame.text-only-slide .studio-slide-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .studio-slide-text {
   display: grid;
   align-content: start;

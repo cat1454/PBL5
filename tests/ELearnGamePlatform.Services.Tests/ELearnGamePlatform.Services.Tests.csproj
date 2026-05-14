@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ELearnGamePlatform.API\ELearnGamePlatform.API.csproj" />
     <ProjectReference Include="..\..\src\ELearnGamePlatform.Core\ELearnGamePlatform.Core.csproj" />
     <ProjectReference Include="..\..\src\ELearnGamePlatform.Services\ELearnGamePlatform.Services.csproj" />
   </ItemGroup>
