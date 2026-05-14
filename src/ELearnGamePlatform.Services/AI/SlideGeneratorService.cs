@@ -21,12 +21,13 @@ public class SlideGeneratorService : ISlideGenerator
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
     private const int SlideRepairThreshold = 85;
-    private const int SlideCompletionThreshold = 76;
+    private const int SlideCompletionThreshold = 80;
     private const int PreferredEvidenceTeachabilityThreshold = 50;
     private const int MinimumFallbackEvidenceTeachabilityThreshold = 45;
     private static readonly Regex CjkTextPattern = new(@"[\u3400-\u9FFF\uF900-\uFAFF]", RegexOptions.Compiled);
     private static readonly Regex GuidLikePattern = new(@"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){2,4}\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex PageMarkerPattern = new(@"\[?\s*page\s+\d+\s*\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RawChapterHeadingPattern = new(@"^\s*(ch(uong|Æ°Æ¡ng)|chapter|unit|lesson|bai|bÃ i|phan|pháº§n)\s*[\dIVXLCMD\.:-]*\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly HashSet<string> SupportedThemes = new(StringComparer.OrdinalIgnoreCase)
     {
         "editorial-sunrise",
@@ -64,6 +65,47 @@ public class SlideGeneratorService : ISlideGenerator
         _ollamaService = ollamaService;
         _logger = logger;
     }
+
+    internal sealed record DebugDocumentChunkInput(string ChunkId, string Label, string Summary, string EvidenceExcerpt);
+
+    internal static string DebugBuildOutlinePrompt(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        IReadOnlyCollection<DebugDocumentChunkInput> chunks,
+        int targetCount)
+        => BuildOutlinePrompt(
+            processedContent,
+            brief,
+            BuildDebugChunks(chunks),
+            targetCount);
+
+    internal static SlideItemStatus DebugDetermineSuggestedSlideStatus(
+        SlideContentResult content,
+        IReadOnlyCollection<DebugDocumentChunkInput> evidence)
+        => DetermineSuggestedSlideStatus(content, BuildDebugChunks(evidence));
+
+    internal static bool DebugShouldRepairSlide(SlideContentResult content)
+        => ShouldRepairSlide(content);
+
+    internal static void DebugApplyLocalSlideVerifierMetadata(
+        SlideContentResult content,
+        SlideItemType slideType,
+        IReadOnlyCollection<DebugDocumentChunkInput> evidence,
+        bool usedFallback)
+        => ApplyLocalSlideVerifierMetadata(content, slideType, BuildDebugChunks(evidence), usedFallback);
+
+    private static List<DocumentChunk> BuildDebugChunks(IReadOnlyCollection<DebugDocumentChunkInput> chunks)
+        => chunks.Select((chunk, index) => new DocumentChunk
+        {
+            ChunkId = chunk.ChunkId,
+            ChunkNumber = index + 1,
+            Label = chunk.Label,
+            Summary = chunk.Summary,
+            EvidenceExcerpt = chunk.EvidenceExcerpt,
+            Classification = ChunkClassifications.LessonContent,
+            TeachabilityScore = 80,
+            KeyFacts = new List<string> { chunk.EvidenceExcerpt }
+        }).ToList();
 
     public async Task<SlideOutlineResult> GenerateOutlineAsync(
         string content,
@@ -239,8 +281,25 @@ public class SlideGeneratorService : ISlideGenerator
         return html.ToString();
     }
 
+    internal static string BuildSlideDesignContractBlock()
+        => """
+Slide design contract:
+- Each slide is one focused learning card, not a dense PowerPoint page.
+- Each slide must communicate one clear teaching message.
+- Use a Gamma-like card storytelling rhythm: hook, concept, explanation, evidence, takeaway, review.
+- Use Canva-like visual hierarchy: strong heading, short supporting text, quiet metadata.
+- Heading must be learner-facing, not a raw chapter title.
+- Body text must be concise, concrete, and preview-friendly.
+- Normal content slides should have 2-4 short body blocks.
+- Every slide must stay grounded in SOURCE_TEXT.
+- Image is supportive only; text must still work if the slide is text-only.
+- Avoid generic filler, OCR artifacts, broken filenames, file paths, placeholder wording, and duplicated ideas.
+""";
+
     private static string BuildOutlinePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, List<DocumentChunk> chunks, int targetCount)
         => $@"You are creating a short lesson deck from an educational document.
+
+{BuildSlideDesignContractBlock()}
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -289,6 +348,8 @@ Return JSON:
     private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence)
         => $@"You are generating one learner-facing presentation slide.
 
+{BuildSlideDesignContractBlock()}
+
 Deck brief:
 {BuildBriefBlock(brief)}
 
@@ -335,6 +396,8 @@ Return JSON:
     private static string BuildOutlinePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, List<SlideSectionPlan> sectionPlans, int targetCount)
         => $@"You are creating a short lesson deck from section summaries of an educational document.
 
+{BuildSlideDesignContractBlock()}
+
 Deck brief:
 {BuildBriefBlock(brief)}
 
@@ -380,6 +443,8 @@ Return JSON:
 
     private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence, List<SlideSectionPlan> sectionPlans)
         => $@"You are a system creating grounded study slides from source sections.
+
+{BuildSlideDesignContractBlock()}
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -557,6 +622,8 @@ Return JSON:
         {
             var prompt = $@"Polish the learner-facing presentation outline below.
 
+{BuildSlideDesignContractBlock()}
+
 Deck brief:
 {BuildBriefBlock(brief)}
 
@@ -626,6 +693,8 @@ Return JSON only:
         {
             var prompt = $@"Polish the learner-facing slide below.
 
+{BuildSlideDesignContractBlock()}
+
 Deck brief:
 {BuildBriefBlock(brief)}
 
@@ -678,6 +747,8 @@ Return JSON only:
         {
             var prompt = $@"Retry the presentation outline generation from section summaries.
 
+{BuildSlideDesignContractBlock()}
+
 Deck brief:
 {BuildBriefBlock(brief)}
 
@@ -721,6 +792,8 @@ Return JSON only:
         try
         {
             var prompt = $@"Retry the presentation outline generation.
+
+{BuildSlideDesignContractBlock()}
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -768,6 +841,8 @@ Return JSON only:
         try
         {
             var prompt = $@"Retry one grounded slide from source text only.
+
+{BuildSlideDesignContractBlock()}
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -822,6 +897,8 @@ Return JSON only:
         try
         {
             var prompt = $@"Retry one grounded slide.
+
+{BuildSlideDesignContractBlock()}
 
 Deck brief:
 {BuildBriefBlock(brief)}
@@ -988,6 +1065,11 @@ Return JSON only:
             issues.Add("Heading slide còn chung chung/template.");
         }
 
+        if (LooksLikeRawChapterHeading(content.Heading))
+        {
+            issues.Add("Heading còn giống tên chương thô, chưa phải thông điệp học tập.");
+        }
+
         if (HasBadVisibleSlideArtifacts(content))
         {
             issues.Add("Noi dung slide dang chua filename, page marker, hoac artifact khong nen hien thi.");
@@ -996,6 +1078,16 @@ Return JSON only:
         if (LooksLikeAuthorListOnly(content.Heading, content.Subheading, content.BodyBlocks))
         {
             issues.Add("Nội dung slide nghiêng về danh sách tác giả thay vì kiến thức học.");
+        }
+
+        if (LooksLikeRawChapterHeading(content.Heading))
+        {
+            issues.Add("Heading còn giống tên chương thô, chưa phải thông điệp học tập.");
+        }
+
+        if (LooksLikeRawChapterHeading(content.Heading))
+        {
+            issues.Add("Heading còn giống tên chương thô, chưa phải thông điệp học tập.");
         }
 
         if (!string.IsNullOrWhiteSpace(content.Subheading) && TextCleanupUtility.HasNoisyArtifacts(content.Subheading))
@@ -1032,10 +1124,55 @@ Return JSON only:
                 issues.Add("Body block còn chung chung/template.");
             }
 
+            if (content.BodyBlocks.Any(block => block.Length > 170))
+            {
+                issues.Add("Body block quá dài, khó đọc trên canvas.");
+            }
+
+            if (content.BodyBlocks.Any(block => block.Length > 170))
+            {
+                issues.Add("Body block quá dài, khó đọc trên canvas.");
+            }
+
+            if (content.BodyBlocks.Any(block => block.Length > 170))
+            {
+                issues.Add("Body block quá dài, khó đọc trên canvas.");
+            }
+
             if (content.BodyBlocks.Select(block => block.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != content.BodyBlocks.Count)
             {
                 issues.Add("Body block bị trùng nhau.");
             }
+        }
+
+        if (IsGenericSlide(content))
+        {
+            issues.Add("Nội dung slide còn quá chung chung, chưa đủ cụ thể cho người học.");
+        }
+
+        if (IsTooDense(content))
+        {
+            issues.Add("Slide có quá nhiều ý, chưa theo one-card-one-message.");
+        }
+
+        if (IsGenericSlide(content))
+        {
+            issues.Add("Nội dung slide còn quá chung chung, chưa đủ cụ thể cho người học.");
+        }
+
+        if (IsTooDense(content))
+        {
+            issues.Add("Slide có quá nhiều ý, chưa theo one-card-one-message.");
+        }
+
+        if (IsGenericSlide(content))
+        {
+            issues.Add("Nội dung slide còn quá chung chung, chưa đủ cụ thể cho người học.");
+        }
+
+        if (IsTooDense(content))
+        {
+            issues.Add("Slide có quá nhiều ý, chưa theo one-card-one-message.");
         }
 
         if (ContainsCjkText(content.Heading)
@@ -1049,6 +1186,21 @@ Return JSON only:
         if (!HasEvidenceSpecificity(content, evidence))
         {
             issues.Add("Slide chưa có chi tiết cụ thể được neo vào evidence.");
+        }
+
+        if (!HasEvidenceSpecificity(content, evidence))
+        {
+            issues.Add("Body block thiếu chi tiết cụ thể từ SOURCE_TEXT.");
+        }
+
+        if (!HasEvidenceSpecificity(content, evidence))
+        {
+            issues.Add("Body block thiếu chi tiết cụ thể từ SOURCE_TEXT.");
+        }
+
+        if (!HasEvidenceSpecificity(content, evidence))
+        {
+            issues.Add("Body block thiếu chi tiết cụ thể từ SOURCE_TEXT.");
         }
 
         if (evidence.Any() && evidence.Average(chunk => chunk.TeachabilityScore) < 45)
@@ -1198,9 +1350,17 @@ Return JSON only:
     }
 
     private static bool NeedsSlideAutoRepair(SlideContentResult content)
+        => ShouldRepairSlide(content);
+
+    private static bool ShouldRepairSlide(SlideContentResult content)
     {
+        if (content.UsedFallback)
+        {
+            return true;
+        }
+
         var score = content.VerifierScore ?? 0;
-        if (score < SlideRepairThreshold)
+        if (score < SlideRepairThreshold || content.VerifierIssues.Any() || IsGenericSlide(content) || IsTooDense(content))
         {
             return true;
         }
@@ -1245,6 +1405,53 @@ Return JSON only:
         }
 
         return GenericSlidePhrases.Any(phrase => token.Contains(NormalizeToken(phrase), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool LooksLikeRawChapterHeading(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var normalized = NormalizeToken(value);
+        return RawChapterHeadingPattern.IsMatch(normalized)
+            || Regex.IsMatch(normalized, @"^(chuong|chapter|unit|lesson|bai|phan)\s+\d+[:\.\-\s]*", RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsGenericSlide(SlideContentResult content)
+    {
+        var visibleValues = new[] { content.Heading, content.Subheading, content.Goal, content.KeyMessage, content.EvidenceFromText }
+            .Concat(content.BodyBlocks)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToList();
+
+        if (visibleValues.Count == 0)
+        {
+            return true;
+        }
+
+        if (LooksLikeRawChapterHeading(content.Heading))
+        {
+            return true;
+        }
+
+        return visibleValues.Count(value => LooksGenericForLesson(value)) >= Math.Min(2, visibleValues.Count);
+    }
+
+    private static bool IsTooDense(SlideContentResult content)
+    {
+        var bodyBlocks = content.BodyBlocks.Where(block => !string.IsNullOrWhiteSpace(block)).ToList();
+        if (bodyBlocks.Count > 4)
+        {
+            return true;
+        }
+
+        var totalWords = bodyBlocks.Sum(block => Regex.Matches(block, @"\b[\p{L}\p{N}]{2,}\b").Count);
+        var longBlockCount = bodyBlocks.Count(block => block.Length > 170 || Regex.Matches(block, @"\b[\p{L}\p{N}]{2,}\b").Count > 28);
+        var punctuationLoad = bodyBlocks.Sum(block => block.Count(ch => ch is ',' or ';' or ':'));
+
+        return totalWords > 95 || longBlockCount >= 2 || punctuationLoad >= 12;
     }
 
     private static bool ContainsCjkText(string? value)
@@ -1332,6 +1539,11 @@ Return JSON only:
             {
                 AddWarning("Heading slide còn chung chung/template.", 14);
             }
+
+            if (LooksLikeRawChapterHeading(content.Heading))
+            {
+                AddWarning("Heading còn giống tên chương thô, chưa phải thông điệp học tập.", 16);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(content.Subheading) && TextCleanupUtility.HasNoisyArtifacts(content.Subheading))
@@ -1387,10 +1599,25 @@ Return JSON only:
                 AddWarning("Mot vai body block còn chung chung/template.", 14);
             }
 
+            if (content.BodyBlocks.Any(block => block.Length > 170))
+            {
+                AddWarning("Body block quá dài, khó đọc trên canvas.", 12);
+            }
+
             if (content.BodyBlocks.Select(block => block.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != content.BodyBlocks.Count)
             {
                 AddWarning("Body block bị trùng nhau.", 14);
             }
+        }
+
+        if (IsGenericSlide(content))
+        {
+            AddWarning("Nội dung slide còn quá chung chung, chưa đủ cụ thể cho người học.", 16);
+        }
+
+        if (IsTooDense(content))
+        {
+            AddWarning("Slide có quá nhiều ý, chưa theo one-card-one-message.", 16);
         }
 
         if (ContainsCjkText(content.Heading)
@@ -1404,6 +1631,7 @@ Return JSON only:
         if (!HasEvidenceSpecificity(content, evidence))
         {
             AddWarning("Slide chưa có chi tiết cụ thể được neo vào evidence.", 16);
+            AddWarning("Body block thiếu chi tiết cụ thể từ SOURCE_TEXT.", 12);
         }
 
         if (evidence.Any() && evidence.Average(chunk => chunk.TeachabilityScore) < 45)
@@ -1550,11 +1778,13 @@ Slide payload:
 Requirements:
 1. Use only the evidence above.
 2. Penalize unsupported statements, duplicated ideas, OCR artifacts, CJK text, weak clarity, missing concrete evidence detail, or presentation wording that is too generic.
-3. invalidBullets should list the bullets that are unsupported or too generic.
-4. rewrittenBullets should rewrite only those invalid bullets to be more specific without adding outside knowledge.
-3. Score from 0 to 100.
-4. issues must be short Vietnamese bullets, maximum 5 items.
-5. isGrounded is true only when the visible slide content is supported by the evidence.
+3. Penalize heading that is only a raw chapter title instead of a learner-facing teaching message.
+4. Penalize body text that is too long, too dense, has too many ideas, lacks concrete evidence, uses filler, or is hard to read on a slide canvas.
+5. invalidBullets should list the bullets that are unsupported, too generic, too dense, or missing concrete SOURCE_TEXT detail.
+6. rewrittenBullets should rewrite only those invalid bullets to be more specific without adding outside knowledge.
+7. Score from 0 to 100.
+8. issues must be short Vietnamese bullets, maximum 5 items.
+9. isGrounded is true only when the visible slide content is supported by the evidence.
 
 Return JSON only:
 {{
@@ -2350,6 +2580,11 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         }
 
         if (content.UsedFallback || HasBadVisibleSlideArtifacts(content))
+        {
+            return SlideItemStatus.NeedsReview;
+        }
+
+        if (content.VerifierIssues.Any() || IsGenericSlide(content) || IsTooDense(content))
         {
             return SlideItemStatus.NeedsReview;
         }

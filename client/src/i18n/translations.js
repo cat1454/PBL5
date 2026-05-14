@@ -2167,6 +2167,32 @@ translations.en.upload = {
   progressDone: 'The file upload is complete. OCR and AI processing are still running in the workspace.',
 };
 
+translations.vi.analysis = {
+  ...translations.vi.analysis,
+  rawOcrTab: 'Van ban OCR tho',
+  cleanedTextTab: 'Ban da lam sach',
+  ocrTabsLabel: 'Chon ban van ban OCR',
+  textReviewed: 'Da xac nhan',
+  textNeedsReview: 'Can xem lai',
+  markReviewed: 'Danh dau da xem',
+  reviewed: 'Da xem',
+  reviewSaving: 'Dang luu...',
+  reviewFailed: 'Khong luu duoc trang thai xem lai van ban.',
+};
+
+translations.en.analysis = {
+  ...translations.en.analysis,
+  rawOcrTab: 'Raw OCR text',
+  cleanedTextTab: 'Cleaned Markdown',
+  ocrTabsLabel: 'Choose OCR text version',
+  textReviewed: 'Reviewed',
+  textNeedsReview: 'Needs review',
+  markReviewed: 'Mark as reviewed',
+  reviewed: 'Reviewed',
+  reviewSaving: 'Saving...',
+  reviewFailed: 'Could not save text review state.',
+};
+
 translations.vi.slides.errors = {
   ...translations.vi.slides.errors,
   schemaUnavailable: 'Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.',
@@ -2175,6 +2201,21 @@ translations.vi.slides.errors = {
 translations.vi.slides = {
   ...translations.vi.slides,
   export: 'Xuat HTML',
+  regenerateSlide: 'Sinh lai slide',
+  regeneratingSlide: 'Dang sinh lai...',
+  editManually: 'Chinh tay',
+  markAccepted: 'Chap nhan slide',
+  fallbackReviewTitle: 'Slide nay can xem lai',
+  fallbackReviewBody: 'Slide nay can xem lai vi AI chua tao duoc noi dung grounded tu tai lieu.',
+  lowConfidenceReviewBody: 'Slide nay co do tin cay thap hoac can kiem tra lai grounding truoc khi dung.',
+  reviewBadges: {
+    completed: 'Completed',
+    needsReview: 'Needs Review',
+    fallback: 'Fallback Used',
+    lowConfidence: 'Low Confidence',
+    notGrounded: 'Not Grounded',
+    unknown: 'No Score',
+  },
   downloadHtml: 'Tai HTML',
   exportingHtml: 'Dang tai HTML...',
   printPdf: 'In / Luu PDF',
@@ -2187,17 +2228,38 @@ translations.vi.slides = {
     htmlExported: 'Da tai file HTML.',
     printOpened: 'Da mo ban In / Luu PDF.',
     pptxExported: 'Da tai file PPTX.',
+    regeneratedSlide: 'Da sinh lai slide.',
+    regeneratedSlideBody: 'Slide {{index}} da duoc cap nhat.',
+    acceptedSlide: 'Da chap nhan slide.',
+    acceptedSlideBody: 'Slide {{index}} da duoc danh dau Completed.',
   },
   errors: {
     ...(translations.vi.slides.errors || {}),
     exportFailed: 'Khong the xuat slide deck.',
     printBlocked: 'Trinh duyet da chan tab in. Hay cho phep popup va thu lai.',
+    regenerateSlide: 'Khong the sinh lai slide nay.',
+    acceptSlide: 'Khong the danh dau chap nhan slide.',
   },
 };
 
 translations.en.slides = {
   ...translations.en.slides,
   export: 'Export HTML',
+  regenerateSlide: 'Regenerate slide',
+  regeneratingSlide: 'Regenerating...',
+  editManually: 'Edit manually',
+  markAccepted: 'Mark as accepted',
+  fallbackReviewTitle: 'This slide needs review',
+  fallbackReviewBody: 'This slide needs review because AI could not create grounded content from the document.',
+  lowConfidenceReviewBody: 'This slide has low confidence or needs grounding review before use.',
+  reviewBadges: {
+    completed: 'Completed',
+    needsReview: 'Needs Review',
+    fallback: 'Fallback Used',
+    lowConfidence: 'Low Confidence',
+    notGrounded: 'Not Grounded',
+    unknown: 'No Score',
+  },
   downloadHtml: 'Download HTML',
   exportingHtml: 'Downloading HTML...',
   printPdf: 'Print / Save as PDF',
@@ -2210,11 +2272,17 @@ translations.en.slides = {
     htmlExported: 'HTML file downloaded.',
     printOpened: 'Print / Save as PDF view opened.',
     pptxExported: 'PPTX file downloaded.',
+    regeneratedSlide: 'Slide regenerated.',
+    regeneratedSlideBody: 'Slide {{index}} was updated.',
+    acceptedSlide: 'Slide accepted.',
+    acceptedSlideBody: 'Slide {{index}} was marked Completed.',
   },
   errors: {
     ...(translations.en.slides.errors || {}),
     exportFailed: 'Could not export the slide deck.',
     printBlocked: 'The browser blocked the print tab. Allow popups and try again.',
+    regenerateSlide: 'Could not regenerate this slide.',
+    acceptSlide: 'Could not mark this slide accepted.',
   },
 };
 

@@ -31,6 +31,15 @@ public class Document
     [Column("extracted_text")]
     public string? ExtractedText { get; set; }
 
+    [Column("raw_ocr_text")]
+    public string? RawOcrText { get; set; }
+
+    [Column("cleaned_text")]
+    public string? CleanedText { get; set; }
+
+    [Column("is_text_reviewed")]
+    public bool IsTextReviewed { get; set; }
+
     [Column("main_topics")]
     public string? MainTopicsJson { get; set; } // JSON serialized
 

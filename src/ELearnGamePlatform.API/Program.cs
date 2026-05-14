@@ -104,6 +104,7 @@ builder.Services.AddScoped<IDocumentProcessor, PdfProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, DocxProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, ImageProcessor>();
 builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
+builder.Services.AddScoped<IOcrTextCleanupService, OcrTextCleanupService>();
 builder.Services.AddScoped<ITokenEstimator, TokenEstimator>();
 builder.Services.AddScoped<IDocumentInputQualityGate, DocumentInputQualityGate>();
 builder.Services.AddScoped<ITokenBudgetPlanner, TokenBudgetPlanner>();
@@ -211,6 +212,9 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
     EnsureColumnExists(connection, "questions", "verifier_issues");
 
     EnsureColumnExists(connection, "documents", "processed_metadata");
+    EnsureColumnExists(connection, "documents", "raw_ocr_text");
+    EnsureColumnExists(connection, "documents", "cleaned_text");
+    EnsureColumnExists(connection, "documents", "is_text_reviewed");
 
     EnsureColumnExists(connection, "slide_items", "verifier_score");
     EnsureColumnExists(connection, "slide_items", "verifier_issues");

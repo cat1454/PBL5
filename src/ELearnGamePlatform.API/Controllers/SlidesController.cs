@@ -316,6 +316,134 @@ public class SlidesController : AuthenticatedControllerBase
         }
     }
 
+    [HttpPost("{deckId}/items/{itemId}/regenerate")]
+    public async Task<IActionResult> RegenerateSlideItem(int deckId, int itemId)
+    {
+        var deckAccess = await EnsureDeckAccessAsync(deckId);
+        if (deckAccess != null)
+        {
+            return deckAccess;
+        }
+
+        try
+        {
+            var deck = await _slideDeckRepository.GetByIdAsync(deckId);
+            var item = await _slideDeckRepository.GetItemAsync(deckId, itemId);
+            if (deck == null || item == null)
+            {
+                return NotFound("Slide item not found");
+            }
+
+            var outline = DeserializeOutline(deck.OutlineJson);
+            var outlineSlide = outline?.Slides.FirstOrDefault(slide => slide.SlideIndex == item.SlideIndex);
+            if (outlineSlide == null)
+            {
+                return BadRequest("Slide outline is missing for this item.");
+            }
+
+            var context = await ResolveGenerationContextAsync(
+                new SlideGenerationTarget
+                {
+                    DocumentId = deck.DocumentId,
+                    FolderProjectId = deck.FolderProjectId,
+                    DesiredSlideCount = Math.Max(5, outline?.Slides.Count ?? deck.Items.Count),
+                    ThemeKey = deck.ThemeKey,
+                    Audience = outline?.Brief?.Audience,
+                    Tone = outline?.Brief?.Tone,
+                    NarrativeGoal = outline?.Brief?.NarrativeGoal,
+                    LanguageStyle = outline?.Brief?.LanguageStyle,
+                    Mode = outline?.Brief?.Mode,
+                    ScopePolicy = outline?.Brief?.ScopePolicy,
+                    SelectedSectionIds = deck.DocumentId.HasValue ? outline?.Brief?.SelectedSectionIds : null
+                },
+                _documentRepository,
+                _folderProjectRepository);
+
+            if (!context.Success)
+            {
+                return BadRequest(context.ErrorMessage ?? context.Error ?? "Could not resolve slide source context.");
+            }
+
+            var content = await _slideGenerator.GenerateSlideAsync(
+                context.ExtractedText,
+                context.ProcessedContent,
+                outline?.Brief ?? BuildBrief(new SlideGenerationTarget
+                {
+                    ThemeKey = deck.ThemeKey,
+                    DesiredSlideCount = Math.Max(5, outline?.Slides.Count ?? deck.Items.Count)
+                }),
+                outlineSlide,
+                item.SlideIndex,
+                Math.Max(1, deck.Items.Count),
+                null);
+            EnforceEvidenceScope(content, context.AllowedChunkIds);
+
+            if (!content.BodyBlocks.Any())
+            {
+                return BadRequest(new
+                {
+                    message = "AI did not produce usable slide content. Existing slide was kept.",
+                    item = BuildSlideItemPayload(item)
+                });
+            }
+
+            item.Heading = content.Heading ?? item.Heading;
+            item.Subheading = content.Subheading;
+            item.Goal = content.Goal;
+            item.KeyMessage = content.KeyMessage;
+            item.EvidenceFromText = content.EvidenceFromText;
+            item.SpeakerNotes = content.SpeakerNotes;
+            item.AccentTone = content.AccentTone;
+            item.VerifierScore = content.VerifierScore;
+            item.SetVerifierIssues(content.VerifierIssues);
+            item.SetEvidenceDebug(content.EvidenceDebug);
+            item.SetBodyBlocks(content.BodyBlocks);
+            item.SetEditorState(item.BuildDefaultEditorState());
+            item.Status = content.SuggestedStatus;
+            RefreshImageScaffold(item);
+            await _slideDeckRepository.UpdateItemAsync(item);
+
+            return Ok(BuildSlideItemPayload(item));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
+    [HttpPost("{deckId}/items/{itemId}/accept")]
+    public async Task<IActionResult> AcceptSlideItem(int deckId, int itemId)
+    {
+        var deckAccess = await EnsureDeckAccessAsync(deckId);
+        if (deckAccess != null)
+        {
+            return deckAccess;
+        }
+
+        try
+        {
+            var item = await _slideDeckRepository.GetItemAsync(deckId, itemId);
+            if (item == null)
+            {
+                return NotFound("Slide item not found");
+            }
+
+            item.Status = SlideItemStatus.Completed;
+            item.SetVerifierIssues(item.GetVerifierIssues()
+                .Concat(new[] { "Slide da duoc user chap nhan thu cong trong Slide Studio." })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList());
+            item.UpdatedAt = DateTime.UtcNow;
+            await _slideDeckRepository.UpdateItemAsync(item);
+
+            return Ok(BuildSlideItemPayload(item));
+        }
+        catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
+        {
+            return SlideSchemaUnavailable();
+        }
+    }
+
     [HttpPost("{deckId}/items/{itemId}/images/refresh")]
     public async Task<IActionResult> RefreshSlideItemImages(int deckId, int itemId)
     {
@@ -917,12 +1045,18 @@ public class SlidesController : AuthenticatedControllerBase
 
     private static object BuildQualityPayload(int? score, IReadOnlyCollection<string> issues)
     {
+        var normalizedIssues = issues.ToList();
         return new
         {
             score,
-            issues,
+            issues = normalizedIssues,
             isLowConfidence = IsLowConfidenceScore(score),
-            isUnknown = !score.HasValue
+            isUnknown = !score.HasValue,
+            usedFallback = normalizedIssues.Any(issue => issue.Contains("fallback", StringComparison.OrdinalIgnoreCase)),
+            isNotGrounded = normalizedIssues.Any(issue =>
+                issue.Contains("grounded", StringComparison.OrdinalIgnoreCase) ||
+                issue.Contains("SOURCE_TEXT", StringComparison.OrdinalIgnoreCase) ||
+                issue.Contains("evidence", StringComparison.OrdinalIgnoreCase))
         };
     }
 
@@ -1010,7 +1144,7 @@ public class SlidesController : AuthenticatedControllerBase
     private static ProcessedContent BuildProcessedContentFromSources(IReadOnlyCollection<Document> sources)
     {
         var orderedSources = sources
-            .Where(source => !string.IsNullOrWhiteSpace(source.ExtractedText))
+            .Where(source => !string.IsNullOrWhiteSpace(source.GetPreferredTextForAi()))
             .OrderBy(source => source.FolderSourceOrder)
             .ThenBy(source => source.CreatedAt)
             .ToList();
@@ -1090,10 +1224,10 @@ public class SlidesController : AuthenticatedControllerBase
         return string.Join(
             "\n\n==============================\n\n",
             sources
-                .Where(source => !string.IsNullOrWhiteSpace(source.ExtractedText))
+                .Where(source => !string.IsNullOrWhiteSpace(source.GetPreferredTextForAi()))
                 .OrderBy(source => source.FolderSourceOrder)
                 .ThenBy(source => source.CreatedAt)
-                .Select(source => $"Nguon: {source.FileName}\n\n{source.ExtractedText?.Trim()}"));
+                .Select(source => $"Nguon: {source.FileName}\n\n{source.GetPreferredTextForAi()?.Trim()}"));
     }
 
     private static string BuildCombinedExtractedTextFromChunks(Document source, IReadOnlyCollection<DocumentCoverageChunk> chunks)
@@ -1128,9 +1262,10 @@ public class SlidesController : AuthenticatedControllerBase
                 return SlideGenerationContext.Fail("Document not found", "Khong tim thay tai lieu");
             }
 
-            if (string.IsNullOrWhiteSpace(document.ExtractedText))
+            var sourceText = document.GetPreferredTextForAi();
+            if (string.IsNullOrWhiteSpace(sourceText))
             {
-                return SlideGenerationContext.Fail("Document has not been processed yet", "Tai lieu chua co noi dung ExtractedText");
+                return SlideGenerationContext.Fail("Document has not been processed yet", "Tai lieu chua co noi dung OCR/cleaned text");
             }
 
             var processedContent = BuildProcessedContentFromDocument(document);
@@ -1148,7 +1283,7 @@ public class SlidesController : AuthenticatedControllerBase
                     filtered);
             }
 
-            return SlideGenerationContext.FromDocument(document.Id, document.ExtractedText, processedContent);
+            return SlideGenerationContext.FromDocument(document.Id, sourceText, processedContent);
         }
 
         if (target.FolderProjectId.HasValue)
@@ -1171,7 +1306,7 @@ public class SlidesController : AuthenticatedControllerBase
             }
 
             var readySources = selectedSources
-                .Where(source => source.Status == DocumentStatus.Completed && !string.IsNullOrWhiteSpace(source.ExtractedText))
+                .Where(source => source.Status == DocumentStatus.Completed && !string.IsNullOrWhiteSpace(source.GetPreferredTextForAi()))
                 .ToList();
 
             if (readySources.Count == 0)

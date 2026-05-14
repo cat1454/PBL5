@@ -3993,6 +3993,47 @@ main {
   color: #b42318;
 }
 
+.quality-chip.tone-good {
+  background: rgba(18, 183, 106, 0.12);
+  color: #027a48;
+}
+
+.quality-chip.tone-warning {
+  background: rgba(247, 144, 9, 0.14);
+  color: #93370d;
+}
+
+.quality-chip.tone-danger {
+  background: rgba(249, 112, 102, 0.14);
+  color: #b42318;
+}
+
+.quality-chip.tone-muted {
+  background: rgba(102, 112, 133, 0.12);
+  color: #475467;
+}
+
+.slide-review-actions,
+.slide-review-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.slide-review-actions {
+  margin-top: 12px;
+}
+
+.slide-review-badge-row {
+  margin-top: 8px;
+}
+
+.slide-review-badge-row .quality-chip {
+  padding: 4px 7px;
+  font-size: 0.68rem;
+}
+
 .quality-warning {
   margin: 14px 0 0;
 }

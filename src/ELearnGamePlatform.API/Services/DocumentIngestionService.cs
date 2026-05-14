@@ -100,6 +100,7 @@ public class DocumentIngestionService : IDocumentIngestionService
         using var scope = _serviceScopeFactory.CreateScope();
         var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
         var contentAnalyzer = scope.ServiceProvider.GetRequiredService<IContentAnalyzer>();
+        var ocrTextCleanupService = scope.ServiceProvider.GetRequiredService<IOcrTextCleanupService>();
         var qualityGate = scope.ServiceProvider.GetRequiredService<IDocumentInputQualityGate>();
         var tokenBudgetPlanner = scope.ServiceProvider.GetRequiredService<ITokenBudgetPlanner>();
         var ocrSettings = scope.ServiceProvider.GetRequiredService<IOptions<OcrSettings>>().Value;
@@ -164,9 +165,30 @@ public class DocumentIngestionService : IDocumentIngestionService
             });
 
             var extractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress);
+            document.RawOcrText = extractedText;
             document.ExtractedText = extractedText;
-            var qualityResult = qualityGate.Evaluate(extractedText);
-            var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
+
+            documentJobStore.UpdateJob(documentId, state =>
+            {
+                state.Status = "running";
+                state.Percent = Math.Max(state.Percent, 59);
+                state.Stage = "ocr-cleanup";
+                state.StageLabel = "Lam sach OCR";
+                state.Message = "Dang format lai van ban OCR bang AI";
+                state.Detail = "Giu nguyen noi dung goc, chi sua artifact, xuong dong, heading va bullet.";
+                state.StageIndex = 3;
+                state.StageCount = 6;
+                UpdateEta(state);
+            });
+
+            var cleanedText = await ocrTextCleanupService.CleanupAsync(extractedText);
+            document.CleanedText = cleanedText;
+            document.IsTextReviewed = false;
+            document.ExtractedText = !string.IsNullOrWhiteSpace(cleanedText) ? cleanedText : extractedText;
+            var analysisText = document.GetPreferredTextForAi() ?? extractedText;
+
+            var qualityResult = qualityGate.Evaluate(analysisText);
+            var budgetPlan = tokenBudgetPlanner.PlanText(analysisText, "analysis");
             var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
             ApplyPageQualityCalibration(qualityResult, pageQualityReport, budgetPlan);
             var metadata = document.GetProcessingMetadata();
@@ -215,6 +237,9 @@ public class DocumentIngestionService : IDocumentIngestionService
             var qualityWarnings = qualityResult.Warnings
                 .Concat(budgetPlan.Warnings)
                 .Concat(pageQualityReport?.Warnings ?? Enumerable.Empty<string>())
+                .Concat(string.IsNullOrWhiteSpace(cleanedText)
+                    ? new[] { "AI OCR cleanup did not produce cleaned text; downstream generation will use raw extracted text." }
+                    : Enumerable.Empty<string>())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -278,7 +303,7 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var processedContent = await contentAnalyzer.AnalyzeContentAsync(extractedText, analysisProgress);
+            var processedContent = await contentAnalyzer.AnalyzeContentAsync(analysisText, analysisProgress);
             var analysisChunkBudget = tokenBudgetPlanner.PlanChunks(processedContent.CoverageMap, "analysis");
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);

@@ -66,6 +66,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.ExtractedText)
                 .HasColumnType("text");
 
+            entity.Property(e => e.RawOcrText)
+                .HasColumnType("text");
+
+            entity.Property(e => e.CleanedText)
+                .HasColumnType("text");
+
             entity.Property(e => e.MainTopicsJson)
                 .HasColumnType("jsonb");
 

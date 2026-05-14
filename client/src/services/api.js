@@ -199,6 +199,11 @@ export const documentService = {
     return response.data;
   },
 
+  markTextReviewed: async (id) => {
+    const response = await apiClient.post(`/documents/${id}/text-review`);
+    return response.data;
+  },
+
   getDocumentProgress: async (id) => {
     const response = await apiClient.get(`/documents/${id}/progress`);
     return response.data;
@@ -563,6 +568,16 @@ export const slideService = {
 
   updateSlideItem: async (deckId, itemId, payload) => {
     const response = await apiClient.put(`/slides/${deckId}/items/${itemId}`, payload);
+    return response.data;
+  },
+
+  regenerateSlideItem: async (deckId, itemId) => {
+    const response = await apiClient.post(`/slides/${deckId}/items/${itemId}/regenerate`);
+    return response.data;
+  },
+
+  acceptSlideItem: async (deckId, itemId) => {
+    const response = await apiClient.post(`/slides/${deckId}/items/${itemId}/accept`);
     return response.data;
   },
 

@@ -154,14 +154,15 @@ public class DocumentsController : AuthenticatedControllerBase
             return authResult;
         }
 
-        if (string.IsNullOrWhiteSpace(document.ExtractedText))
+        var sourceText = document.GetPreferredTextForAi();
+        if (string.IsNullOrWhiteSpace(sourceText))
         {
             return BadRequest("Document has not been processed yet");
         }
 
         try
         {
-            var processedContent = await _contentAnalyzer.AnalyzeContentAsync(document.ExtractedText);
+            var processedContent = await _contentAnalyzer.AnalyzeContentAsync(sourceText);
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
             document.SetCoverageMap(processedContent.CoverageMap);
@@ -186,6 +187,28 @@ public class DocumentsController : AuthenticatedControllerBase
             _logger.LogError(ex, "Error re-analyzing document structure for {DocumentId}", id);
             return StatusCode(500, "Error analyzing document structure");
         }
+    }
+
+    [HttpPost("{id}/text-review")]
+    public async Task<IActionResult> MarkTextReviewed(int id)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        document.IsTextReviewed = true;
+        document.UpdatedAt = DateTime.UtcNow;
+        await _documentRepository.UpdateAsync(document.Id, document);
+
+        return Ok(BuildDocumentPayload(document, questionsCount: document.Questions.Count));
     }
 
     [HttpGet("user/{userId}")]
@@ -253,6 +276,9 @@ public class DocumentsController : AuthenticatedControllerBase
             filePath = doc.FilePath,
             fileSize = doc.FileSize,
             extractedText = doc.ExtractedText,
+            rawOcrText = doc.RawOcrText,
+            cleanedText = doc.CleanedText,
+            isTextReviewed = doc.IsTextReviewed,
             mainTopics = doc.GetMainTopics(),
             keyPoints = doc.GetKeyPoints(),
             coverageChunkCount = doc.GetCoverageMap().Count,

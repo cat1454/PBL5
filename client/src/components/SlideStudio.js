@@ -29,6 +29,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
   const [expandedMediaSlideId, setExpandedMediaSlideId] = useState(null);
   const [mediaBusySlideId, setMediaBusySlideId] = useState(null);
+  const [slideActionBusyId, setSlideActionBusyId] = useState(null);
   const [activeLeftTab, setActiveLeftTab] = useState('outline');
   const [selectedSlideId, setSelectedSlideId] = useState(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
@@ -323,6 +324,71 @@ function SlideStudio({ documentId: propDocumentId }) {
     }
   };
 
+  const replaceDeckItem = useCallback((updatedItem) => {
+    setDeck((current) => {
+      if (!current?.items || !updatedItem) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: current.items.map((item) => (item.id === updatedItem.id ? updatedItem : item)),
+      };
+    });
+  }, []);
+
+  const handleRegenerateSlide = async (item) => {
+    if (!deck || !item || slideActionBusyId === item.id) {
+      return;
+    }
+
+    setSlideActionBusyId(item.id);
+    try {
+      const updated = await slideService.regenerateSlideItem(deck.id, item.id);
+      replaceDeckItem(updated);
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.regeneratedSlide'),
+        description: t('slides.feedback.regeneratedSlideBody', { index: item.slideIndex }),
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({
+        type: 'error',
+        message: t('slides.errors.regenerateSlide'),
+        description: getApiErrorMessage(err, t('slides.errors.regenerateSlide')),
+      });
+    } finally {
+      setSlideActionBusyId(null);
+    }
+  };
+
+  const handleAcceptSlide = async (item) => {
+    if (!deck || !item || slideActionBusyId === item.id) {
+      return;
+    }
+
+    setSlideActionBusyId(item.id);
+    try {
+      const updated = await slideService.acceptSlideItem(deck.id, item.id);
+      replaceDeckItem(updated);
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.acceptedSlide'),
+        description: t('slides.feedback.acceptedSlideBody', { index: item.slideIndex }),
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({
+        type: 'error',
+        message: t('slides.errors.acceptSlide'),
+        description: getApiErrorMessage(err, t('slides.errors.acceptSlide')),
+      });
+    } finally {
+      setSlideActionBusyId(null);
+    }
+  };
+
   const handleSelectImage = async (item, candidateKey) => {
     if (!deck) {
       return;
@@ -453,6 +519,54 @@ function SlideStudio({ documentId: propDocumentId }) {
     }
   }, [t]);
 
+  const getSlideReviewBadges = useCallback((item) => {
+    if (!item) {
+      return [];
+    }
+
+    const badges = [];
+    const status = String(item.status || '').toLowerCase();
+    const quality = item.quality || {};
+    const issues = Array.isArray(quality.issues) ? quality.issues : [];
+    const hasFallback = Boolean(quality.usedFallback)
+      || issues.some((issue) => String(issue).toLowerCase().includes('fallback'));
+    const notGrounded = Boolean(quality.isNotGrounded)
+      || issues.some((issue) => /grounded|source_text|evidence/i.test(String(issue)));
+
+    if (status === 'completed') {
+      badges.push({ key: 'completed', label: t('slides.reviewBadges.completed'), tone: 'good' });
+    }
+    if (status === 'needsreview') {
+      badges.push({ key: 'needs-review', label: t('slides.reviewBadges.needsReview'), tone: 'warning' });
+    }
+    if (hasFallback) {
+      badges.push({ key: 'fallback', label: t('slides.reviewBadges.fallback'), tone: 'danger' });
+    }
+    if (quality.isLowConfidence) {
+      badges.push({ key: 'low-confidence', label: t('slides.reviewBadges.lowConfidence'), tone: 'warning' });
+    }
+    if (notGrounded) {
+      badges.push({ key: 'not-grounded', label: t('slides.reviewBadges.notGrounded'), tone: 'danger' });
+    }
+    if (quality.isUnknown) {
+      badges.push({ key: 'unknown', label: t('slides.reviewBadges.unknown'), tone: 'muted' });
+    }
+
+    return badges;
+  }, [t]);
+
+  const needsSlideReview = useCallback((item) => {
+    if (!item) {
+      return false;
+    }
+
+    return String(item.status || '').toLowerCase() === 'needsreview'
+      || Boolean(item.quality?.isLowConfidence)
+      || Boolean(item.quality?.isUnknown)
+      || Boolean(item.quality?.usedFallback)
+      || Boolean(item.quality?.isNotGrounded);
+  }, []);
+
   const getProgressStageLabel = useCallback((activeProgress) => {
     if (!activeProgress) {
       return t('slides.notCreated');
@@ -528,6 +642,8 @@ function SlideStudio({ documentId: propDocumentId }) {
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
   const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
+  const selectedSlideBadges = selectedSlide ? getSlideReviewBadges(selectedSlide) : [];
+  const selectedSlideNeedsReview = selectedSlide ? needsSlideReview(selectedSlide) : false;
 
   const handleSelectSlide = (item) => {
     setSelectedSlideId(item.id);
@@ -845,11 +961,11 @@ function SlideStudio({ documentId: propDocumentId }) {
                     <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                     <div className="quality-toolbar">
                       <span>{getSlideTypeLabel(selectedSlide.slideType)}</span>
-                      {selectedSlide.quality?.score !== undefined && selectedSlide.quality?.score !== null && (
-                        <span className={`quality-chip ${selectedSlide.quality?.isLowConfidence ? 'low' : 'good'}`}>
-                          {selectedSlide.quality.score}/100
+                      {selectedSlideBadges.map((badge) => (
+                        <span key={badge.key} className={`quality-chip tone-${badge.tone}`}>
+                          {badge.label}
                         </span>
-                      )}
+                      ))}
                     </div>
                   </div>
 
@@ -891,9 +1007,14 @@ function SlideStudio({ documentId: propDocumentId }) {
                     )}
                   </div>
 
-                  {(selectedSlide.quality?.isLowConfidence || selectedSlide.quality?.isUnknown) && (
+                  {selectedSlideNeedsReview && (
                     <div className="quality-warning compact">
-                      <strong>{selectedSlide.quality?.isLowConfidence ? t('slides.reviewNeeded') : t('slides.noVerifier')}</strong>
+                      <strong>{selectedSlide.quality?.usedFallback ? t('slides.fallbackReviewTitle') : t('slides.reviewNeeded')}</strong>
+                      <p>
+                        {selectedSlide.quality?.usedFallback
+                          ? t('slides.fallbackReviewBody')
+                          : t('slides.lowConfidenceReviewBody')}
+                      </p>
                       {Array.isArray(selectedSlide.quality?.issues) && selectedSlide.quality.issues.length > 0 && (
                         <ul className="quality-issues">
                           {selectedSlide.quality.issues.slice(0, 2).map((issue) => (
@@ -901,6 +1022,27 @@ function SlideStudio({ documentId: propDocumentId }) {
                           ))}
                         </ul>
                       )}
+                      <div className="slide-review-actions">
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => handleRegenerateSlide(selectedSlide)}
+                          disabled={slideActionBusyId === selectedSlide.id}
+                        >
+                          {slideActionBusyId === selectedSlide.id ? t('slides.regeneratingSlide') : t('slides.regenerateSlide')}
+                        </button>
+                        <button type="button" className="button button-secondary" onClick={() => handleEdit(selectedSlide)}>
+                          {t('slides.editManually')}
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => handleAcceptSlide(selectedSlide)}
+                          disabled={slideActionBusyId === selectedSlide.id}
+                        >
+                          {t('slides.markAccepted')}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </article>
@@ -932,6 +1074,11 @@ function SlideStudio({ documentId: propDocumentId }) {
                     <span>{t('slides.slideLabel', { index: item.slideIndex })}</span>
                     <strong>{item.heading || t('slides.untitledSlide')}</strong>
                     <small>{getFriendlyStatus(item.status)}</small>
+                    <div className="slide-review-badge-row">
+                      {getSlideReviewBadges(item).slice(0, 3).map((badge) => (
+                        <span key={badge.key} className={`quality-chip tone-${badge.tone}`}>{badge.label}</span>
+                      ))}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -1087,6 +1234,28 @@ function SlideStudio({ documentId: propDocumentId }) {
                       <span aria-hidden="true">✎</span>
                       <span>{t('slides.editSlide')}</span>
                     </button>
+                    {selectedSlideNeedsReview && (
+                      <div className="slide-edit-actions">
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => handleRegenerateSlide(selectedSlide)}
+                          disabled={slideActionBusyId === selectedSlide.id}
+                        >
+                          <span aria-hidden="true">â†»</span>
+                          <span>{slideActionBusyId === selectedSlide.id ? t('slides.regeneratingSlide') : t('slides.regenerateSlide')}</span>
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => handleAcceptSlide(selectedSlide)}
+                          disabled={slideActionBusyId === selectedSlide.id}
+                        >
+                          <span aria-hidden="true">âœ“</span>
+                          <span>{t('slides.markAccepted')}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

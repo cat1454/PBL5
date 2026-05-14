@@ -113,7 +113,8 @@ public class QuestionsController : AuthenticatedControllerBase
                 return authResult;
             }
 
-            if (string.IsNullOrEmpty(document.ExtractedText))
+            var sourceText = document.GetPreferredTextForAi();
+            if (string.IsNullOrWhiteSpace(sourceText))
             {
                 return BadRequest("Document has not been processed yet");
             }
@@ -124,7 +125,7 @@ public class QuestionsController : AuthenticatedControllerBase
             {
                 questions = await _questionGenerator.GenerateQuestionsByTypeAsync(
                     request.DocumentId,
-                    document.ExtractedText,
+                    sourceText,
                     request.QuestionType.Value,
                     request.Count,
                     processedContent);
@@ -133,7 +134,7 @@ public class QuestionsController : AuthenticatedControllerBase
             {
                 questions = await _questionGenerator.GenerateQuestionsAsync(
                     request.DocumentId,
-                    document.ExtractedText,
+                    sourceText,
                     request.Count,
                     processedContent);
             }
@@ -203,7 +204,8 @@ public class QuestionsController : AuthenticatedControllerBase
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(document.ExtractedText))
+            var sourceText = document.GetPreferredTextForAi();
+            if (string.IsNullOrWhiteSpace(sourceText))
             {
                 _jobStore.UpdateJob(jobId, state =>
                 {
@@ -212,7 +214,7 @@ public class QuestionsController : AuthenticatedControllerBase
                     state.Stage = "failed";
                     state.StageLabel = "That bai";
                     state.Message = "Tai lieu chua du noi dung de sinh cau hoi";
-                    state.Detail = "Can xu ly xong ExtractedText truoc khi tao cau hoi";
+                    state.Detail = "Can xu ly xong van ban OCR/cleaned text truoc khi tao cau hoi";
                     state.Error = "Document has not been processed yet";
                     state.StageIndex = 7;
                     state.StageCount = 7;
@@ -236,7 +238,7 @@ public class QuestionsController : AuthenticatedControllerBase
             {
                 questions = await questionGenerator.GenerateQuestionsByTypeAsync(
                     request.DocumentId,
-                    document.ExtractedText,
+                    sourceText,
                     request.QuestionType.Value,
                     request.Count,
                     processedContent,
@@ -246,7 +248,7 @@ public class QuestionsController : AuthenticatedControllerBase
             {
                 questions = await questionGenerator.GenerateQuestionsAsync(
                     request.DocumentId,
-                    document.ExtractedText,
+                    sourceText,
                     request.Count,
                     processedContent,
                     progress);

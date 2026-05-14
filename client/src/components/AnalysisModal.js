@@ -4,6 +4,8 @@ import { documentService, getApiErrorMessage } from '../services/api';
 
 const TAB_AI = 'ai';
 const TAB_OCR = 'ocr';
+const OCR_TAB_RAW = 'raw';
+const OCR_TAB_CLEANED = 'cleaned';
 
 function hasExtractedTextField(document) {
   return Object.prototype.hasOwnProperty.call(document || {}, 'extractedText');
@@ -20,6 +22,8 @@ function AnalysisModal({ document, onClose }) {
   const [fullDocument, setFullDocument] = useState(document);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
+  const [ocrTextTab, setOcrTextTab] = useState(OCR_TAB_CLEANED);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [copyState, setCopyState] = useState('idle');
 
   useEffect(() => {
@@ -27,6 +31,8 @@ function AnalysisModal({ document, onClose }) {
     setFullDocument(document);
     setOcrLoading(false);
     setOcrError('');
+    setOcrTextTab(OCR_TAB_CLEANED);
+    setReviewSaving(false);
     setCopyState('idle');
   }, [document]);
 
@@ -67,7 +73,11 @@ function AnalysisModal({ document, onClose }) {
     };
   }, [activeTab, fullDocument, t]);
 
-  const extractedText = typeof fullDocument?.extractedText === 'string' ? fullDocument.extractedText : '';
+  const rawOcrText = typeof fullDocument?.rawOcrText === 'string'
+    ? fullDocument.rawOcrText
+    : (typeof fullDocument?.extractedText === 'string' ? fullDocument.extractedText : '');
+  const cleanedText = typeof fullDocument?.cleanedText === 'string' ? fullDocument.cleanedText : '';
+  const extractedText = ocrTextTab === OCR_TAB_RAW ? rawOcrText : (cleanedText || rawOcrText);
   const textStats = useMemo(() => ({
     characters: extractedText.length,
     words: getWordCount(extractedText),
@@ -85,6 +95,25 @@ function AnalysisModal({ document, onClose }) {
     } catch {
       setCopyState('failed');
       window.setTimeout(() => setCopyState('idle'), 2200);
+    }
+  };
+
+  const handleMarkReviewed = async () => {
+    if (!fullDocument?.id || reviewSaving) {
+      return;
+    }
+
+    setReviewSaving(true);
+    try {
+      const updated = await documentService.markTextReviewed(fullDocument.id);
+      setFullDocument((current) => ({
+        ...current,
+        ...updated,
+      }));
+    } catch (err) {
+      setOcrError(getApiErrorMessage(err, t('analysis.reviewFailed')));
+    } finally {
+      setReviewSaving(false);
     }
   };
 
@@ -162,11 +191,44 @@ function AnalysisModal({ document, onClose }) {
             </>
           ) : (
             <div className="analysis-ocr-panel">
+              <div className="analysis-modal-tabs compact" role="tablist" aria-label={t('analysis.ocrTabsLabel')}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ocrTextTab === OCR_TAB_RAW}
+                  className={`analysis-modal-tab${ocrTextTab === OCR_TAB_RAW ? ' active' : ''}`}
+                  onClick={() => setOcrTextTab(OCR_TAB_RAW)}
+                >
+                  {t('analysis.rawOcrTab')}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ocrTextTab === OCR_TAB_CLEANED}
+                  className={`analysis-modal-tab${ocrTextTab === OCR_TAB_CLEANED ? ' active' : ''}`}
+                  onClick={() => setOcrTextTab(OCR_TAB_CLEANED)}
+                >
+                  {t('analysis.cleanedTextTab')}
+                </button>
+              </div>
               <div className="analysis-ocr-toolbar">
                 <div className="analysis-ocr-stats">
                   <span>{t('analysis.characterCount', { count: textStats.characters })}</span>
                   <span>{t('analysis.wordCount', { count: textStats.words })}</span>
+                  <span>{fullDocument?.isTextReviewed ? t('analysis.textReviewed') : t('analysis.textNeedsReview')}</span>
                 </div>
+                <button
+                  type="button"
+                  className="button button-secondary analysis-copy-btn"
+                  onClick={handleMarkReviewed}
+                  disabled={reviewSaving || fullDocument?.isTextReviewed}
+                >
+                  {fullDocument?.isTextReviewed
+                    ? t('analysis.reviewed')
+                    : reviewSaving
+                      ? t('analysis.reviewSaving')
+                      : t('analysis.markReviewed')}
+                </button>
                 <button
                   type="button"
                   className="button button-secondary analysis-copy-btn"

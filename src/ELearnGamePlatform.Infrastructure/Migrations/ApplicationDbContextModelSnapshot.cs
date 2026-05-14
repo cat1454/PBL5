@@ -98,6 +98,10 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("extracted_text");
 
+                    b.Property<string>("CleanedText")
+                        .HasColumnType("text")
+                        .HasColumnName("cleaned_text");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -119,6 +123,10 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("file_type");
+
+                    b.Property<bool>("IsTextReviewed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_text_reviewed");
 
                     b.Property<int?>("FolderProjectId")
                         .HasColumnType("integer")
@@ -148,6 +156,10 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Property<string>("ProcessedMetadataJson")
                         .HasColumnType("text")
                         .HasColumnName("processed_metadata");
+
+                    b.Property<string>("RawOcrText")
+                        .HasColumnType("text")
+                        .HasColumnName("raw_ocr_text");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
