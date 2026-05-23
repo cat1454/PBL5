@@ -45,6 +45,7 @@ public class SlideImageService : ISlideImageService
         _settings = settings.Value;
         _environment = environment;
         _logger = logger;
+        EnsureHttpClientAllowsConfiguredGenerationTimeout();
     }
 
     public async Task SourceImagesForItemAsync(SlideItem item, CancellationToken cancellationToken = default)
@@ -247,7 +248,7 @@ public class SlideImageService : ISlideImageService
         string fallbackReason,
         CancellationToken cancellationToken)
     {
-        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var apiKey = ResolveOpenAiApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new InvalidOperationException("OPENAI_API_KEY is not configured.");
@@ -255,14 +256,16 @@ public class SlideImageService : ISlideImageService
 
         var prompt = BuildGenerationPrompt(item, imagePlan);
         var size = NormalizeGenerationSize(_settings.Generation.Size);
+        var model = string.IsNullOrWhiteSpace(_settings.Generation.Model) ? "gpt-image-1" : _settings.Generation.Model;
+        var isGptImageModel = IsGptImageModel(model);
         var request = new OpenAiImageGenerationRequest
         {
-            Model = string.IsNullOrWhiteSpace(_settings.Generation.Model) ? "gpt-image-1" : _settings.Generation.Model,
+            Model = model,
             Prompt = prompt,
             Size = size,
             Quality = string.IsNullOrWhiteSpace(_settings.Generation.Quality) ? "high" : _settings.Generation.Quality,
-            ResponseFormat = "b64_json",
-            OutputFormat = "png"
+            ResponseFormat = isGptImageModel ? null : "b64_json",
+            OutputFormat = isGptImageModel ? "png" : null
         };
 
         using var requestMessage = new HttpRequestMessage(HttpMethod.Post, OpenAiImagesEndpoint)
@@ -272,7 +275,7 @@ public class SlideImageService : ISlideImageService
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(30, _settings.Generation.TimeoutSeconds)));
+        timeoutCts.CancelAfter(GetGenerationTimeout());
 
         using var response = await _httpClient.SendAsync(requestMessage, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
         var responseBody = await response.Content.ReadAsStringAsync(timeoutCts.Token);
@@ -323,6 +326,34 @@ public class SlideImageService : ISlideImageService
             IsSelected = true,
             LayoutMode = imagePlan.VisualRole
         };
+    }
+
+    private string? ResolveOpenAiApiKey()
+    {
+        var environmentApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        return string.IsNullOrWhiteSpace(environmentApiKey)
+            ? _settings.Generation.ApiKey
+            : environmentApiKey;
+    }
+
+    private void EnsureHttpClientAllowsConfiguredGenerationTimeout()
+    {
+        var requiredTimeout = GetGenerationTimeout().Add(TimeSpan.FromSeconds(15));
+        if (_httpClient.Timeout == Timeout.InfiniteTimeSpan || _httpClient.Timeout >= requiredTimeout)
+        {
+            return;
+        }
+
+        _httpClient.Timeout = requiredTimeout;
+    }
+
+    private TimeSpan GetGenerationTimeout()
+        => TimeSpan.FromSeconds(Math.Max(30, _settings.Generation.TimeoutSeconds));
+
+    private static bool IsGptImageModel(string? model)
+    {
+        return !string.IsNullOrWhiteSpace(model)
+            && model.Trim().StartsWith("gpt-image-", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<SlideImageCandidate> MergeCandidatesWithGenerated(
@@ -737,10 +768,12 @@ public class SlideImageService : ISlideImageService
         public string Quality { get; set; } = "high";
 
         [JsonPropertyName("response_format")]
-        public string ResponseFormat { get; set; } = "b64_json";
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ResponseFormat { get; set; }
 
         [JsonPropertyName("output_format")]
-        public string OutputFormat { get; set; } = "png";
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? OutputFormat { get; set; }
     }
 
     private sealed class OpenAiImageGenerationResponse

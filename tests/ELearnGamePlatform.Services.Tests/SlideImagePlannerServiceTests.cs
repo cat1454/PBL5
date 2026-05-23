@@ -161,17 +161,151 @@ public class SlideImagePlannerServiceTests
         Assert.Equal("generated-42", item.SelectedImageKey);
     }
 
+    [Fact]
+    public async Task SourceImagesForItemAsync_GptImageModel_DoesNotSendUnsupportedResponseFormat()
+    {
+        var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Environment.SetEnvironmentVariable("OPENAI_API_KEY", "test-key");
+        try
+        {
+            var item = CreateSlideItem();
+            item.Id = 44;
+            item.SlideDeckId = 7;
+            var planner = new FixedPlanner(new SlideImagePlan
+            {
+                NeedsImage = true,
+                VisualRole = "process",
+                GenerationPrompt = "Create a 16:9 academic presentation slide illustration showing a process workflow layout with connected cards and a central diagram.",
+                NegativePrompt = "No text.",
+                AltText = "Process workflow.",
+                StatusHint = "queued"
+            });
+            var handler = new CapturingHttpHandler();
+            var settings = CreateImagePipelineSettings();
+            settings.Generation.Model = "gpt-image-1.5";
+            var service = CreateImageService(planner, handler, settings);
+
+            await service.SourceImagesForItemAsync(item);
+
+            var requestBody = Assert.Single(handler.RequestBodies);
+            using var document = JsonDocument.Parse(requestBody);
+            Assert.False(document.RootElement.TryGetProperty("response_format", out _));
+            Assert.Equal("png", document.RootElement.GetProperty("output_format").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", originalApiKey);
+        }
+    }
+
+    [Fact]
+    public async Task SourceImagesForItemAsync_ConfiguredOpenAiApiKey_IsUsedWhenEnvironmentKeyMissing()
+    {
+        var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Environment.SetEnvironmentVariable("OPENAI_API_KEY", null);
+        try
+        {
+            var item = CreateSlideItem();
+            item.Id = 43;
+            item.SlideDeckId = 7;
+            var planner = new FixedPlanner(new SlideImagePlan
+            {
+                NeedsImage = true,
+                VisualRole = "process",
+                GenerationPrompt = "Create a 16:9 academic presentation slide illustration showing a process workflow layout with connected cards and a central diagram.",
+                NegativePrompt = "No text.",
+                AltText = "Process workflow.",
+                StatusHint = "queued"
+            });
+            var handler = new CapturingHttpHandler();
+            var settings = CreateImagePipelineSettings();
+            settings.Generation.ApiKey = "configured-test-key";
+            var service = CreateImageService(planner, handler, settings);
+
+            await service.SourceImagesForItemAsync(item);
+
+            Assert.Single(handler.Requests);
+            Assert.Equal("Bearer", handler.Requests[0].Headers.Authorization?.Scheme);
+            Assert.Equal("configured-test-key", handler.Requests[0].Headers.Authorization?.Parameter);
+            Assert.Single(item.GetImageCandidates());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", originalApiKey);
+        }
+    }
+
+    [Fact]
+    public async Task SourceImagesForItemAsync_HttpClientTimeoutDoesNotOverrideConfiguredGenerationTimeout()
+    {
+        var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        Environment.SetEnvironmentVariable("OPENAI_API_KEY", "test-key");
+        try
+        {
+            var item = CreateSlideItem();
+            item.Id = 45;
+            item.SlideDeckId = 7;
+            var planner = new FixedPlanner(new SlideImagePlan
+            {
+                NeedsImage = true,
+                VisualRole = "process",
+                GenerationPrompt = "Create a 16:9 academic presentation slide illustration showing a process workflow layout with connected cards and a central diagram.",
+                NegativePrompt = "No text.",
+                AltText = "Process workflow.",
+                StatusHint = "queued"
+            });
+            var handler = new CapturingHttpHandler { ResponseDelay = TimeSpan.FromMilliseconds(50) };
+            var settings = CreateImagePipelineSettings();
+            settings.Generation.TimeoutSeconds = 1;
+            var service = CreateImageService(
+                planner,
+                handler,
+                settings,
+                clientTimeout: TimeSpan.FromMilliseconds(1));
+
+            await service.SourceImagesForItemAsync(item);
+
+            Assert.Single(item.GetImageCandidates());
+            Assert.Equal("ready", item.GetImagePlan()!.StatusHint);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", originalApiKey);
+        }
+    }
+
     private static SlideImagePlannerService CreatePlanner(IOllamaService ollama)
         => new(
             ollama,
             Options.Create(new ImagePipelineSettings()),
             NullLogger<SlideImagePlannerService>.Instance);
 
-    private static SlideImageService CreateImageService(ISlideImagePlannerService planner, CapturingHttpHandler handler)
+    private static SlideImageService CreateImageService(
+        ISlideImagePlannerService planner,
+        CapturingHttpHandler handler,
+        ImagePipelineSettings? settings = null,
+        TimeSpan? clientTimeout = null)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"pbl5-slide-image-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
-        var settings = new ImagePipelineSettings
+        settings ??= CreateImagePipelineSettings();
+        var httpClient = new HttpClient(handler);
+        if (clientTimeout.HasValue)
+        {
+            httpClient.Timeout = clientTimeout.Value;
+        }
+
+        return new SlideImageService(
+            httpClient,
+            new NoopSlideDeckRepository(),
+            planner,
+            Options.Create(settings),
+            new TestWebHostEnvironment(tempRoot),
+            NullLogger<SlideImageService>.Instance);
+    }
+
+    private static ImagePipelineSettings CreateImagePipelineSettings()
+        => new()
         {
             Enabled = true,
             AssetStorageRoot = "slide-assets",
@@ -189,15 +323,6 @@ public class SlideImagePlannerServiceTests
                 AllowedDomains = new List<string> { "commons.wikimedia.org" }
             }
         };
-
-        return new SlideImageService(
-            new HttpClient(handler),
-            new NoopSlideDeckRepository(),
-            planner,
-            Options.Create(settings),
-            new TestWebHostEnvironment(tempRoot),
-            NullLogger<SlideImageService>.Instance);
-    }
 
     private static SlideItem CreateSlideItem(SlideItemType slideType = SlideItemType.Content, IEnumerable<string>? bodyBlocks = null)
     {
@@ -237,6 +362,25 @@ public class SlideImagePlannerServiceTests
             return JsonSerializer.Deserialize<T>(response, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         }
 
+        public async Task<StructuredGenerationResult<T>> GenerateStructuredResponseWithMetadataAsync<T>(string prompt, string? systemPrompt = null, OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
+        {
+            var value = await GenerateStructuredResponseAsync<T>(prompt, systemPrompt, profile);
+            return new StructuredGenerationResult<T>
+            {
+                Value = value,
+                Model = "test-model",
+                RawOutputValid = value != null,
+                ErrorType = value == null ? AutoRepairJsonErrorType.SchemaMismatch : AutoRepairJsonErrorType.None,
+                ErrorMessage = value == null ? "empty test response" : string.Empty,
+                AutoRepairTriggered = false,
+                RepairSuccess = false,
+                FinalOutputValid = value != null,
+                ElapsedMs = 0,
+                RawOutputPreview = string.Empty,
+                RepairedOutputPreview = string.Empty
+            };
+        }
+
         public Task<bool> IsAvailableAsync() => Task.FromResult(true);
     }
 
@@ -256,11 +400,21 @@ public class SlideImagePlannerServiceTests
     private sealed class CapturingHttpHandler : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = new();
+        public List<string> RequestBodies { get; } = new();
         public int RequestCount => Requests.Count;
+        public TimeSpan ResponseDelay { get; set; } = TimeSpan.Zero;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request);
+            RequestBodies.Add(request.Content == null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken));
+            if (ResponseDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(ResponseDelay, cancellationToken);
+            }
+
             var payload = JsonSerializer.Serialize(new
             {
                 data = new[]
@@ -269,10 +423,10 @@ public class SlideImagePlannerServiceTests
                 }
             });
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json")
-            });
+            };
         }
     }
 

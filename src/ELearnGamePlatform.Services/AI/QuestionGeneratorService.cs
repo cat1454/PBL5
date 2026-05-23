@@ -18,6 +18,7 @@ public class QuestionGeneratorService : IQuestionGenerator
     private readonly ITokenEstimator _tokenEstimator;
     private readonly LocalLlmSettings _localLlmSettings;
     private readonly ILogger<QuestionGeneratorService> _logger;
+    private readonly IAutoRepairEvidenceLogger? _autoRepairEvidenceLogger;
     private const string OutputLanguage = "Vietnamese";
     private const int ChunkSize = 2200;
     private const int ChunkOverlap = 320;
@@ -44,12 +45,14 @@ public class QuestionGeneratorService : IQuestionGenerator
         IOllamaService ollamaService,
         ITokenEstimator tokenEstimator,
         IOptions<LocalLlmSettings> localLlmSettings,
-        ILogger<QuestionGeneratorService> logger)
+        ILogger<QuestionGeneratorService> logger,
+        IAutoRepairEvidenceLogger? autoRepairEvidenceLogger = null)
     {
         _ollamaService = ollamaService;
         _tokenEstimator = tokenEstimator;
         _localLlmSettings = localLlmSettings.Value;
         _logger = logger;
+        _autoRepairEvidenceLogger = autoRepairEvidenceLogger;
     }
 
     public Task<List<Question>> GenerateQuestionsAsync(
@@ -77,6 +80,7 @@ public class QuestionGeneratorService : IQuestionGenerator
         ProcessedContent? processedContent,
         IProgress<QuestionGenerationProgressUpdate>? progress)
     {
+        var correlationId = Guid.NewGuid().ToString("N");
         var totalStopwatch = Stopwatch.StartNew();
         var planningStopwatch = new Stopwatch();
         var evidenceStopwatch = new Stopwatch();
@@ -126,6 +130,7 @@ public class QuestionGeneratorService : IQuestionGenerator
             {
                 plans = BuildFallbackPlans(chunks, count, type);
             }
+            plans = SanitizeLowConfidenceCalculationPlans(plans, chunks, count, type);
             planningStopwatch.Stop();
 
             ReportProgress(progress, 52, "retrieving-evidence", "Đang lấy evidence cho từng câu hỏi", stageLabel: "Lấy evidence", detail: "Chọn các chunk liên quan nhất cho mỗi kế hoạch câu hỏi", stageIndex: 4, stageCount: TotalStageCount);
@@ -134,7 +139,7 @@ public class QuestionGeneratorService : IQuestionGenerator
             evidenceStopwatch.Stop();
 
             ReportProgress(progress, 68, "generating-grounded-questions", "Đang sinh grounded questions", stageLabel: "Sinh grounded questions", detail: "Mỗi batch chỉ được dùng evidence đã chọn", stageIndex: 5, stageCount: TotalStageCount);
-            var questions = await GenerateGroundedQuestionsAsync(documentId, type, plans, bundles, progress);
+            var questions = await GenerateGroundedQuestionsAsync(documentId, type, plans, bundles, progress, correlationId);
             generatedQuestionCount = questions.Count;
 
             if (!questions.Any())
@@ -220,7 +225,8 @@ public class QuestionGeneratorService : IQuestionGenerator
                     Text = chunk.Text,
                     NormalizedText = chunk.NormalizedText,
                     TextTokenCount = chunk.TextTokenCount,
-                    SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(chunk)
+                    SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(chunk),
+                    Warnings = chunk.Warnings.ToList()
                 })
                 .ToList();
 
@@ -271,7 +277,8 @@ public class QuestionGeneratorService : IQuestionGenerator
                 Text = coverageChunk.Text,
                 NormalizedText = coverageChunk.NormalizedText,
                 TextTokenCount = coverageChunk.TextTokenCount,
-                SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(coverageChunk)
+                SearchTokens = DocumentCoverageMapBuilder.BuildSearchTokens(coverageChunk),
+                Warnings = coverageChunk.Warnings.ToList()
             };
 
             chunks.Add(chunk);
@@ -318,6 +325,9 @@ Requirements:
 8. Avoid duplicate focus, duplicate preferredChunkIds-only plans, and vague labels.
 9. answerStyle should describe what the learner must recall, compare, infer, or identify.
 10. When clear main sections exist, prefer covering each major section with at least one question plan through preferredChunkIds.
+11. Do not plan exact calculation questions from chunks marked low-confidence table/formula unless lowConfidenceCalculationAllowed is true.
+
+lowConfidenceCalculationAllowed: {_localLlmSettings.AllowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}
 
 Return JSON only:
 [
@@ -332,7 +342,7 @@ Return JSON only:
   }}
 ]";
 
-            var drafts = await _ollamaService.GenerateStructuredResponseAsync<List<QuestionPlanDraft>>(prompt, BuildPlanningSystemPrompt(type));
+            var drafts = await _ollamaService.GenerateStructuredResponseAsync<List<QuestionPlanDraft>>(prompt, BuildPlanningSystemPrompt(type, _localLlmSettings.AllowLowConfidenceCalculationQuestions));
             return NormalizeQuestionPlans(drafts, chunks, count, type);
         }
         catch (Exception ex)
@@ -347,7 +357,8 @@ Return JSON only:
         QuestionType type,
         List<QuestionPlan> plans,
         List<EvidenceBundle> bundles,
-        IProgress<QuestionGenerationProgressUpdate>? progress)
+        IProgress<QuestionGenerationProgressUpdate>? progress,
+        string correlationId)
     {
         var bundleMap = bundles.ToDictionary(bundle => bundle.Plan.PlanId, StringComparer.OrdinalIgnoreCase);
         var questions = new List<Question>(plans.Count);
@@ -374,7 +385,7 @@ Return JSON only:
                 5,
                 TotalStageCount);
 
-            var generatedItems = await GenerateBatchAsync(type, batchPlans, batchBundles);
+            var generatedItems = await GenerateBatchAsync(documentId, type, batchPlans, batchBundles, correlationId);
             var generatedMap = generatedItems
                 .Where(item => !string.IsNullOrWhiteSpace(item.PlanId))
                 .GroupBy(item => item.PlanId!, StringComparer.OrdinalIgnoreCase)
@@ -386,7 +397,7 @@ Return JSON only:
                 var bundle = batchBundles[index];
 
                 generatedMap.TryGetValue(plan.PlanId, out var item);
-                var question = await FinalizeQuestionAsync(documentId, type, plan, bundle, item, questions);
+                var question = await FinalizeQuestionAsync(documentId, type, plan, bundle, item, questions, correlationId);
                 var usedFallback = false;
 
                 if (question == null)
@@ -396,7 +407,7 @@ Return JSON only:
                 }
 
                 await ApplyQuestionVerifierMetadataAsync(question, type, bundle, questions, usedFallback);
-                question = await AutoRepairQuestionIfNeededAsync(documentId, type, plan, bundle, question, questions, usedFallback);
+                question = await AutoRepairQuestionIfNeededAsync(documentId, type, plan, bundle, question, questions, usedFallback, correlationId);
                 questions.Add(question);
             }
 
@@ -419,9 +430,11 @@ Return JSON only:
     }
 
     private async Task<List<GeneratedQuestionData>> GenerateBatchAsync(
+        int documentId,
         QuestionType type,
         List<QuestionPlan> plans,
-        List<EvidenceBundle> bundles)
+        List<EvidenceBundle> bundles,
+        string correlationId)
     {
         try
         {
@@ -443,14 +456,18 @@ General hard requirements:
 - evidenceChunkIds must be a non-empty subset of that brief's allowed evidence chunk ids.
 - Return exactly {plans.Count} question objects, one for each planId.
 - Write questionText, correctAnswer, and explanation in {OutputLanguage}.
+- If all allowed evidence for a brief is marked low-confidence table/formula, do not ask for exact arithmetic, exact numeric derivation, or formula solving unless lowConfidenceCalculationAllowed is true.
+
+lowConfidenceCalculationAllowed: {_localLlmSettings.AllowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}
 
 {BuildTypeSpecificPrompt(type)}
 
 Return JSON only:
 {BuildTypeSpecificExample(type)}";
 
-            var result = await _ollamaService.GenerateStructuredResponseAsync<List<GeneratedQuestionData>>(prompt, BuildGenerationSystemPrompt(type));
-            return result ?? new List<GeneratedQuestionData>();
+            var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<List<GeneratedQuestionData>>(prompt, BuildGenerationSystemPrompt(type, _localLlmSettings.AllowLowConfidenceCalculationQuestions));
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
+            return result.Value ?? new List<GeneratedQuestionData>();
         }
         catch (Exception ex)
         {
@@ -545,6 +562,80 @@ Return JSON only:
             .OrderBy(chunk => chunk.ChunkNumber)
             .Take(EvidenceChunkLimit)
             .ToList();
+    }
+
+    private List<QuestionPlan> SanitizeLowConfidenceCalculationPlans(
+        List<QuestionPlan> plans,
+        List<DocumentChunk> chunks,
+        int count,
+        QuestionType type)
+    {
+        if (_localLlmSettings.AllowLowConfidenceCalculationQuestions || plans.Count == 0)
+        {
+            return plans;
+        }
+
+        var chunkById = chunks.ToDictionary(chunk => chunk.ChunkId, StringComparer.OrdinalIgnoreCase);
+        var safeChunks = chunks.Where(chunk => !IsLowConfidenceTableOrFormulaChunk(chunk)).ToList();
+        var safeFallbacks = safeChunks.Any()
+            ? BuildFallbackPlans(safeChunks, count, type)
+            : new List<QuestionPlan>();
+        var fallbackIndex = 0;
+
+        return plans
+            .Select(plan =>
+            {
+                var preferred = plan.PreferredChunkIds
+                    .Where(chunkById.ContainsKey)
+                    .Select(id => chunkById[id])
+                    .ToList();
+                if (!IsCalculationPlan(plan) || preferred.Count == 0 || preferred.Any(chunk => !IsLowConfidenceTableOrFormulaChunk(chunk)))
+                {
+                    return plan;
+                }
+
+                if (fallbackIndex < safeFallbacks.Count)
+                {
+                    var replacement = safeFallbacks[fallbackIndex++];
+                    return replacement with
+                    {
+                        PlanId = plan.PlanId,
+                        PlanOrder = plan.PlanOrder,
+                        Difficulty = plan.Difficulty
+                    };
+                }
+
+                return plan with
+                {
+                    Focus = NormalizeSentence($"Nhan dien noi dung can review trong {plan.PreferredChunkIds.FirstOrDefault() ?? "chunk"} thay vi tinh toan chinh xac.") ?? "Noi dung can review",
+                    AnswerStyle = "nhan dien noi dung can review, khong tinh toan chinh xac",
+                    TopicTag = CreateTopicTag(plan.TopicName, "can-review")
+                };
+            })
+            .Take(count)
+            .ToList();
+    }
+
+    private static bool IsCalculationPlan(QuestionPlan plan)
+    {
+        var text = $"{plan.TopicName} {plan.Subtopic} {plan.Focus} {plan.AnswerStyle}";
+        return Regex.IsMatch(
+            text,
+            @"\b(tinh|tinh\s+toan|calculate|calculation|solve|derive|cong\s*thuc|formula|equation|phuong\s*trinh|gia\s*tri|value|ket\s*qua|result)\b|[=+\-*/^√∑∫≈≤≥]",
+            RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsLowConfidenceTableOrFormulaChunk(DocumentChunk chunk)
+    {
+        var text = $"{chunk.Label} {chunk.Summary} {chunk.EvidenceExcerpt} {GetChunkPromptText(chunk)} {string.Join(" ", chunk.Warnings)}";
+        return text.Contains("TableLowConfidence", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("FormulaCandidate", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Formula Candidates", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("LOW CONFIDENCE", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("REVIEW REQUIRED", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("low-confidence table or formula", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("do not infer missing table cells", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("do not repair notation", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ScoreChunk(QuestionPlan plan, HashSet<string> preferredIds, HashSet<string> queryTokens, DocumentChunk chunk)
@@ -653,7 +744,8 @@ Return JSON only:
         QuestionPlan plan,
         EvidenceBundle bundle,
         GeneratedQuestionData? initialItem,
-        IReadOnlyCollection<Question> existingQuestions)
+        IReadOnlyCollection<Question> existingQuestions,
+        string correlationId)
     {
         var currentItem = initialItem;
         var qualityIssues = new List<string>();
@@ -683,7 +775,7 @@ Return JSON only:
                 break;
             }
 
-            currentItem = await RetryGenerateSingleQuestionAsync(type, plan, bundle, qualityIssues);
+            currentItem = await RetryGenerateSingleQuestionAsync(documentId, type, plan, bundle, qualityIssues, correlationId);
         }
 
         return null;
@@ -734,10 +826,12 @@ Return JSON only:
     }
 
     private async Task<GeneratedQuestionData?> RetryGenerateSingleQuestionAsync(
+        int documentId,
         QuestionType type,
         QuestionPlan plan,
         EvidenceBundle bundle,
-        IReadOnlyList<string> issues)
+        IReadOnlyList<string> issues,
+        string correlationId)
     {
         try
         {
@@ -765,18 +859,23 @@ Requirements:
 - topic must exactly equal {plan.TopicTag}.
 - evidenceChunkIds must be a non-empty subset of the allowedChunkIds.
 - explanation should be natural Vietnamese and may mention evidence ids only at the end.
+- If allowed evidence is marked low-confidence table/formula, avoid exact calculation or formula-solving unless lowConfidenceCalculationAllowed is true.
+
+lowConfidenceCalculationAllowed: {_localLlmSettings.AllowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}
 
 {BuildTypeSpecificPrompt(type)}
 
 Return JSON only:
 {BuildTypeSpecificExample(type)}";
 
-            var results = await _ollamaService.GenerateStructuredResponseAsync<List<GeneratedQuestionData>>(
+            var results = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<List<GeneratedQuestionData>>(
                 prompt,
-                BuildGenerationSystemPrompt(type),
+                BuildGenerationSystemPrompt(type, _localLlmSettings.AllowLowConfidenceCalculationQuestions),
                 OllamaModelProfile.Generation);
 
-            return results?.FirstOrDefault();
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, results);
+
+            return results.Value?.FirstOrDefault();
         }
         catch (Exception ex)
         {
@@ -1046,7 +1145,8 @@ Return JSON only:
         EvidenceBundle bundle,
         Question currentQuestion,
         IReadOnlyCollection<Question> existingQuestions,
-        bool usedFallback)
+        bool usedFallback,
+        string correlationId)
     {
         var bestQuestion = currentQuestion;
 
@@ -1067,7 +1167,7 @@ Return JSON only:
                 .Take(8)
                 .ToList();
 
-            var repairedItem = await RetryGenerateSingleQuestionAsync(type, plan, bundle, repairIssues);
+            var repairedItem = await RetryGenerateSingleQuestionAsync(documentId, type, plan, bundle, repairIssues, correlationId);
             if (repairedItem == null)
             {
                 break;
@@ -1140,6 +1240,69 @@ Return JSON only:
 
         return false;
     }
+
+    private async Task LogAutoRepairEvidenceAsync<T>(
+        int documentId,
+        string correlationId,
+        StructuredGenerationResult<T> result) where T : class
+    {
+        if (_autoRepairEvidenceLogger == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                documentId,
+                correlationId,
+                AutoRepairEvidenceStage.RawOutputValidation,
+                result));
+
+            if (result.AutoRepairTriggered)
+            {
+                await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                    documentId,
+                    correlationId,
+                    AutoRepairEvidenceStage.AutoRepair,
+                    result));
+            }
+
+            await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                documentId,
+                correlationId,
+                AutoRepairEvidenceStage.FinalValidation,
+                result));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write question auto-repair evidence log for document {DocumentId}", documentId);
+        }
+    }
+
+    private static AutoRepairEvidenceRecord BuildEvidenceRecord<T>(
+        int documentId,
+        string correlationId,
+        AutoRepairEvidenceStage stage,
+        StructuredGenerationResult<T> result) where T : class
+        => new()
+        {
+            Timestamp = DateTimeOffset.UtcNow,
+            CorrelationId = correlationId,
+            DocumentId = documentId,
+            Module = AutoRepairEvidenceModule.QuestionGeneration,
+            Stage = stage,
+            Model = result.Model,
+            RawOutputValid = result.RawOutputValid,
+            ErrorType = result.ErrorType,
+            ErrorMessage = result.ErrorMessage,
+            AutoRepairTriggered = result.AutoRepairTriggered,
+            RepairSuccess = result.RepairSuccess,
+            FinalOutputValid = result.FinalOutputValid,
+            ElapsedMs = result.ElapsedMs,
+            RawOutputPreview = result.RawOutputPreview,
+            RepairedOutputPreview = result.RepairedOutputPreview
+        };
 
     private static void ApplyLocalQuestionVerifierMetadata(
         Question question,
@@ -1872,6 +2035,10 @@ Return JSON only:
             builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
             builder.AppendLine($"Keywords: {string.Join(", ", chunk.Keywords.Take(6))}");
             builder.AppendLine($"ConceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(4))}");
+            if (chunk.Warnings.Any())
+            {
+                builder.AppendLine($"Warnings: {string.Join("; ", chunk.Warnings.Take(3))}");
+            }
             builder.AppendLine("Study facts:");
             foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
@@ -1899,6 +2066,10 @@ Return JSON only:
             builder.AppendLine($"Summary: {Truncate(chunk.Summary, 140)}");
             builder.AppendLine($"Keywords: {string.Join(", ", chunk.Keywords.Take(8))}");
             builder.AppendLine($"ConceptAnchors: {string.Join(", ", chunk.ConceptAnchors.Take(6))}");
+            if (chunk.Warnings.Any())
+            {
+                builder.AppendLine($"Warnings: {string.Join("; ", chunk.Warnings.Take(4))}");
+            }
             builder.AppendLine("Facts:");
             foreach (var fact in chunk.KeyFacts.Take(PromptKeyFactLimit))
             {
@@ -2054,11 +2225,11 @@ Return JSON only:
         return builder.ToString().Trim();
     }
 
-    private static string BuildPlanningSystemPrompt(QuestionType type)
-        => $"You are a senior assessment planner for grounded {type} questions. Cover the whole document, avoid invented facts, and return strict JSON only.";
+    private static string BuildPlanningSystemPrompt(QuestionType type, bool allowLowConfidenceCalculationQuestions)
+        => $"You are a senior assessment planner for grounded {type} questions. Cover the whole document, avoid invented facts, and return strict JSON only. Low-confidence table/formula exact calculations allowed: {allowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}.";
 
-    private static string BuildGenerationSystemPrompt(QuestionType type)
-        => $"You are a senior educational assessment writer for grounded {type} questions. Use only provided evidence, never invent facts, and return strict JSON only. Write in {OutputLanguage}.";
+    private static string BuildGenerationSystemPrompt(QuestionType type, bool allowLowConfidenceCalculationQuestions)
+        => $"You are a senior educational assessment writer for grounded {type} questions. Use only provided evidence, never invent facts, and return strict JSON only. Write in {OutputLanguage}. Low-confidence table/formula exact calculations allowed: {allowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}.";
 
     private static string BuildTypeSpecificPrompt(QuestionType type)
         => type switch
@@ -2618,6 +2789,7 @@ Return JSON only:
         public string EvidenceExcerpt { get; init; } = string.Empty;
         public List<string> Keywords { get; init; } = new();
         public List<string> ConceptAnchors { get; init; } = new();
+        public List<string> Warnings { get; init; } = new();
         public int ChunkQualityScore { get; init; } = 50;
         public string? Text { get; init; }
         public string? NormalizedText { get; init; }

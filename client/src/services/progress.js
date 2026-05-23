@@ -49,6 +49,11 @@ export const normalizeProgressState = (raw, fallback = {}) => {
     stageCount: normalizeOptionalNumber(source.stageCount ?? base.stageCount),
     elapsedSeconds: normalizeOptionalNumber(source.elapsedSeconds ?? base.elapsedSeconds) ?? 0,
     estimatedRemainingSeconds: normalizeOptionalNumber(source.estimatedRemainingSeconds ?? base.estimatedRemainingSeconds),
+    documentConfidence: normalizeOptionalNumber(source.documentConfidence ?? base.documentConfidence),
+    qualityStatus: normalizeString(source.qualityStatus, normalizeString(base.qualityStatus)),
+    needsReview: typeof (source.needsReview ?? base.needsReview) === 'boolean'
+      ? (source.needsReview ?? base.needsReview)
+      : null,
     questionsGenerated: normalizeOptionalNumber(source.questionsGenerated ?? base.questionsGenerated),
     slidesGenerated: normalizeOptionalNumber(source.slidesGenerated ?? base.slidesGenerated),
   };

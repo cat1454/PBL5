@@ -83,6 +83,7 @@ public class Document
     public virtual ICollection<LearningProgress> LearningProgresses { get; set; } = new List<LearningProgress>();
     public virtual ICollection<LearningTestResult> LearningTestResults { get; set; } = new List<LearningTestResult>();
     public virtual ICollection<SlideDeck> SlideDecks { get; set; } = new List<SlideDeck>();
+    public virtual ICollection<DocumentUnderstandingRun> UnderstandingRuns { get; set; } = new List<DocumentUnderstandingRun>();
 }
 
 public enum DocumentStatus

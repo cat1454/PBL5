@@ -15,6 +15,7 @@ public class LocalLlmSettings
     public double TargetInputBudgetFillRatio { get; set; } = 0.80d;
     public bool IncludeFullSelectedChunkText { get; set; } = false;
     public bool EnableAnalysisRefine { get; set; } = true;
+    public bool AllowLowConfidenceCalculationQuestions { get; set; } = false;
     public int MinTextLengthForAIRefine { get; set; } = 1500;
     public int MinCoverageChunksForAIRefine { get; set; } = 3;
 

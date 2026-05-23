@@ -73,6 +73,9 @@ public class DocumentProcessingJobState
     public int? ElapsedSeconds { get; set; }
     public int? EstimatedRemainingSeconds { get; set; }
     public string? Error { get; set; }
+    public double? DocumentConfidence { get; set; }
+    public string? QualityStatus { get; set; }
+    public bool? NeedsReview { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public string? EtaAnchorStage { get; set; }

@@ -2,9 +2,12 @@ using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ELearnGamePlatform.API.Services;
+using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -20,6 +23,9 @@ public class DocumentsController : AuthenticatedControllerBase
     private readonly IDocumentIngestionService _documentIngestionService;
     private readonly IWorkspaceService _workspaceService;
     private readonly IContentAnalyzer _contentAnalyzer;
+    private readonly IDocumentUnderstandingRunRepository _understandingRunRepository;
+    private readonly IDocumentGenerationReadinessService _generationReadinessService;
+    private readonly DocumentUnderstandingOptions _documentUnderstandingOptions;
 
     public DocumentsController(
         IDocumentRepository documentRepository,
@@ -28,7 +34,10 @@ public class DocumentsController : AuthenticatedControllerBase
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
         IWorkspaceService workspaceService,
-        IContentAnalyzer contentAnalyzer)
+        IContentAnalyzer contentAnalyzer,
+        IDocumentUnderstandingRunRepository understandingRunRepository,
+        IDocumentGenerationReadinessService generationReadinessService,
+        IOptions<DocumentUnderstandingOptions> documentUnderstandingOptions)
     {
         _documentRepository = documentRepository;
         _questionRepository = questionRepository;
@@ -37,6 +46,9 @@ public class DocumentsController : AuthenticatedControllerBase
         _documentIngestionService = documentIngestionService;
         _workspaceService = workspaceService;
         _contentAnalyzer = contentAnalyzer;
+        _understandingRunRepository = understandingRunRepository;
+        _generationReadinessService = generationReadinessService;
+        _documentUnderstandingOptions = documentUnderstandingOptions.Value;
     }
 
     [HttpPost("upload")]
@@ -98,7 +110,7 @@ public class DocumentsController : AuthenticatedControllerBase
             return authResult;
         }
 
-        return Ok(BuildDocumentPayload(document, questionsCount: document.Questions.Count));
+        return Ok(await BuildDocumentPayloadAsync(document, questionsCount: document.Questions.Count));
     }
 
     [HttpGet("{id}/progress")]
@@ -139,6 +151,38 @@ public class DocumentsController : AuthenticatedControllerBase
         return Ok(BuildDocumentStructurePayload(document));
     }
 
+    [HttpGet("{id}/understanding/latest")]
+    public async Task<IActionResult> GetLatestUnderstandingRun(int id)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var run = await _understandingRunRepository.GetLatestByDocumentIdAsync(id);
+        if (run == null)
+        {
+            return Ok(new
+            {
+                documentId = id,
+                latestRun = (object?)null
+            });
+        }
+
+        return Ok(new
+        {
+            documentId = id,
+            latestRun = BuildUnderstandingRunPayload(run)
+        });
+    }
+
     [HttpPost("{id}/analyze-structure")]
     public async Task<IActionResult> AnalyzeDocumentStructure(int id)
     {
@@ -161,7 +205,10 @@ public class DocumentsController : AuthenticatedControllerBase
 
         try
         {
-            var processedContent = await _contentAnalyzer.AnalyzeContentAsync(document.ExtractedText);
+            var understandingRun = _documentUnderstandingOptions.Enabled
+                ? await _understandingRunRepository.GetLatestByDocumentIdAsync(document.Id)
+                : null;
+            var processedContent = await _contentAnalyzer.AnalyzeContentAsync(document.ExtractedText, understandingRun);
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
             document.SetCoverageMap(processedContent.CoverageMap);
@@ -207,9 +254,13 @@ public class DocumentsController : AuthenticatedControllerBase
         }
         
         // Add questions count to each document
-        var documentsWithMeta = documents.Select(doc => BuildDocumentPayload(
-            doc,
-            questionsCountMap.TryGetValue(doc.Id, out var count) ? count : 0));
+        var documentsWithMeta = new List<object>();
+        foreach (var doc in documents)
+        {
+            documentsWithMeta.Add(await BuildDocumentPayloadAsync(
+                doc,
+                questionsCountMap.TryGetValue(doc.Id, out var count) ? count : 0));
+        }
         
         return Ok(documentsWithMeta);
     }
@@ -240,10 +291,13 @@ public class DocumentsController : AuthenticatedControllerBase
         return NoContent();
     }
 
-    private object BuildDocumentPayload(Document doc, int questionsCount)
+    private async Task<object> BuildDocumentPayloadAsync(Document doc, int questionsCount)
     {
         _documentJobStore.TryGetJob(doc.Id, out var progressState);
         var processingMetadata = doc.GetProcessingMetadata();
+        var generationReadiness = doc.Status == DocumentStatus.Completed
+            ? await _generationReadinessService.GetReadinessAsync(doc)
+            : null;
 
         return new
         {
@@ -268,6 +322,7 @@ public class DocumentsController : AuthenticatedControllerBase
             createdAt = doc.CreatedAt,
             updatedAt = doc.UpdatedAt,
             questionsCount,
+            generationReadiness,
             processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, doc)
         };
     }
@@ -307,5 +362,31 @@ public class DocumentsController : AuthenticatedControllerBase
             excludedContent = processingMetadata.ExcludedContent,
             processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, doc)
         };
+    }
+
+    private static object BuildUnderstandingRunPayload(DocumentUnderstandingRun run)
+    {
+        return new
+        {
+            id = run.Id,
+            documentId = run.DocumentId,
+            status = run.Status,
+            documentConfidence = run.DocumentConfidence,
+            needsReview = run.NeedsReview,
+            combinedText = run.CombinedText,
+            result = ParseJsonOrNull(run.ResultJson),
+            failureReasons = ParseJsonOrNull(run.FailureReasonsJson),
+            createdAt = run.CreatedAt
+        };
+    }
+
+    private static object? ParseJsonOrNull(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<JsonElement>(json);
     }
 }

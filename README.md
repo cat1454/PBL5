@@ -121,23 +121,38 @@ Repo hiện ở mức **MVP+ phục vụ demo PBL**. Các flow chính đã có t
 
 ```text
 src/
-  ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, auth, job stores, tessdata
+  ELearnGamePlatform.API/             Web API, controllers, DI, appsettings, auth, job stores
   ELearnGamePlatform.Core/            Entities, enums, interfaces, extensions, domain contracts
   ELearnGamePlatform.Infrastructure/  EF Core DbContext, repositories, migrations, Ollama integration
   ELearnGamePlatform.Services/        OCR, document processing, AI analysis/generation/verification, slide export
 
-client/                               React frontend
+client/
+  public/                             Static frontend entrypoint
+  src/                                React frontend source
 
+tests/                                Automated test projects
 docs/
   guides/                             Tài liệu hướng dẫn/chính thức
-  working-notes/                      Ghi chú thiết kế, checklist, research tạm thời
+  research/                           Research and experiment records
+  working-notes/                      Design notes, roadmaps, and durable checklists
   agent/                              Ngữ cảnh/rule cho agent hỗ trợ phát triển
 
-poppler-25.12.0/                      Poppler bundled cho OCR PDF scan
+benchmarks/
+  OcrBenchmark/                       OCR benchmark harness
+  input-documents/.gitkeep            Keep directory only; real benchmark inputs stay local
+  output/.gitkeep                     Keep directory only; generated benchmark reports stay local
+
+scripts/                              Repo helper scripts
 README.md
 AGENTS.md
 PLANS.md
+ELearnGamePlatform.sln
+global.json
+dotnet-tools.json
+.gitignore
 ```
+
+Các thư mục local/generated như `artifacts/`, `.artifacts/`, `.tmp/`, `.local-agent-rules/`, `commit-history/`, `src/ELearnGamePlatform.API/local-store/`, `src/ELearnGamePlatform.API/logs/`, `src/ELearnGamePlatform.API/tessdata/*.traineddata`, và `poppler-25.12.0/` không phải source cần commit. Giữ chúng trên máy local khi cần chạy demo/OCR, nhưng không đưa vào Git.
 
 ---
 
@@ -170,7 +185,7 @@ Khuyến nghị thêm nếu xử lý tài liệu tiếng Việt:
 vie.traineddata
 ```
 
-Với PDF scan, hệ thống ưu tiên Poppler bundled trong repo. Nếu không có Poppler bundled, hệ thống fallback sang `pdftoppm` trong `PATH`.
+Với PDF scan, hệ thống sẽ dùng Poppler local nếu có `poppler-25.12.0/Library/bin/pdftoppm.exe` trong workspace; nếu không có, hệ thống fallback sang `pdftoppm` trong `PATH`. Poppler là runtime asset local, không phải thư mục source cần commit.
 
 ---
 
@@ -229,6 +244,30 @@ http://127.0.0.1:5000
 ```
 
 Không commit mật khẩu thật, API key thật hoặc cấu hình cá nhân lên repo.
+
+### Auto-repair JSON evidence log
+
+Question and slide generation write JSON validation evidence for thesis/report proof at:
+
+```text
+src/ELearnGamePlatform.API/logs/auto-repair-evidence.jsonl
+```
+
+To create real records, run the backend, generate questions or slides from a processed document in the app, then inspect the JSONL file. Each line is one structured event for raw validation, auto-repair when triggered, and final validation. The log stores only short AI output previews capped at 500 characters; it must not be used for full document content.
+
+Generate the Markdown report with:
+
+```powershell
+.\tools\generate-auto-repair-report.ps1
+```
+
+The report is written to:
+
+```text
+artifacts/auto-repair-log-report.md
+```
+
+This report is generated local output and should not be committed. Use the before/after summary table in that report for the invalid JSON reduction evidence.
 
 ---
 
@@ -313,6 +352,8 @@ Nên có:
 eng.traineddata
 vie.traineddata
 ```
+
+Các file `*.traineddata` là asset local lớn; tải/cài trên máy chạy demo và không commit vào Git.
 
 ### Bước 5: chạy backend
 

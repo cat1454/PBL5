@@ -23,10 +23,34 @@ public static class DocumentPageRoles
 
 public static class DocumentQualityStatuses
 {
+    public const string AutoGenerateAllowed = "AutoGenerateAllowed";
+    public const string SummaryOnlyRecommended = "SummaryOnlyRecommended";
+    public const string ExtractionFailed = "ExtractionFailed";
     public const string Accepted = "Accepted";
     public const string AcceptedWithWarnings = "AcceptedWithWarnings";
     public const string NeedsReview = "NeedsReview";
     public const string Rejected = "Rejected";
+}
+
+public class DocumentQualityScoreInput
+{
+    public string? ExtractedText { get; set; }
+    public DocumentInputQualityReport? PageQualityReport { get; set; }
+}
+
+public class DocumentQualityScoreResult
+{
+    public double Confidence { get; set; }
+    public string Status { get; set; } = DocumentQualityStatuses.ExtractionFailed;
+    public bool NeedsReview { get; set; } = true;
+    public int CharCount { get; set; }
+    public int WordCount { get; set; }
+    public double GarbageRatio { get; set; }
+    public double ShortLineRatio { get; set; }
+    public double? AverageOcrConfidence { get; set; }
+    public int LowTextPageCount { get; set; }
+    public int TotalPages { get; set; }
+    public List<string> Reasons { get; set; } = new();
 }
 
 public class DocumentPageProcessingReport

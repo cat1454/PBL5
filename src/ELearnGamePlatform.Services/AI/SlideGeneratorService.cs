@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
@@ -13,6 +15,7 @@ public class SlideGeneratorService : ISlideGenerator
 {
     private readonly IOllamaService _ollamaService;
     private readonly ILogger<SlideGeneratorService> _logger;
+    private readonly IAutoRepairEvidenceLogger? _autoRepairEvidenceLogger;
     private const int ChunkSize = 2200;
     private const int ChunkOverlap = 320;
     private const int EvidenceChunkLimit = 3;
@@ -20,8 +23,8 @@ public class SlideGeneratorService : ISlideGenerator
     private const int PromptKeyFactLimit = 2;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
-    private const int SlideRepairThreshold = 85;
-    private const int SlideCompletionThreshold = 76;
+    private const int SlideRepairThreshold = 86;
+    private const int SlideCompletionThreshold = 86;
     private const int PreferredEvidenceTeachabilityThreshold = 50;
     private const int MinimumFallbackEvidenceTeachabilityThreshold = 45;
     private static readonly Regex CjkTextPattern = new(@"[\u3400-\u9FFF\uF900-\uFAFF]", RegexOptions.Compiled);
@@ -59,10 +62,14 @@ public class SlideGeneratorService : ISlideGenerator
         "page", "from", "with", "that", "this", "have", "about", "their", "there", "would"
     };
 
-    public SlideGeneratorService(IOllamaService ollamaService, ILogger<SlideGeneratorService> logger)
+    public SlideGeneratorService(
+        IOllamaService ollamaService,
+        ILogger<SlideGeneratorService> logger,
+        IAutoRepairEvidenceLogger? autoRepairEvidenceLogger = null)
     {
         _ollamaService = ollamaService;
         _logger = logger;
+        _autoRepairEvidenceLogger = autoRepairEvidenceLogger;
     }
 
     public async Task<SlideOutlineResult> GenerateOutlineAsync(
@@ -70,8 +77,11 @@ public class SlideGeneratorService : ISlideGenerator
         ProcessedContent? processedContent,
         SlideDeckBrief? brief,
         int desiredSlideCount,
-        IProgress<SlideGenerationProgressUpdate>? progress = null)
+        IProgress<SlideGenerationProgressUpdate>? progress = null,
+        int? documentId = null,
+        string? correlationId = null)
     {
+        correlationId ??= Guid.NewGuid().ToString("N");
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
         var sectionPlans = await GenerateSectionPlansAsync(chunks, progress);
@@ -97,9 +107,11 @@ public class SlideGeneratorService : ISlideGenerator
                 try
                 {
                     var prompt = BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount);
-                    currentDraft = await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
+                    var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                         prompt,
                         "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
+                    await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
+                    currentDraft = generation.Value;
                 }
                 catch (Exception ex)
                 {
@@ -124,7 +136,7 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues);
+            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId);
         }
 
         return BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
@@ -137,8 +149,11 @@ public class SlideGeneratorService : ISlideGenerator
         SlideOutlineSlide outlineSlide,
         int slideNumber,
         int totalSlides,
-        IProgress<SlideGenerationProgressUpdate>? progress = null)
+        IProgress<SlideGenerationProgressUpdate>? progress = null,
+        int? documentId = null,
+        string? correlationId = null)
     {
+        correlationId ??= Guid.NewGuid().ToString("N");
         var chunks = GetCoverageChunks(NormalizeContent(content), processedContent);
         var sectionPlans = BuildSectionPlans(chunks);
         var evidence = SelectEvidenceChunks(chunks, outlineSlide);
@@ -155,9 +170,11 @@ public class SlideGeneratorService : ISlideGenerator
                 try
                 {
                     var prompt = BuildSlidePrompt(processedContent, brief, outlineSlide, evidence, sectionPlans);
-                    currentDraft = await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
+                    var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                         prompt,
                         "You create concise grounded slides. Never invent facts outside allowed evidence.");
+                    await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
+                    currentDraft = generation.Value;
                 }
                 catch (Exception ex)
                 {
@@ -174,7 +191,7 @@ public class SlideGeneratorService : ISlideGenerator
                 if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, evidence, out qualityIssues))
                 {
                     await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback);
-                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result);
+                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result, documentId, correlationId);
                     result.SuggestedStatus = DetermineSuggestedSlideStatus(result, evidence);
                     return result.SuggestedStatus == SlideItemStatus.Completed
                         ? result
@@ -187,12 +204,12 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues);
+            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues, documentId, correlationId);
         }
 
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
         await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
-        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback);
+        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback, documentId, correlationId);
         fallback.SuggestedStatus = DetermineSuggestedSlideStatus(fallback, evidence);
         return ConvertToReviewRequiredSlideContent(fallback, outlineSlide);
     }
@@ -312,6 +329,8 @@ Requirements:
 4. Match the style of a clear teacher explaining a lesson, not an academic wall of text.
 5. Adapt structure to the slideType and the teaching role implied by the goal.
 6. bodyBlocks must contain 2-4 short blocks for normal content slides; Title, SectionDivider, Quote may use 1-2.
+6a. bodyBlocks must be an array of strings only. Never use objects like {{ ""text"": ""..."" }} inside bodyBlocks.
+6b. heading, subheading, goal, keyMessage, evidenceFromText, speakerNotes, and accentTone must be strings only.
 7. Every body block should connect to the slide goal and include at least one concrete detail, term, event, actor, cause, contrast, or fact from the evidence.
 8. speakerNotes should be 2-4 short sentences in a teacher's voice: explain what to say, why it matters, and how to transition.
 9. For Title slides, bodyBlocks should frame the lesson with a question or problem.
@@ -406,18 +425,23 @@ Requirements:
 - Do not add outside knowledge.
 - Do not write generic filler.
 - If SOURCE_TEXT is insufficient, write ""không đủ dữ kiện"".
-- Return JSON with: title, keyMessage, bullets, evidenceFromText, speakerNotes.
-- Bullets must be short and concrete.
+- Return JSON with exactly these fields: heading, subheading, goal, keyMessage, bodyBlocks, evidenceFromText, speakerNotes, accentTone.
+- bodyBlocks must be an array of strings only. Do not return objects inside bodyBlocks.
+- evidenceFromText, speakerNotes, heading, subheading, goal, keyMessage, and accentTone must be strings only.
+- Body blocks must be short and concrete.
 - Keep the content inside the selected section scope and preserve the local teaching sequence of that chapter/section.
 - For lecture mode, explain like a teacher guiding learners through a chapter, not like a generic summary.
 
 Return JSON:
 {{
-  ""title"": ""tieu de slide"",
+  ""heading"": ""tieu de slide"",
+  ""subheading"": ""phu de ngan"",
+  ""goal"": ""muc tieu ngan"",
   ""keyMessage"": ""mot y chinh"",
-  ""bullets"": [""y cu the 1"", ""y cu the 2"", ""y cu the 3""],
+  ""bodyBlocks"": [""y cu the 1"", ""y cu the 2"", ""y cu the 3""],
   ""evidenceFromText"": ""can cu ngan tu SOURCE_TEXT"",
-  ""speakerNotes"": ""ghi chu trinh bay ngan""
+  ""speakerNotes"": ""ghi chu trinh bay ngan"",
+  ""accentTone"": ""warm""
 }}";
 
     private static SlideOutlineResult NormalizeOutlineResult(SlideOutlineDraft? draft, List<DocumentChunk> chunks, List<SlideSectionPlan> sectionPlans, ProcessedContent? processedContent, SlideDeckBrief? brief, int targetCount)
@@ -526,7 +550,9 @@ Return JSON:
             KeyMessage = NormalizeLine(draft?.KeyMessage, 220) ?? outlineSlide.KeyMessage ?? outlineSlide.Goal,
             BodyBlocks = NormalizeBodyBlocksForSlideType(outlineSlide.SlideType, blocks, outlineSlide),
             EvidenceFromText = NormalizeLine(draft?.EvidenceFromText, 320) ?? evidence.FirstOrDefault()?.EvidenceExcerpt,
-            SpeakerNotes = NormalizeLine(draft?.SpeakerNotes, 520) ?? BuildSpeakerNotes(outlineSlide, evidence),
+            SpeakerNotes = NormalizeLine(draft?.SpeakerNotes, 520)
+                ?? NormalizeLine(BuildBodyBlockSpeakerNotes(sourceBlocks), 520)
+                ?? BuildSpeakerNotes(outlineSlide, evidence),
             AccentTone = NormalizeAccentTone(draft?.AccentTone, brief, outlineSlide.SlideType),
             SuggestedStatus = SlideItemStatus.Completed,
             UsedFallback = false
@@ -672,7 +698,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         List<SlideSectionPlan> sectionPlans,
         int targetCount,
-        IReadOnlyList<string> issues)
+        IReadOnlyList<string> issues,
+        int? documentId,
+        string correlationId)
     {
         try
         {
@@ -699,10 +727,12 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
-            return await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
+            var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
                 "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
                 OllamaModelProfile.Generation);
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
+            return result.Value;
         }
         catch (Exception ex)
         {
@@ -716,7 +746,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         List<DocumentChunk> chunks,
         int targetCount,
-        IReadOnlyList<string> issues)
+        IReadOnlyList<string> issues,
+        int? documentId,
+        string correlationId)
     {
         try
         {
@@ -745,10 +777,12 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
-            return await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
+            var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
                 "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
                 OllamaModelProfile.Generation);
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
+            return result.Value;
         }
         catch (Exception ex)
         {
@@ -763,7 +797,9 @@ Return JSON only:
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
         List<SlideSectionPlan> sectionPlans,
-        IReadOnlyList<string> issues)
+        IReadOnlyList<string> issues,
+        int? documentId,
+        string correlationId)
     {
         try
         {
@@ -795,15 +831,18 @@ Requirements:
 1. Use only SOURCE_TEXT.
 2. Do not add outside knowledge.
 3. Rewrite generic or unsupported bullets to be more specific.
-4. Return JSON only using title, keyMessage, bullets, evidenceFromText, speakerNotes.
+4. Return JSON only using heading, subheading, goal, keyMessage, bodyBlocks, evidenceFromText, speakerNotes, accentTone.
+5. bodyBlocks must be an array of strings only; do not return objects in bodyBlocks.
 
 Return JSON only:
 {BuildSlideContentExample()}";
 
-            return await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
+            var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
                 "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
                 OllamaModelProfile.Generation);
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
+            return result.Value;
         }
         catch (Exception ex)
         {
@@ -817,7 +856,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
-        IReadOnlyList<string> issues)
+        IReadOnlyList<string> issues,
+        int? documentId,
+        string correlationId)
     {
         try
         {
@@ -848,14 +889,17 @@ Requirements:
 3. Remove placeholders, OCR artifacts, CJK text, raw wording, generic claims, and duplicate blocks.
 4. Keep 2-4 short bodyBlocks for normal content slides and clear teacher-style speaker notes.
 5. Each visible block must include a concrete term, actor, event, contrast, cause, or fact supported by the evidence.
+6. bodyBlocks must be an array of strings only; evidenceFromText and speakerNotes must be strings only.
 
 Return JSON only:
 {BuildSlideContentExample()}";
 
-            return await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
+            var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
                 "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
                 OllamaModelProfile.Generation);
+            await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
+            return result.Value;
         }
         catch (Exception ex)
         {
@@ -882,7 +926,11 @@ Return JSON only:
             Subheading = draft.Subheading ?? current.Subheading,
             Goal = draft.KeyMessage ?? draft.Goal ?? current.Goal,
             KeyMessage = draft.KeyMessage ?? current.KeyMessage,
-            BodyBlocks = draft.Bullets?.Any() == true ? draft.Bullets : draft.BodyBlocks?.Any() == true ? draft.BodyBlocks : current.BodyBlocks,
+            BodyBlocks = draft.Bullets?.Any() == true
+                ? draft.Bullets
+                : draft.BodyBlocks?.Any() == true
+                    ? draft.BodyBlocks
+                    : ToBodyBlockDrafts(current.BodyBlocks),
             EvidenceFromText = draft.EvidenceFromText ?? current.EvidenceFromText,
             SpeakerNotes = draft.SpeakerNotes ?? current.SpeakerNotes,
             AccentTone = draft.AccentTone ?? current.AccentTone
@@ -1144,7 +1192,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
-        SlideContentResult currentContent)
+        SlideContentResult currentContent,
+        int? documentId,
+        string correlationId)
     {
         var bestContent = currentContent;
 
@@ -1165,7 +1215,7 @@ Return JSON only:
                 .Take(8)
                 .ToList();
 
-            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues);
+            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId);
             if (repairedDraft == null)
             {
                 break;
@@ -1235,6 +1285,69 @@ Return JSON only:
 
         return false;
     }
+
+    private async Task LogAutoRepairEvidenceAsync<T>(
+        int? documentId,
+        string correlationId,
+        StructuredGenerationResult<T> result) where T : class
+    {
+        if (_autoRepairEvidenceLogger == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                documentId,
+                correlationId,
+                AutoRepairEvidenceStage.RawOutputValidation,
+                result));
+
+            if (result.AutoRepairTriggered)
+            {
+                await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                    documentId,
+                    correlationId,
+                    AutoRepairEvidenceStage.AutoRepair,
+                    result));
+            }
+
+            await _autoRepairEvidenceLogger.LogAsync(BuildEvidenceRecord(
+                documentId,
+                correlationId,
+                AutoRepairEvidenceStage.FinalValidation,
+                result));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to write slide auto-repair evidence log for document {DocumentId}", documentId);
+        }
+    }
+
+    private static AutoRepairEvidenceRecord BuildEvidenceRecord<T>(
+        int? documentId,
+        string correlationId,
+        AutoRepairEvidenceStage stage,
+        StructuredGenerationResult<T> result) where T : class
+        => new()
+        {
+            Timestamp = DateTimeOffset.UtcNow,
+            CorrelationId = correlationId,
+            DocumentId = documentId,
+            Module = AutoRepairEvidenceModule.SlideGeneration,
+            Stage = stage,
+            Model = result.Model,
+            RawOutputValid = result.RawOutputValid,
+            ErrorType = result.ErrorType,
+            ErrorMessage = result.ErrorMessage,
+            AutoRepairTriggered = result.AutoRepairTriggered,
+            RepairSuccess = result.RepairSuccess,
+            FinalOutputValid = result.FinalOutputValid,
+            ElapsedMs = result.ElapsedMs,
+            RawOutputPreview = result.RawOutputPreview,
+            RepairedOutputPreview = result.RepairedOutputPreview
+        };
 
     private static bool LooksGenericForLesson(string? value)
     {
@@ -2696,6 +2809,15 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         return slideType == SlideItemType.SectionDivider ? "sharp" : "warm";
     }
 
+    private static List<string> ToBodyBlockDrafts(IEnumerable<string>? blocks)
+        => blocks?
+            .Where(block => !string.IsNullOrWhiteSpace(block))
+            .ToList()
+            ?? new List<string>();
+
+    private static string? BuildBodyBlockSpeakerNotes(IEnumerable<string>? blocks)
+        => null;
+
     private static string NormalizeThemeKey(string? value)
     {
         var token = NormalizeToken(value);
@@ -2987,16 +3109,141 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
 
     private sealed class SlideContentDraft
     {
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? Title { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? Heading { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? Subheading { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? Goal { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? KeyMessage { get; set; }
+        [JsonConverter(typeof(FlexibleStringListJsonConverter))]
         public List<string>? BodyBlocks { get; set; }
+        [JsonConverter(typeof(FlexibleStringListJsonConverter))]
         public List<string>? Bullets { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? EvidenceFromText { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? SpeakerNotes { get; set; }
+        [JsonConverter(typeof(FlexibleStringJsonConverter))]
         public string? AccentTone { get; set; }
+    }
+
+    private sealed class FlexibleStringJsonConverter : JsonConverter<string?>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => ReadStringLikeValue(ref reader);
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value);
+    }
+
+    private sealed class FlexibleStringListJsonConverter : JsonConverter<List<string>?>
+    {
+        public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null)
+            {
+                return null;
+            }
+
+            if (reader.TokenType != JsonTokenType.StartArray)
+            {
+                var single = ReadStringLikeValue(ref reader);
+                return string.IsNullOrWhiteSpace(single) ? new List<string>() : new List<string> { single };
+            }
+
+            var values = new List<string>();
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndArray)
+                {
+                    return values;
+                }
+
+                var value = ReadStringLikeValue(ref reader);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    values.Add(value);
+                }
+            }
+
+            return values;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<string>? value, JsonSerializerOptions options)
+            => JsonSerializer.Serialize(writer, value, options);
+    }
+
+    private static string? ReadStringLikeValue(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return reader.GetString();
+        }
+
+        using var document = JsonDocument.ParseValue(ref reader);
+        return CoerceJsonElementToString(document.RootElement);
+    }
+
+    private static string? CoerceJsonElementToString(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString();
+        }
+
+        if (element.ValueKind is JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False)
+        {
+            return element.ToString();
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            var parts = element.EnumerateArray()
+                .Select(CoerceJsonElementToString)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Cast<string>()
+                .ToList();
+            return parts.Count == 0 ? null : string.Join("; ", parts);
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "text", "content", "value", "body", "title", "label", "summary" })
+            {
+                if (element.TryGetProperty(propertyName, out var property))
+                {
+                    var value = CoerceJsonElementToString(property);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+            }
+
+            var parts = element.EnumerateObject()
+                .Select(property => CoerceJsonElementToString(property.Value))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Cast<string>()
+                .Take(4)
+                .ToList();
+            return parts.Count == 0 ? element.ToString() : string.Join("; ", parts);
+        }
+
+        return element.ToString();
     }
 
     private sealed class SlideAiVerificationResult

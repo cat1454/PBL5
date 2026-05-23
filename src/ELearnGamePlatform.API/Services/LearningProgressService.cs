@@ -674,7 +674,7 @@ public class LearningProgressService : ILearningProgressService
 
     private static LearningLevel ClassifyLevel(double masteryScore)
     {
-        if (masteryScore >= 85d)
+        if (masteryScore >= 86d)
         {
             return LearningLevel.Mastered;
         }

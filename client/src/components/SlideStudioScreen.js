@@ -2,8 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ProgressCard from './ProgressCard';
 import { useToast } from './common/ToastProvider';
+import { useLanguage } from '../context/LanguageContext';
 import { documentService, getApiErrorMessage, isApiNotFound, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+  normalizeGenerationReadiness,
+} from '../services/generationReadiness';
+import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 
 const THEME_OPTIONS = [
   { key: 'editorial-sunrise', label: 'Editorial Sunrise', blurb: 'Ấm, cao cấp, dễ đọc và hợp với bài giảng tổng quan.' },
@@ -45,7 +53,9 @@ function SlideStudioScreen() {
   const { documentId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { language } = useLanguage();
   const [documentMeta, setDocumentMeta] = useState(null);
+  const [generationReadiness, setGenerationReadiness] = useState(null);
   const [documentProgress, setDocumentProgress] = useState(null);
   const [deck, setDeck] = useState(null);
   const [progress, setProgress] = useState(null);
@@ -69,6 +79,7 @@ function SlideStudioScreen() {
       ]);
 
       setDocumentMeta(meta);
+      setGenerationReadiness(normalizeGenerationReadiness(meta?.generationReadiness));
       setDocumentProgress(
         liveProgress || meta?.processingProgress
           ? normalizeProgressState(liveProgress || meta?.processingProgress, { documentId: Number(documentId) })
@@ -199,10 +210,17 @@ function SlideStudioScreen() {
   const handleGenerate = async () => {
     try {
       setError('');
+      const readinessDecision = confirmGenerationReadiness(generationReadiness, language);
+      if (!readinessDecision.allowed) {
+        return;
+      }
+
       const response = await slideService.startGenerateSlides(documentId, {
         desiredSlideCount,
         ...deckBrief,
+        confirmLowConfidence: readinessDecision.confirmed,
       });
+      setGenerationReadiness(normalizeGenerationReadiness(response?.generationReadiness) || generationReadiness);
       const nextProgress = normalizeProgressState(response.progress || response, { documentId: Number(documentId), jobId: response.jobId });
       setJobId(response.jobId);
       setProgress(nextProgress);
@@ -422,6 +440,7 @@ function SlideStudioScreen() {
   const lowConfidenceCount = deck?.qualitySummary?.lowConfidenceCount
     ?? allPreviewItems.filter((item) => item.quality?.isLowConfidence).length;
   const documentStage = getProgressStageLabel(documentProgress);
+  const readinessMessage = getReadinessMessage(generationReadiness, language);
 
   return (
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
@@ -452,8 +471,31 @@ function SlideStudioScreen() {
             <span>Trạng thái</span>
             <strong>{getProgressStageLabel(activeProgress)}</strong>
           </div>
+          {generationReadiness && (
+            <div className="gamma-mini-stat">
+              <span>Readiness</span>
+              <strong>
+                <span className={`generation-readiness-badge tone-${generationReadiness.tone}`}>
+                  {getReadinessLabel(generationReadiness, language)}
+                </span>
+              </strong>
+            </div>
+          )}
         </div>
       </section>
+
+      {readinessMessage && (
+        <div className={`alert generation-readiness-card tone-${generationReadiness.tone}`}>
+          <strong>{readinessMessage.title}</strong>
+          <p>{readinessMessage.body}</p>
+        </div>
+      )}
+
+      <DocumentUnderstandingPanel
+        documentId={documentId}
+        showEmpty
+        compact
+      />
 
       {!canGenerate && (
         <>

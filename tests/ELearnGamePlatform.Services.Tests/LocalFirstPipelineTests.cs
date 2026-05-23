@@ -1,6 +1,8 @@
 using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Models;
+using ELearnGamePlatform.Core.Options;
 using ELearnGamePlatform.Services.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -111,6 +113,72 @@ public class LocalFirstPipelineTests
     }
 
     [Fact]
+    public async Task ContentAnalyzer_WhenUnderstandingEnabled_UsesKnowledgeMapVisionContext()
+    {
+        var ollama = new CapturingOllamaService();
+        var analyzer = CreateAnalyzer(
+            ollama,
+            TestSettings(enableRefine: true),
+            new DocumentUnderstandingOptions { Enabled = true });
+        var understanding = new DocumentUnderstandingResult
+        {
+            DocumentId = 21,
+            Status = DocumentQualityStatuses.AutoGenerateAllowed,
+            Confidence = 0.91d,
+            CombinedText = LongEvidenceText("VISUALSENTINEL diagram source"),
+            Pages =
+            [
+                new PageUnderstandingResult
+                {
+                    PageNumber = 1,
+                    Confidence = 0.91d,
+                    Text = LongEvidenceText("page evidence")
+                }
+            ],
+            Regions =
+            [
+                new DocumentRegion
+                {
+                    PageNumber = 1,
+                    RegionType = DocumentRegionTypes.DiagramCandidate,
+                    Text = "ATP -> energy transfer",
+                    Description = "Diagram shows ATP flow from sunlight capture to glucose production.",
+                    ExtractedLabels = ["ATP", "glucose"],
+                    Relationships = ["sunlight -> ATP -> glucose"],
+                    VisionConfidence = 0.88d
+                }
+            ]
+        };
+
+        var result = await analyzer.AnalyzeContentAsync("legacy text without the visual sentinel", understanding);
+
+        Assert.Contains(result.CoverageMap, chunk => (chunk.Text ?? string.Empty).Contains("VISUALSENTINEL", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ContentAnalyzer_WhenKnowledgeMapBuilderFails_FallsBackToLegacyText()
+    {
+        var ollama = new CapturingOllamaService { ThrowOnStructured = true };
+        var analyzer = CreateAnalyzer(
+            ollama,
+            TestSettings(enableRefine: false),
+            new DocumentUnderstandingOptions { Enabled = true },
+            new ThrowingKnowledgeMapBuilder());
+        var legacyText = LongEvidenceText("LEGACY_FALLBACK_SENTINEL");
+
+        var result = await analyzer.AnalyzeContentAsync(
+            legacyText,
+            new DocumentUnderstandingResult
+            {
+                DocumentId = 22,
+                Status = DocumentQualityStatuses.AutoGenerateAllowed,
+                Confidence = 0.9d
+            });
+
+        Assert.Contains(result.CoverageMap, chunk => (chunk.Text ?? string.Empty).Contains("LEGACY_FALLBACK_SENTINEL", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task QuestionGenerator_UsesCompactEvidenceAndPreferredChunkIds()
     {
         var ollama = new CapturingOllamaService();
@@ -140,7 +208,11 @@ public class LocalFirstPipelineTests
         Assert.DoesNotContain("Text:\n<<<", generationPrompt);
     }
 
-    private ContentAnalyzerService CreateAnalyzer(IOllamaService ollama, LocalLlmSettings settings)
+    private ContentAnalyzerService CreateAnalyzer(
+        IOllamaService ollama,
+        LocalLlmSettings settings,
+        DocumentUnderstandingOptions? understandingOptions = null,
+        IDocumentKnowledgeMapBuilder? knowledgeMapBuilder = null)
     {
         var options = Options.Create(settings);
         var planner = new TokenBudgetPlanner(_tokenEstimator, options);
@@ -151,6 +223,11 @@ public class LocalFirstPipelineTests
             assembler,
             _tokenEstimator,
             options,
+            Options.Create(understandingOptions ?? new DocumentUnderstandingOptions()),
+            knowledgeMapBuilder ?? new DocumentKnowledgeMapBuilder(
+                _tokenEstimator,
+                options,
+                NullLogger<DocumentKnowledgeMapBuilder>.Instance),
             NullLogger<ContentAnalyzerService>.Instance);
     }
 
@@ -216,7 +293,35 @@ public class LocalFirstPipelineTests
             return Task.FromResult<T?>(null);
         }
 
+        public async Task<StructuredGenerationResult<T>> GenerateStructuredResponseWithMetadataAsync<T>(string prompt, string? systemPrompt = null, OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
+        {
+            var value = await GenerateStructuredResponseAsync<T>(prompt, systemPrompt, profile);
+            return new StructuredGenerationResult<T>
+            {
+                Value = value,
+                Model = "test-model",
+                RawOutputValid = value != null,
+                ErrorType = value == null ? AutoRepairJsonErrorType.EmptyOutput : AutoRepairJsonErrorType.None,
+                ErrorMessage = value == null ? "empty test response" : string.Empty,
+                AutoRepairTriggered = false,
+                RepairSuccess = false,
+                FinalOutputValid = value != null,
+                ElapsedMs = 0,
+                RawOutputPreview = string.Empty,
+                RepairedOutputPreview = string.Empty
+            };
+        }
+
         public Task<bool> IsAvailableAsync()
             => Task.FromResult(!ThrowOnStructured);
+    }
+
+    private sealed class ThrowingKnowledgeMapBuilder : IDocumentKnowledgeMapBuilder
+    {
+        public KnowledgeMapBuildResult Build(DocumentUnderstandingResult? result)
+            => throw new InvalidOperationException("test builder failure");
+
+        public KnowledgeMapBuildResult Build(DocumentUnderstandingRun? run)
+            => throw new InvalidOperationException("test builder failure");
     }
 }

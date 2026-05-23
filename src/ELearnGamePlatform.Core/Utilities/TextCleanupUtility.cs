@@ -163,6 +163,7 @@ public static class TextCleanupUtility
         normalized = Regex.Replace(normalized, @"(?<=[\p{L}])(?=\d)", " ");
         normalized = Regex.Replace(normalized, @"(?<=\d)(?=[\p{L}])", " ");
         normalized = Regex.Replace(normalized, @"\s+([,.;:?!])", "$1");
+        normalized = Regex.Replace(normalized, @"([,.;:?!])\1+", "$1");
         normalized = Regex.Replace(normalized, @"([,.;:?!])(?=[\p{L}\p{N}])", "$1 ");
         normalized = Regex.Replace(normalized, @"\(\s+", "(");
         normalized = Regex.Replace(normalized, @"\s+\)", ")");
