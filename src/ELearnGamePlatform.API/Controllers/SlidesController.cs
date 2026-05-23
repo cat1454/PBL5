@@ -16,7 +16,7 @@ namespace ELearnGamePlatform.API.Controllers;
 [Authorize]
 public class SlidesController : AuthenticatedControllerBase
 {
-    private const int SlideLowConfidenceThreshold = 85;
+    private const int SlideLowConfidenceThreshold = 86;
     private static readonly HashSet<string> ExplicitlyExcludedScopeClassifications = new(StringComparer.OrdinalIgnoreCase)
     {
         ChunkClassifications.FrontMatter,
@@ -32,6 +32,7 @@ public class SlidesController : AuthenticatedControllerBase
     private readonly ISlideGenerator _slideGenerator;
     private readonly ISlideExportService _slideExportService;
     private readonly ISlideImageService _slideImageService;
+    private readonly IDocumentGenerationReadinessService _generationReadinessService;
     private readonly ISlideGenerationJobStore _jobStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SlidesController> _logger;
@@ -43,6 +44,7 @@ public class SlidesController : AuthenticatedControllerBase
         ISlideGenerator slideGenerator,
         ISlideExportService slideExportService,
         ISlideImageService slideImageService,
+        IDocumentGenerationReadinessService generationReadinessService,
         ISlideGenerationJobStore jobStore,
         IServiceScopeFactory scopeFactory,
         ILogger<SlidesController> logger)
@@ -53,6 +55,7 @@ public class SlidesController : AuthenticatedControllerBase
         _slideGenerator = slideGenerator;
         _slideExportService = slideExportService;
         _slideImageService = slideImageService;
+        _generationReadinessService = generationReadinessService;
         _jobStore = jobStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -87,6 +90,12 @@ public class SlidesController : AuthenticatedControllerBase
             return SlideSchemaUnavailable();
         }
 
+        var generationReadiness = await _generationReadinessService.GetReadinessAsync(document, request.ConfirmLowConfidence);
+        if (generationReadiness.Blocked)
+        {
+            return GenerationGateBlocked(generationReadiness);
+        }
+
         var jobId = _jobStore.CreateJob(request.DocumentId, request.DesiredSlideCount, CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
@@ -101,7 +110,8 @@ public class SlidesController : AuthenticatedControllerBase
             Mode = request.Mode,
             ScopePolicy = request.ScopePolicy,
             SelectedSectionIds = request.SelectedSectionIds,
-            SourceIds = request.SourceIds
+            SourceIds = request.SourceIds,
+            ConfirmLowConfidence = request.ConfirmLowConfidence
         }));
 
         return Accepted(new
@@ -110,6 +120,7 @@ public class SlidesController : AuthenticatedControllerBase
             status = "queued",
             progressUrl = $"/api/slides/generate/progress/{jobId}",
             resultUrl = $"/api/slides/document/{request.DocumentId}",
+            generationReadiness,
             progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state)
         });
     }
@@ -448,6 +459,7 @@ public class SlidesController : AuthenticatedControllerBase
             var slideDeckRepository = scope.ServiceProvider.GetRequiredService<ISlideDeckRepository>();
             var slideGenerator = scope.ServiceProvider.GetRequiredService<ISlideGenerator>();
             var slideImageService = scope.ServiceProvider.GetRequiredService<ISlideImageService>();
+            var generationReadinessService = scope.ServiceProvider.GetRequiredService<IDocumentGenerationReadinessService>();
 
             UpdateJob(jobId, state =>
             {
@@ -465,7 +477,7 @@ public class SlidesController : AuthenticatedControllerBase
                 UpdateEta(state);
             });
 
-            var context = await ResolveGenerationContextAsync(target, documentRepository, folderProjectRepository);
+            var context = await ResolveGenerationContextAsync(target, documentRepository, folderProjectRepository, generationReadinessService);
             if (!context.Success)
             {
                 FailJob(jobId, context.Error ?? "Khong the tao slide deck", context.ErrorMessage ?? "Khong the tao slide deck");
@@ -486,7 +498,9 @@ public class SlidesController : AuthenticatedControllerBase
                 context.ProcessedContent,
                 brief,
                 target.DesiredSlideCount,
-                outlineProgress);
+                outlineProgress,
+                context.DocumentId,
+                jobId);
 
             var deck = new SlideDeck
             {
@@ -579,7 +593,9 @@ public class SlidesController : AuthenticatedControllerBase
                     outlineSlide,
                     index + 1,
                     slideItems.Count,
-                    slideProgress);
+                    slideProgress,
+                    context.DocumentId,
+                    jobId);
                 EnforceEvidenceScope(content, context.AllowedChunkIds);
 
                 item.Heading = content.Heading ?? item.Heading;
@@ -1118,7 +1134,8 @@ public class SlidesController : AuthenticatedControllerBase
     private async Task<SlideGenerationContext> ResolveGenerationContextAsync(
         SlideGenerationTarget target,
         IDocumentRepository documentRepository,
-        IFolderProjectRepository folderProjectRepository)
+        IFolderProjectRepository folderProjectRepository,
+        IDocumentGenerationReadinessService generationReadinessService)
     {
         if (target.DocumentId.HasValue)
         {
@@ -1131,6 +1148,14 @@ public class SlidesController : AuthenticatedControllerBase
             if (string.IsNullOrWhiteSpace(document.ExtractedText))
             {
                 return SlideGenerationContext.Fail("Document has not been processed yet", "Tai lieu chua co noi dung ExtractedText");
+            }
+
+            var generationReadiness = await generationReadinessService.GetReadinessAsync(document, target.ConfirmLowConfidence);
+            if (generationReadiness.Blocked)
+            {
+                return SlideGenerationContext.Fail(
+                    "Document generation readiness gate blocked auto-generation",
+                    BuildReadinessDetail(generationReadiness));
             }
 
             var processedContent = BuildProcessedContentFromDocument(document);
@@ -1188,6 +1213,14 @@ public class SlidesController : AuthenticatedControllerBase
                     return SlideGenerationContext.Fail("Primary source is missing", "Can chon 1 tai lieu chinh de tao deck theo chuong");
                 }
 
+                var generationReadiness = await generationReadinessService.GetReadinessAsync(primarySource, target.ConfirmLowConfidence);
+                if (generationReadiness.Blocked)
+                {
+                    return SlideGenerationContext.Fail(
+                        "Document generation readiness gate blocked auto-generation",
+                        BuildReadinessDetail(generationReadiness));
+                }
+
                 var processedContent = BuildProcessedContentFromDocument(primarySource);
                 var filtered = TryFilterProcessedContentForDocument(primarySource, processedContent, target.SelectedSectionIds ?? new List<string>(), out var filterError);
                 if (filtered == null)
@@ -1199,6 +1232,16 @@ public class SlidesController : AuthenticatedControllerBase
                     folder.Id,
                     BuildCombinedExtractedTextFromChunks(primarySource, filtered.CoverageMap),
                     filtered);
+            }
+
+            var aggregateReadiness = generationReadinessService.GetAggregateReadiness(
+                await Task.WhenAll(readySources.Select(source => generationReadinessService.GetReadinessAsync(source, target.ConfirmLowConfidence))),
+                target.ConfirmLowConfidence);
+            if (aggregateReadiness.Blocked)
+            {
+                return SlideGenerationContext.Fail(
+                    "Document generation readiness gate blocked auto-generation",
+                    BuildReadinessDetail(aggregateReadiness));
             }
 
             return SlideGenerationContext.FromFolder(
@@ -1570,6 +1613,12 @@ public class SlidesController : AuthenticatedControllerBase
             return SlideSchemaUnavailable();
         }
 
+        var generationReadiness = await GetFolderGenerationReadinessAsync(folder, request);
+        if (generationReadiness.Blocked)
+        {
+            return GenerationGateBlocked(generationReadiness);
+        }
+
         var jobId = _jobStore.CreateFolderJob(folderId, request.DesiredSlideCount, CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
@@ -1584,7 +1633,8 @@ public class SlidesController : AuthenticatedControllerBase
             SourceIds = request.SourceIds,
             SelectedSectionIds = request.SelectedSectionIds,
             Mode = request.Mode,
-            ScopePolicy = request.ScopePolicy
+            ScopePolicy = request.ScopePolicy,
+            ConfirmLowConfidence = request.ConfirmLowConfidence
         }));
 
         var recommendation = BuildScopeRecommendation(request);
@@ -1595,9 +1645,36 @@ public class SlidesController : AuthenticatedControllerBase
             status = "queued",
             progressUrl = $"/api/slides/generate/progress/{jobId}",
             resultUrl = $"/api/slides/folders/{folderId}",
+            generationReadiness,
             progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state),
             scopeRecommendation = recommendation
         });
+    }
+
+    private async Task<DocumentGenerationReadiness> GetFolderGenerationReadinessAsync(FolderProject folder, GenerateFolderSlidesRequest request)
+    {
+        var selectedSources = folder.Documents
+            .Where(source => source.IncludeInFolderSlides)
+            .OrderBy(source => source.FolderSourceOrder)
+            .ThenBy(source => source.CreatedAt)
+            .ToList();
+
+        var readySources = selectedSources
+            .Where(source => source.Status == DocumentStatus.Completed && !string.IsNullOrWhiteSpace(source.ExtractedText))
+            .ToList();
+
+        if (request.SourceIds?.Count > 0)
+        {
+            var primarySourceId = request.SourceIds.First();
+            var primarySource = readySources.FirstOrDefault(source => source.Id == primarySourceId);
+            return primarySource == null
+                ? _generationReadinessService.GetAggregateReadiness(Array.Empty<DocumentGenerationReadiness>(), request.ConfirmLowConfidence)
+                : await _generationReadinessService.GetReadinessAsync(primarySource, request.ConfirmLowConfidence);
+        }
+
+        var readinessResults = await Task.WhenAll(
+            readySources.Select(source => _generationReadinessService.GetReadinessAsync(source, request.ConfirmLowConfidence)));
+        return _generationReadinessService.GetAggregateReadiness(readinessResults, request.ConfirmLowConfidence);
     }
 
     private static bool IsValidSlideCount(int desiredSlideCount)
@@ -1852,6 +1929,20 @@ public class SlidesController : AuthenticatedControllerBase
         };
     }
 
+    private IActionResult GenerationGateBlocked(DocumentGenerationReadiness readiness)
+        => BadRequest(new
+        {
+            success = false,
+            code = "generation_readiness_blocked",
+            message = "Document extraction confidence is too low for automatic generation.",
+            generationReadiness = readiness
+        });
+
+    private static string BuildReadinessDetail(DocumentGenerationReadiness readiness)
+        => readiness.Reasons.Count == 0
+            ? $"confidence={readiness.Confidence:P0}, status={readiness.Status}"
+            : string.Join(" ", readiness.Reasons.Take(3));
+
     private static string? SanitizeImageText(string? value, int maxLength)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1949,6 +2040,7 @@ public class GenerateSlidesRequest
     public List<string>? SelectedSectionIds { get; set; }
     public string? Mode { get; set; }
     public string? ScopePolicy { get; set; }
+    public bool ConfirmLowConfidence { get; set; }
 }
 
 public class GenerateFolderSlidesRequest
@@ -1963,6 +2055,7 @@ public class GenerateFolderSlidesRequest
     public List<string>? SelectedSectionIds { get; set; }
     public string? Mode { get; set; }
     public string? ScopePolicy { get; set; }
+    public bool ConfirmLowConfidence { get; set; }
 }
 
 public class UpdateSlideItemRequest
@@ -1995,6 +2088,7 @@ internal sealed class SlideGenerationTarget
     public List<string>? SelectedSectionIds { get; init; }
     public string? Mode { get; init; }
     public string? ScopePolicy { get; init; }
+    public bool ConfirmLowConfidence { get; init; }
 }
 
 internal sealed class SlideGenerationContext

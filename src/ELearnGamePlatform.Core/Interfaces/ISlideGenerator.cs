@@ -9,7 +9,9 @@ public interface ISlideGenerator
         ProcessedContent? processedContent,
         SlideDeckBrief? brief,
         int desiredSlideCount,
-        IProgress<SlideGenerationProgressUpdate>? progress = null);
+        IProgress<SlideGenerationProgressUpdate>? progress = null,
+        int? documentId = null,
+        string? correlationId = null);
 
     Task<SlideContentResult> GenerateSlideAsync(
         string content,
@@ -18,7 +20,9 @@ public interface ISlideGenerator
         SlideOutlineSlide outlineSlide,
         int slideNumber,
         int totalSlides,
-        IProgress<SlideGenerationProgressUpdate>? progress = null);
+        IProgress<SlideGenerationProgressUpdate>? progress = null,
+        int? documentId = null,
+        string? correlationId = null);
 
     string RenderDeckHtml(SlideDeck deck, IReadOnlyList<SlideItem> items);
 }

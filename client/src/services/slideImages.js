@@ -116,7 +116,8 @@ const deriveNeedsImage = (item, slideType) => {
     ?? item?.ImageState?.NeedsImage
     ?? item?.image?.needsImage
     ?? item?.Image?.NeedsImage
-    ?? item?.slideImage?.needsImage;
+    ?? item?.slideImage?.needsImage
+    ?? item?.SlideImage?.NeedsImage;
 
   if (typeof explicit === 'boolean') {
     return explicit;

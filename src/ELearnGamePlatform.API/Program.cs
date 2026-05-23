@@ -6,6 +6,7 @@ using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Enums;
 using ELearnGamePlatform.Core.Configuration;
+using ELearnGamePlatform.Core.Options;
 using ELearnGamePlatform.Infrastructure.Configuration;
 using ELearnGamePlatform.Infrastructure.Data;
 using ELearnGamePlatform.Infrastructure.Repositories;
@@ -28,6 +29,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = ResolveContentRoot()
 });
+builder.Configuration.AddUserSecrets<Program>(optional: true);
 builder.WebHost.UseUrls("http://localhost:5000");
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -63,6 +65,8 @@ builder.Services.Configure<LocalLlmSettings>(
     builder.Configuration.GetSection(LocalLlmSettings.SectionName));
 builder.Services.Configure<OcrSettings>(
     builder.Configuration.GetSection(OcrSettings.SectionName));
+builder.Services.Configure<DocumentUnderstandingOptions>(
+    builder.Configuration.GetSection(DocumentUnderstandingOptions.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JwtSettings configuration is required.");
@@ -90,9 +94,11 @@ builder.Services.AddAuthorization();
 
 // Register HttpClient for Ollama
 builder.Services.AddHttpClient<IOllamaService, OllamaService>();
+builder.Services.AddHttpClient<IVisionRegionDescriber, OllamaVisionRegionDescriber>();
 
 // Register Repositories
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
+builder.Services.AddScoped<IDocumentUnderstandingRunRepository, DocumentUnderstandingRunRepository>();
 builder.Services.AddScoped<IFolderProjectRepository, FolderProjectRepository>();
 builder.Services.AddScoped<IQuestionRepository, QuestionRepository>();
 builder.Services.AddScoped<IGameSessionRepository, GameSessionRepository>();
@@ -105,7 +111,14 @@ builder.Services.AddScoped<IDocumentProcessor, DocxProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, ImageProcessor>();
 builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
 builder.Services.AddScoped<ITokenEstimator, TokenEstimator>();
+builder.Services.AddScoped<IDocumentKnowledgeMapBuilder, DocumentKnowledgeMapBuilder>();
 builder.Services.AddScoped<IDocumentInputQualityGate, DocumentInputQualityGate>();
+builder.Services.AddScoped<IDocumentUnderstandingOrchestrator, NoOpDocumentUnderstandingOrchestrator>();
+builder.Services.AddScoped<IKnowledgeMapBuilder, LegacyKnowledgeMapBuilder>();
+builder.Services.AddScoped<ILayoutAnalyzer, HeuristicLayoutAnalyzer>();
+builder.Services.AddScoped<IVisionPageImageProvider, VisionPageImageProvider>();
+builder.Services.AddScoped<IDocumentQualityScorer, LegacyDocumentQualityScorer>();
+builder.Services.AddScoped<IDocumentGenerationReadinessService, DocumentGenerationReadinessService>();
 builder.Services.AddScoped<ITokenBudgetPlanner, TokenBudgetPlanner>();
 builder.Services.AddScoped<IPromptAssembler, PromptAssembler>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
@@ -118,6 +131,7 @@ builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
 builder.Services.AddScoped<IQuestionMetricsService, QuestionMetricsService>();
+builder.Services.AddSingleton<IAutoRepairEvidenceLogger, FileAutoRepairEvidenceLogger>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd("ELearnGamePlatform/1.0");

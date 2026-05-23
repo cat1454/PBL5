@@ -17,6 +17,7 @@ public class QuestionsController : AuthenticatedControllerBase
     private readonly IDocumentRepository _documentRepository;
     private readonly IQuestionGenerator _questionGenerator;
     private readonly IQuestionMetricsService _questionMetricsService;
+    private readonly IDocumentGenerationReadinessService _generationReadinessService;
     private readonly IQuestionGenerationJobStore _jobStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<QuestionsController> _logger;
@@ -26,6 +27,7 @@ public class QuestionsController : AuthenticatedControllerBase
         IDocumentRepository documentRepository,
         IQuestionGenerator questionGenerator,
         IQuestionMetricsService questionMetricsService,
+        IDocumentGenerationReadinessService generationReadinessService,
         IQuestionGenerationJobStore jobStore,
         IServiceScopeFactory scopeFactory,
         ILogger<QuestionsController> logger)
@@ -34,6 +36,7 @@ public class QuestionsController : AuthenticatedControllerBase
         _documentRepository = documentRepository;
         _questionGenerator = questionGenerator;
         _questionMetricsService = questionMetricsService;
+        _generationReadinessService = generationReadinessService;
         _jobStore = jobStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -59,6 +62,12 @@ public class QuestionsController : AuthenticatedControllerBase
             return authResult;
         }
 
+        var generationReadiness = await _generationReadinessService.GetReadinessAsync(document, request.ConfirmLowConfidence);
+        if (generationReadiness.Blocked)
+        {
+            return GenerationGateBlocked(generationReadiness);
+        }
+
         var jobId = _jobStore.CreateJob(request.DocumentId, request.Count, request.QuestionType?.ToString(), CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
 
@@ -70,6 +79,7 @@ public class QuestionsController : AuthenticatedControllerBase
             status = "queued",
             progressUrl = $"/api/questions/generate/progress/{jobId}",
             resultHint = $"Khi status=completed, goi /api/questions/document/{request.DocumentId} de lay cau hoi moi",
+            generationReadiness,
             progress = state == null ? null : JobProgressPayloadFactory.BuildQuestion(state)
         });
     }
@@ -118,6 +128,12 @@ public class QuestionsController : AuthenticatedControllerBase
                 return BadRequest("Document has not been processed yet");
             }
 
+            var generationReadiness = await _generationReadinessService.GetReadinessAsync(document, request.ConfirmLowConfidence);
+            if (generationReadiness.Blocked)
+            {
+                return GenerationGateBlocked(generationReadiness);
+            }
+
             var processedContent = BuildProcessedContentFromDocument(document);
             List<Question> questions;
             if (request.QuestionType.HasValue)
@@ -146,6 +162,7 @@ public class QuestionsController : AuthenticatedControllerBase
             {
                 documentId = request.DocumentId,
                 questionsGenerated = questions.Count,
+                generationReadiness,
                 questions = questions.Select(BuildQuestionPayload)
             });
         }
@@ -182,6 +199,7 @@ public class QuestionsController : AuthenticatedControllerBase
             var questionRepository = scope.ServiceProvider.GetRequiredService<IQuestionRepository>();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
             var questionGenerator = scope.ServiceProvider.GetRequiredService<IQuestionGenerator>();
+            var generationReadinessService = scope.ServiceProvider.GetRequiredService<IDocumentGenerationReadinessService>();
 
             var document = await documentRepository.GetByIdAsync(request.DocumentId);
             if (document == null)
@@ -214,6 +232,26 @@ public class QuestionsController : AuthenticatedControllerBase
                     state.Message = "Tai lieu chua du noi dung de sinh cau hoi";
                     state.Detail = "Can xu ly xong ExtractedText truoc khi tao cau hoi";
                     state.Error = "Document has not been processed yet";
+                    state.StageIndex = 7;
+                    state.StageCount = 7;
+                    state.EstimatedRemainingSeconds = 0;
+                    UpdateEta(state);
+                });
+                return;
+            }
+
+            var generationReadiness = await generationReadinessService.GetReadinessAsync(document, request.ConfirmLowConfidence);
+            if (generationReadiness.Blocked)
+            {
+                _jobStore.UpdateJob(jobId, state =>
+                {
+                    state.Status = "failed";
+                    state.Percent = 100;
+                    state.Stage = "generation-gate-blocked";
+                    state.StageLabel = "Can review tai lieu";
+                    state.Message = "Do tin cay trich xuat qua thap de tu dong sinh cau hoi";
+                    state.Detail = BuildReadinessDetail(generationReadiness);
+                    state.Error = "Document generation readiness gate blocked auto-generation";
                     state.StageIndex = 7;
                     state.StageCount = 7;
                     state.EstimatedRemainingSeconds = 0;
@@ -356,6 +394,20 @@ public class QuestionsController : AuthenticatedControllerBase
         var estimatedRemaining = Math.Max(1, (int)Math.Round(estimatedTotalSeconds - elapsedSeconds));
         state.EstimatedRemainingSeconds = estimatedRemaining;
     }
+
+    private IActionResult GenerationGateBlocked(DocumentGenerationReadiness readiness)
+        => BadRequest(new
+        {
+            success = false,
+            code = "generation_readiness_blocked",
+            message = "Document extraction confidence is too low for automatic generation.",
+            generationReadiness = readiness
+        });
+
+    private static string BuildReadinessDetail(DocumentGenerationReadiness readiness)
+        => readiness.Reasons.Count == 0
+            ? $"confidence={readiness.Confidence:P0}, status={readiness.Status}"
+            : string.Join(" ", readiness.Reasons.Take(3));
 
     private static ProcessedContent BuildProcessedContentFromDocument(Document document)
     {
@@ -508,4 +560,5 @@ public class GenerateQuestionsRequest
     public required int DocumentId { get; set; }
     public int Count { get; set; } = 10;
     public QuestionType? QuestionType { get; set; }
+    public bool ConfirmLowConfidence { get; set; }
 }

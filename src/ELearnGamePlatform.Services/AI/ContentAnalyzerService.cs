@@ -1,6 +1,8 @@
 using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Models;
+using ELearnGamePlatform.Core.Options;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,6 +18,8 @@ public class ContentAnalyzerService : IContentAnalyzer
     private readonly IPromptAssembler _promptAssembler;
     private readonly ITokenEstimator _tokenEstimator;
     private readonly LocalLlmSettings _localLlmSettings;
+    private readonly DocumentUnderstandingOptions _documentUnderstandingOptions;
+    private readonly IDocumentKnowledgeMapBuilder _knowledgeMapBuilder;
     private readonly ILogger<ContentAnalyzerService> _logger;
     private const int ChunkSize = 1800;
     private const int ChunkOverlap = 260;
@@ -30,6 +34,8 @@ public class ContentAnalyzerService : IContentAnalyzer
         IPromptAssembler promptAssembler,
         ITokenEstimator tokenEstimator,
         IOptions<LocalLlmSettings> localLlmSettings,
+        IOptions<DocumentUnderstandingOptions> documentUnderstandingOptions,
+        IDocumentKnowledgeMapBuilder knowledgeMapBuilder,
         ILogger<ContentAnalyzerService> logger)
     {
         _ollamaService = ollamaService;
@@ -37,10 +43,30 @@ public class ContentAnalyzerService : IContentAnalyzer
         _promptAssembler = promptAssembler;
         _tokenEstimator = tokenEstimator;
         _localLlmSettings = localLlmSettings.Value;
+        _documentUnderstandingOptions = documentUnderstandingOptions.Value;
+        _knowledgeMapBuilder = knowledgeMapBuilder;
         _logger = logger;
     }
 
     public async Task<ProcessedContent> AnalyzeContentAsync(string text, IProgress<DocumentProcessingProgressUpdate>? progress = null)
+        => await AnalyzeContentCoreAsync(text, null, progress);
+
+    public async Task<ProcessedContent> AnalyzeContentAsync(
+        string text,
+        DocumentUnderstandingResult? understandingResult,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
+        => await AnalyzeContentCoreAsync(text, understandingResult, progress);
+
+    public async Task<ProcessedContent> AnalyzeContentAsync(
+        string text,
+        DocumentUnderstandingRun? understandingRun,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
+        => await AnalyzeContentCoreAsync(text, understandingRun, progress);
+
+    private async Task<ProcessedContent> AnalyzeContentCoreAsync(
+        string text,
+        object? understandingSource,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
         var analysisStopwatch = Stopwatch.StartNew();
         var coverageStopwatch = Stopwatch.StartNew();
@@ -49,10 +75,12 @@ public class ContentAnalyzerService : IContentAnalyzer
         var fallbackUsed = false;
         var coverageChunkCount = 0;
         var averageChunkTokens = 0d;
+        var contextSelection = ResolveAnalysisContext(text, understandingSource);
+        var analysisInput = contextSelection.ContextText;
 
         try
         {
-            var normalizedText = NormalizeText(text);
+            var normalizedText = NormalizeText(analysisInput);
             var rawCoverageMap = DocumentCoverageMapBuilder.Build(normalizedText, _localLlmSettings, _tokenEstimator);
             var enrichedCoverageMap = EnrichCoverageMap(rawCoverageMap, normalizedText);
             var cleanCoverageMap = BuildCleanCoverageMap(enrichedCoverageMap);
@@ -115,9 +143,12 @@ public class ContentAnalyzerService : IContentAnalyzer
 
             var normalizedLength = string.IsNullOrWhiteSpace(text) ? 0 : NormalizeText(text).Length;
             _logger.LogInformation(
-                "Document analysis metrics: DocumentId={DocumentId} ExtractedTextLength={ExtractedTextLength} CoverageChunkCount={CoverageChunkCount} AverageChunkTokens={AverageChunkTokens} AIRefineCalled={AIRefineCalled} AIRefineSkippedReason={AIRefineSkippedReason} AnalysisDurationMs={AnalysisDurationMs} CoverageBuildDurationMs={CoverageBuildDurationMs} FallbackUsed={FallbackUsed}",
+                "Document analysis metrics: DocumentId={DocumentId} ExtractedTextLength={ExtractedTextLength} AnalysisContextPath={AnalysisContextPath} KnowledgeMapTokens={KnowledgeMapTokens} KnowledgeMapReason={KnowledgeMapReason} CoverageChunkCount={CoverageChunkCount} AverageChunkTokens={AverageChunkTokens} AIRefineCalled={AIRefineCalled} AIRefineSkippedReason={AIRefineSkippedReason} AnalysisDurationMs={AnalysisDurationMs} CoverageBuildDurationMs={CoverageBuildDurationMs} FallbackUsed={FallbackUsed}",
                 "unknown",
                 normalizedLength,
+                contextSelection.Path,
+                contextSelection.KnowledgeMapTokens,
+                contextSelection.Reason,
                 coverageChunkCount,
                 averageChunkTokens,
                 aiRefineCalled,
@@ -125,6 +156,49 @@ public class ContentAnalyzerService : IContentAnalyzer
                 analysisStopwatch.ElapsedMilliseconds,
                 coverageStopwatch.ElapsedMilliseconds,
                 fallbackUsed);
+        }
+    }
+
+    private AnalysisContextSelection ResolveAnalysisContext(string legacyText, object? understandingSource)
+    {
+        if (!_documentUnderstandingOptions.Enabled || understandingSource == null)
+        {
+            return new AnalysisContextSelection(legacyText, "LegacyText", null, null);
+        }
+
+        try
+        {
+            var map = understandingSource switch
+            {
+                DocumentUnderstandingResult result => _knowledgeMapBuilder.Build(result),
+                DocumentUnderstandingRun run => _knowledgeMapBuilder.Build(run),
+                _ => new KnowledgeMapBuildResult
+                {
+                    IsUsable = false,
+                    UnusableReason = "unsupported-understanding-source"
+                }
+            };
+
+            if (map.IsUsable && !string.IsNullOrWhiteSpace(map.Text))
+            {
+                _logger.LogInformation(
+                    "Document analysis context path selected: {AnalysisContextPath}; knowledgeMapTokens={KnowledgeMapTokens}; warnings={WarningCount}",
+                    "KnowledgeMap",
+                    map.EstimatedTokens,
+                    map.Warnings.Count);
+                return new AnalysisContextSelection(map.Text, "KnowledgeMap", map.EstimatedTokens, null);
+            }
+
+            _logger.LogInformation(
+                "Document analysis context path selected: {AnalysisContextPath}; reason={Reason}",
+                "KnowledgeMapFallback",
+                map.UnusableReason ?? "knowledge-map-unusable");
+            return new AnalysisContextSelection(legacyText, "KnowledgeMapFallback", map.EstimatedTokens, map.UnusableReason);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Knowledge Map build failed; falling back to legacy extracted text.");
+            return new AnalysisContextSelection(legacyText, "KnowledgeMapFallback", null, ex.Message);
         }
     }
 
@@ -239,6 +313,8 @@ public class ContentAnalyzerService : IContentAnalyzer
 
 Do not add facts, topics, or claims unsupported by the evidence.
 Preserve concrete local key facts. If evidence is thin, return conservative output.
+If evidence mentions low confidence or needs review, mark that uncertainty instead of treating it as verified.
+Figure and diagram descriptions are AI-generated visual descriptions; use them carefully and do not infer details beyond the description.
 
 Local analysis:
 Summary: {localContent.Summary}
@@ -259,7 +335,7 @@ Return JSON only:
 
         return await _ollamaService.GenerateStructuredResponseAsync<ProcessedContent>(
             prompt,
-            "You refine local document analysis from compact evidence only. Never invent unsupported facts.",
+            "You refine local document analysis from compact evidence only. Never invent unsupported facts. Mark low-confidence evidence as needing review and treat figure descriptions as cautious AI-generated observations.",
             OllamaModelProfile.Analysis);
     }
 
@@ -821,8 +897,22 @@ Respond in JSON format:
             warnings.Add($"Chunk classified as {classification}.");
         }
 
+        if (ContainsLowConfidenceTableOrFormula(text))
+        {
+            warnings.Add("Chunk contains low-confidence table or formula evidence; do not use for exact calculation without review.");
+        }
+
         return (Math.Clamp(score, 0, 100), keyFactDensity, warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
     }
+
+    private static bool ContainsLowConfidenceTableOrFormula(string text)
+        => text.Contains("TableLowConfidence", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("FormulaCandidate", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("Formula Candidates", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("LOW CONFIDENCE", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("REVIEW REQUIRED", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("do not infer missing table cells", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("do not repair notation", StringComparison.OrdinalIgnoreCase);
 
     private static int ScoreTextLength(int length)
     {
@@ -1366,6 +1456,12 @@ Respond in JSON format:
         public string? Summary { get; set; }
         public string? Language { get; set; }
     }
+
+    private sealed record AnalysisContextSelection(
+        string ContextText,
+        string Path,
+        int? KnowledgeMapTokens,
+        string? Reason);
 
     private static void ReportAnalysisProgress(
         IProgress<DocumentProcessingProgressUpdate>? progress,

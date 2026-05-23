@@ -182,6 +182,57 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.ToTable("documents");
                 });
 
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.DocumentUnderstandingRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CombinedText")
+                        .HasColumnType("text")
+                        .HasColumnName("combined_text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<double?>("DocumentConfidence")
+                        .HasColumnType("double precision")
+                        .HasColumnName("document_confidence");
+
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("integer")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("FailureReasonsJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("failure_reasons");
+
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("boolean")
+                        .HasColumnName("needs_review");
+
+                    b.Property<string>("ResultJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("result");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("DocumentId", "CreatedAt");
+
+                    b.ToTable("document_understanding_runs");
+                });
+
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.FolderProject", b =>
                 {
                     b.Property<int>("Id")
@@ -780,6 +831,17 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("FolderProject");
                 });
 
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.DocumentUnderstandingRun", b =>
+                {
+                    b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
+                        .WithMany("UnderstandingRuns")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.GameSession", b =>
                 {
                     b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
@@ -899,6 +961,8 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("Questions");
 
                     b.Navigation("SlideDecks");
+
+                    b.Navigation("UnderstandingRuns");
                 });
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.FolderProject", b =>

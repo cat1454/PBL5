@@ -3,7 +3,9 @@ using ELearnGamePlatform.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Diagnostics;
 
@@ -35,6 +37,12 @@ public class OllamaService : IOllamaService
         string prompt,
         string? systemPrompt = null,
         OllamaModelProfile profile = OllamaModelProfile.Generation)
+        => (await GenerateResponseResultAsync(prompt, systemPrompt, profile)).Response;
+
+    private async Task<OllamaGenerateResult> GenerateResponseResultAsync(
+        string prompt,
+        string? systemPrompt = null,
+        OllamaModelProfile profile = OllamaModelProfile.Generation)
     {
         var requestedModel = ResolveModel(profile);
         var defaultModel = ResolveModel(OllamaModelProfile.Generation);
@@ -62,39 +70,129 @@ public class OllamaService : IOllamaService
         string prompt,
         string? systemPrompt = null,
         OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
+        => (await GenerateStructuredResponseWithMetadataAsync<T>(prompt, systemPrompt, profile)).Value;
+
+    public async Task<StructuredGenerationResult<T>> GenerateStructuredResponseWithMetadataAsync<T>(
+        string prompt,
+        string? systemPrompt = null,
+        OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
     {
         var jsonPrompt = BuildStrictJsonPrompt(prompt);
-        var responseText = await GenerateResponseAsync(jsonPrompt, systemPrompt, profile);
+        var totalStopwatch = Stopwatch.StartNew();
+        var response = await GenerateResponseResultAsync(jsonPrompt, systemPrompt, profile);
+        var responseText = response.Response;
         
         _logger.LogDebug("Ollama raw response (first 500 chars): {Response}", 
             responseText.Length > 500 ? responseText.Substring(0, 500) + "..." : responseText);
-        
+
+        var rawValidation = TryDeserializeStructuredResponse<T>(responseText);
+        if (rawValidation.Value != null)
+        {
+            _logger.LogInformation("Successfully parsed Ollama response to type {Type}", typeof(T).Name);
+            totalStopwatch.Stop();
+            return new StructuredGenerationResult<T>
+            {
+                Value = rawValidation.Value,
+                Model = response.Model,
+                RawOutputValid = true,
+                ErrorType = AutoRepairJsonErrorType.None,
+                ErrorMessage = string.Empty,
+                AutoRepairTriggered = false,
+                RepairSuccess = false,
+                FinalOutputValid = true,
+                ElapsedMs = totalStopwatch.ElapsedMilliseconds,
+                RawOutputPreview = BuildPreview(responseText),
+                RepairedOutputPreview = string.Empty
+            };
+        }
+
+        _logger.LogWarning(
+            "Failed to parse Ollama response as JSON. ErrorType={ErrorType} Error={ErrorMessage} Response={Response}",
+            rawValidation.ErrorType,
+            rawValidation.ErrorMessage,
+            BuildPreview(responseText, 1000));
+
+        if (TryApplyDeterministicJsonTextRepair<T>(responseText, out var textRepairText, out var textRepairValidation)
+            && textRepairValidation.Value != null)
+        {
+            totalStopwatch.Stop();
+            return new StructuredGenerationResult<T>
+            {
+                Value = textRepairValidation.Value,
+                Model = response.Model,
+                RawOutputValid = false,
+                ErrorType = rawValidation.ErrorType,
+                ErrorMessage = rawValidation.ErrorMessage,
+                AutoRepairTriggered = true,
+                RepairSuccess = true,
+                FinalOutputValid = true,
+                ElapsedMs = totalStopwatch.ElapsedMilliseconds,
+                RawOutputPreview = BuildPreview(responseText),
+                RepairedOutputPreview = BuildPreview(textRepairText)
+            };
+        }
+
+        if (TryApplyDeterministicWrongTypeRepair<T>(responseText, out var deterministicRepairText, out var deterministicValidation)
+            && deterministicValidation.Value != null)
+        {
+            totalStopwatch.Stop();
+            return new StructuredGenerationResult<T>
+            {
+                Value = deterministicValidation.Value,
+                Model = response.Model,
+                RawOutputValid = false,
+                ErrorType = rawValidation.ErrorType,
+                ErrorMessage = rawValidation.ErrorMessage,
+                AutoRepairTriggered = true,
+                RepairSuccess = true,
+                FinalOutputValid = true,
+                ElapsedMs = totalStopwatch.ElapsedMilliseconds,
+                RawOutputPreview = BuildPreview(responseText),
+                RepairedOutputPreview = BuildPreview(deterministicRepairText)
+            };
+        }
+
+        string repairedText = string.Empty;
+        StructuredParseResult<T> repairValidation = StructuredParseResult<T>.Invalid(rawValidation.ErrorType, rawValidation.ErrorMessage);
         try
         {
-            // Try to extract JSON from the response if it contains markdown code blocks
-            var jsonText = ExtractJsonFromResponse(responseText);
-            var result = JsonSerializer.Deserialize<T>(jsonText, _jsonOptions);
-            
-            if (result == null)
+            var repairPrompt = BuildJsonRepairPrompt(responseText, prompt, rawValidation);
+            var repairResponse = await GenerateResponseResultAsync(
+                repairPrompt,
+                "You repair malformed JSON. Return only valid JSON that matches the requested shape.",
+                OllamaModelProfile.Generation);
+            repairedText = repairResponse.Response;
+            if (!string.IsNullOrWhiteSpace(repairResponse.Model))
             {
-                _logger.LogWarning("Ollama response was successfully parsed but resulted in null object");
+                response = repairResponse;
             }
-            else
-            {
-                _logger.LogInformation("Successfully parsed Ollama response to type {Type}", typeof(T).Name);
-            }
-            
-            return result;
+
+            repairValidation = TryDeserializeStructuredResponse<T>(repairedText);
         }
-        catch (JsonException ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to parse Ollama response as JSON. Response: {Response}", 
-                responseText.Length > 1000 ? responseText.Substring(0, 1000) + "..." : responseText);
-            return null;
+            _logger.LogWarning(ex, "JSON auto-repair request failed for structured Ollama response.");
+            repairValidation = StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.ParseError, ex.Message);
         }
+
+        totalStopwatch.Stop();
+        return new StructuredGenerationResult<T>
+        {
+            Value = repairValidation.Value,
+            Model = response.Model,
+            RawOutputValid = false,
+            ErrorType = rawValidation.ErrorType,
+            ErrorMessage = rawValidation.ErrorMessage,
+            AutoRepairTriggered = true,
+            RepairSuccess = repairValidation.Value != null,
+            FinalOutputValid = repairValidation.Value != null,
+            ElapsedMs = totalStopwatch.ElapsedMilliseconds,
+            RawOutputPreview = BuildPreview(responseText),
+            RepairedOutputPreview = BuildPreview(repairedText)
+        };
     }
 
-    private async Task<string> SendGenerateRequestAsync(
+    private async Task<OllamaGenerateResult> SendGenerateRequestAsync(
         string model,
         string prompt,
         string? systemPrompt,
@@ -128,7 +226,7 @@ public class OllamaService : IOllamaService
         }
 
         LogTiming(result, model, profile, prompt.Length, startedAt.Elapsed);
-        return result?.Response ?? string.Empty;
+        return new OllamaGenerateResult(model, result.Response ?? string.Empty, startedAt.Elapsed);
     }
 
     public async Task<bool> IsAvailableAsync()
@@ -275,6 +373,472 @@ public class OllamaService : IOllamaService
         return trimmed;
     }
 
+    private StructuredParseResult<T> TryDeserializeStructuredResponse<T>(string response) where T : class
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.EmptyOutput, "Ollama returned an empty response.");
+        }
+
+        var jsonText = string.Empty;
+        try
+        {
+            jsonText = ExtractJsonFromResponse(response);
+            if (string.IsNullOrWhiteSpace(jsonText))
+            {
+                return StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.EmptyOutput, "Ollama returned an empty JSON payload.");
+            }
+
+            var result = JsonSerializer.Deserialize<T>(jsonText, _jsonOptions);
+            return result == null
+                ? StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.SchemaMismatch, "JSON parsed but deserialized to null.")
+                : StructuredParseResult<T>.Valid(result);
+        }
+        catch (JsonException ex)
+        {
+            return StructuredParseResult<T>.Invalid(
+                ClassifyJsonException(ex),
+                ex.Message,
+                ex.Path ?? string.Empty,
+                InferExpectedType(ex),
+                ExtractInvalidSnippet(jsonText, ex.Path));
+        }
+    }
+
+    private static AutoRepairJsonErrorType ClassifyJsonException(JsonException ex)
+    {
+        var message = ex.Message;
+        if (message.Contains("required", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutoRepairJsonErrorType.MissingField;
+        }
+
+        if (message.Contains("could not be converted", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutoRepairJsonErrorType.WrongType;
+        }
+
+        if (message.Contains("The JSON value could not be converted", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutoRepairJsonErrorType.WrongType;
+        }
+
+        return AutoRepairJsonErrorType.ParseError;
+    }
+
+    private bool TryApplyDeterministicJsonTextRepair<T>(
+        string response,
+        out string repairedText,
+        out StructuredParseResult<T> validation) where T : class
+    {
+        repairedText = string.Empty;
+        validation = StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.SchemaMismatch, "No deterministic JSON text repair was applied.");
+
+        try
+        {
+            var jsonText = ExtractJsonFromResponse(response);
+            if (!TryEscapeRawControlCharactersInJsonStrings(jsonText, out repairedText))
+            {
+                return false;
+            }
+
+            validation = TryDeserializeStructuredResponse<T>(repairedText);
+            return true;
+        }
+        catch
+        {
+            repairedText = string.Empty;
+            return false;
+        }
+    }
+
+    private static bool TryEscapeRawControlCharactersInJsonStrings(string jsonText, out string repairedText)
+    {
+        var builder = new StringBuilder(jsonText.Length);
+        var inString = false;
+        var escaped = false;
+        var changed = false;
+
+        foreach (var current in jsonText)
+        {
+            if (inString)
+            {
+                if (escaped)
+                {
+                    builder.Append(current);
+                    escaped = false;
+                    continue;
+                }
+
+                if (current == '\\')
+                {
+                    builder.Append(current);
+                    escaped = true;
+                    continue;
+                }
+
+                if (current == '"')
+                {
+                    builder.Append(current);
+                    inString = false;
+                    continue;
+                }
+
+                if (current == '\n')
+                {
+                    builder.Append("\\n");
+                    changed = true;
+                    continue;
+                }
+
+                if (current == '\r')
+                {
+                    builder.Append("\\r");
+                    changed = true;
+                    continue;
+                }
+
+                if (current == '\t')
+                {
+                    builder.Append("\\t");
+                    changed = true;
+                    continue;
+                }
+
+                if (char.IsControl(current))
+                {
+                    builder.Append("\\u");
+                    builder.Append(((int)current).ToString("x4"));
+                    changed = true;
+                    continue;
+                }
+            }
+            else if (current == '"')
+            {
+                inString = true;
+            }
+
+            builder.Append(current);
+        }
+
+        repairedText = changed ? builder.ToString() : string.Empty;
+        return changed;
+    }
+
+    private bool TryApplyDeterministicWrongTypeRepair<T>(
+        string response,
+        out string repairedText,
+        out StructuredParseResult<T> validation) where T : class
+    {
+        repairedText = string.Empty;
+        validation = StructuredParseResult<T>.Invalid(AutoRepairJsonErrorType.SchemaMismatch, "No deterministic repair was applied.");
+
+        try
+        {
+            var jsonText = ExtractJsonFromResponse(response);
+            var node = JsonNode.Parse(jsonText);
+            if (node == null)
+            {
+                return false;
+            }
+
+            var changed = RepairKnownWrongTypeShapes(node);
+            if (!changed)
+            {
+                return false;
+            }
+
+            repairedText = node.ToJsonString(_jsonOptions);
+            validation = TryDeserializeStructuredResponse<T>(repairedText);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool RepairKnownWrongTypeShapes(JsonNode node)
+    {
+        var changed = false;
+        if (node is JsonObject obj)
+        {
+            var properties = obj.ToList();
+            foreach (var property in properties)
+            {
+                var name = property.Key;
+                var value = property.Value;
+                if (value == null)
+                {
+                    continue;
+                }
+
+                if (IsStringArrayProperty(name))
+                {
+                    obj[name] = CoerceNodeToStringArray(value);
+                    changed = true;
+                    continue;
+                }
+
+                if (IsStringProperty(name) && value is not JsonValue)
+                {
+                    obj[name] = CoerceNodeToString(value);
+                    changed = true;
+                    continue;
+                }
+
+                changed |= RepairKnownWrongTypeShapes(value);
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (var child in array)
+            {
+                if (child != null)
+                {
+                    changed |= RepairKnownWrongTypeShapes(child);
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool IsStringArrayProperty(string propertyName)
+        => string.Equals(propertyName, "bodyBlocks", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(propertyName, "bullets", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsStringProperty(string propertyName)
+        => propertyName.Equals("title", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("heading", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("subheading", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("goal", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("keyMessage", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("evidenceFromText", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("speakerNotes", StringComparison.OrdinalIgnoreCase)
+            || propertyName.Equals("accentTone", StringComparison.OrdinalIgnoreCase);
+
+    private static JsonArray CoerceNodeToStringArray(JsonNode node)
+    {
+        var array = new JsonArray();
+        if (node is JsonArray source)
+        {
+            foreach (var item in source)
+            {
+                var text = item == null ? null : CoerceNodeToString(item);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    array.Add(text);
+                }
+            }
+
+            return array;
+        }
+
+        var single = CoerceNodeToString(node);
+        if (!string.IsNullOrWhiteSpace(single))
+        {
+            array.Add(single);
+        }
+
+        return array;
+    }
+
+    private static string CoerceNodeToString(JsonNode node)
+    {
+        if (node is JsonValue value)
+        {
+            return value.TryGetValue<string>(out var stringValue)
+                ? stringValue ?? string.Empty
+                : value.ToJsonString();
+        }
+
+        if (node is JsonArray array)
+        {
+            return string.Join("; ", array
+                .Select(item => item == null ? null : CoerceNodeToString(item))
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        }
+
+        if (node is JsonObject obj)
+        {
+            foreach (var key in new[] { "text", "content", "value", "body", "title", "summary", "label" })
+            {
+                if (obj.TryGetPropertyValue(key, out var child) && child != null)
+                {
+                    var text = CoerceNodeToString(child);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
+                }
+            }
+
+            return string.Join("; ", obj
+                .Select(property => property.Value == null ? null : CoerceNodeToString(property.Value))
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .Take(4));
+        }
+
+        return node.ToJsonString();
+    }
+
+    private static string BuildJsonRepairPrompt<T>(string malformedOutput, string originalPrompt, StructuredParseResult<T> validation) where T : class
+        => BuildJsonRepairPrompt(malformedOutput, originalPrompt, validation.ErrorPath, validation.ExpectedType, validation.InvalidSnippet);
+
+    private static string BuildJsonRepairPrompt(string malformedOutput, string originalPrompt, string errorPath, string expectedType, string invalidSnippet)
+    {
+        var schemaHint = ExtractReturnJsonHint(originalPrompt);
+        return $@"Repair the malformed AI output below into valid JSON.
+
+Rules:
+1. Return only one valid JSON object or JSON array.
+2. Preserve the original facts and fields when possible.
+3. Do not add explanation, markdown, comments, or code fences.
+4. Use double quotes for all JSON keys and string values.
+5. Remove trailing commas and fix broken escaping.
+6. Keep Vietnamese text in Vietnamese. Do not translate content to English.
+
+Validation error:
+- path: {SanitizePromptLine(errorPath)}
+- expected type: {SanitizePromptLine(expectedType)}
+- invalid snippet: {SanitizePromptLine(invalidSnippet)}
+
+Expected JSON shape:
+{schemaHint}
+
+Malformed AI output:
+{malformedOutput}";
+    }
+
+    private static string ExtractReturnJsonHint(string prompt)
+    {
+        const int maxHintLength = 2500;
+        var marker = "Return JSON only:";
+        var index = prompt.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            marker = "Return JSON:";
+            index = prompt.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        }
+        var hint = index >= 0
+            ? prompt[(index + marker.Length)..].Trim()
+            : "Match the JSON object or array requested by the original task.";
+
+        return hint.Length <= maxHintLength
+            ? hint
+            : hint[..maxHintLength];
+    }
+
+    private static string InferExpectedType(JsonException ex)
+    {
+        var message = ex.Message;
+        var marker = "could not be converted to ";
+        var index = message.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+        {
+            return "valid JSON matching the target schema";
+        }
+
+        var expected = message[(index + marker.Length)..];
+        var period = expected.IndexOf('.', StringComparison.Ordinal);
+        return period > 0 ? expected[..period] : expected;
+    }
+
+    private static string ExtractInvalidSnippet(string jsonText, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(jsonText) || string.IsNullOrWhiteSpace(path))
+        {
+            return BuildPreview(jsonText);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(jsonText);
+            var current = document.RootElement;
+            foreach (var segment in ParseJsonPath(path))
+            {
+                if (segment.PropertyName != null)
+                {
+                    if (!current.TryGetProperty(segment.PropertyName, out current))
+                    {
+                        return string.Empty;
+                    }
+                }
+
+                if (segment.ArrayIndex.HasValue)
+                {
+                    if (current.ValueKind != JsonValueKind.Array || current.GetArrayLength() <= segment.ArrayIndex.Value)
+                    {
+                        return string.Empty;
+                    }
+
+                    current = current[segment.ArrayIndex.Value];
+                }
+            }
+
+            return BuildPreview(current.GetRawText(), 350);
+        }
+        catch
+        {
+            return BuildPreview(jsonText);
+        }
+    }
+
+    private static IEnumerable<JsonPathSegment> ParseJsonPath(string path)
+    {
+        var trimmed = path.Trim();
+        if (trimmed.StartsWith("$.", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[2..];
+        }
+        else if (trimmed == "$")
+        {
+            yield break;
+        }
+
+        foreach (var rawPart in trimmed.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var part = rawPart;
+            int? arrayIndex = null;
+            var bracket = part.IndexOf('[', StringComparison.Ordinal);
+            if (bracket >= 0)
+            {
+                var endBracket = part.IndexOf(']', bracket);
+                if (endBracket > bracket && int.TryParse(part[(bracket + 1)..endBracket], out var parsedIndex))
+                {
+                    arrayIndex = parsedIndex;
+                }
+
+                part = part[..bracket];
+            }
+
+            yield return new JsonPathSegment(string.IsNullOrWhiteSpace(part) ? null : part, arrayIndex);
+        }
+    }
+
+    private static string SanitizePromptLine(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? "unknown"
+            : BuildPreview(value, 500);
+
+    private static string BuildPreview(string? value, int limit = 500)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Replace("\t", " ", StringComparison.Ordinal)
+            .Trim();
+        return normalized.Length <= limit
+            ? normalized
+            : normalized[..limit];
+    }
+
     private static string BuildStrictJsonPrompt(string prompt)
     {
         return $@"{prompt}
@@ -304,6 +868,50 @@ Output rules (must follow exactly):
 
         public required OllamaGenerateOptions Options { get; init; }
     }
+
+    private sealed record OllamaGenerateResult(string Model, string Response, TimeSpan Elapsed);
+
+    private sealed class StructuredParseResult<T> where T : class
+    {
+        private StructuredParseResult(
+            T? value,
+            AutoRepairJsonErrorType errorType,
+            string errorMessage,
+            string errorPath,
+            string expectedType,
+            string invalidSnippet)
+        {
+            Value = value;
+            ErrorType = errorType;
+            ErrorMessage = errorMessage;
+            ErrorPath = errorPath;
+            ExpectedType = expectedType;
+            InvalidSnippet = invalidSnippet;
+        }
+
+        public T? Value { get; }
+        public AutoRepairJsonErrorType ErrorType { get; }
+        public string ErrorMessage { get; }
+        public string ErrorPath { get; }
+        public string ExpectedType { get; }
+        public string InvalidSnippet { get; }
+
+        public static StructuredParseResult<T> Valid(T value)
+            => new(value, AutoRepairJsonErrorType.None, string.Empty, string.Empty, string.Empty, string.Empty);
+
+        public static StructuredParseResult<T> Invalid(AutoRepairJsonErrorType errorType, string errorMessage)
+            => new(null, errorType, errorMessage, string.Empty, string.Empty, string.Empty);
+
+        public static StructuredParseResult<T> Invalid(
+            AutoRepairJsonErrorType errorType,
+            string errorMessage,
+            string errorPath,
+            string expectedType,
+            string invalidSnippet)
+            => new(null, errorType, errorMessage, errorPath, expectedType, invalidSnippet);
+    }
+
+    private sealed record JsonPathSegment(string? PropertyName, int? ArrayIndex);
 
     private sealed class OllamaGenerateOptions
     {

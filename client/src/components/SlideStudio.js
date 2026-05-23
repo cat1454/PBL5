@@ -3,9 +3,86 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+  normalizeGenerationReadiness,
+} from '../services/generationReadiness';
 import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
+import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
+
+const normalizeTextToken = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+};
+
+const isTextOnlyValue = (value) => normalizeTextToken(value) === 'text_only';
+
+const isTextOnlySlide = (item) => {
+  if (!item) {
+    return false;
+  }
+
+  const visualSlot = item.visualSlot || item.VisualSlot || {};
+  const explicitTextOnly = [
+    item.visualType,
+    item.VisualType,
+    item.imageStrategy,
+    item.ImageStrategy,
+    visualSlot.type,
+    visualSlot.Type,
+    visualSlot.kind,
+    visualSlot.Kind,
+  ].some(isTextOnlyValue);
+
+  if (explicitTextOnly) {
+    return true;
+  }
+
+  return item.imageState?.needsImage === false
+    || item.ImageState?.NeedsImage === false
+    || item.image?.needsImage === false
+    || item.Image?.NeedsImage === false
+    || item.slideImage?.needsImage === false
+    || item.SlideImage?.NeedsImage === false;
+};
+
+const splitBodyText = (text) => text
+  .split(/(?<=[.!?。])\s+|[\r\n]+/)
+  .map((block) => block.trim())
+  .filter(Boolean);
+
+const normalizeBodyBlocks = (bodyBlocks) => {
+  if (!bodyBlocks) {
+    return [];
+  }
+
+  if (Array.isArray(bodyBlocks)) {
+    const normalized = bodyBlocks
+      .map((block) => (typeof block === 'string' ? block.trim() : String(block ?? '').trim()))
+      .filter(Boolean);
+
+    if (normalized.length <= 2 && normalized.some((block) => block.length > 220)) {
+      return normalized.flatMap(splitBodyText).filter(Boolean).slice(0, 5);
+    }
+
+    return normalized.slice(0, 5);
+  }
+
+  if (typeof bodyBlocks === 'string') {
+    return splitBodyText(bodyBlocks).slice(0, 5);
+  }
+
+  return [];
+};
+
+const bodyBlocksToDraftText = (bodyBlocks) => normalizeBodyBlocks(bodyBlocks).join('\n');
 
 function SlideStudio({ documentId: propDocumentId }) {
   const { t, language } = useLanguage();
@@ -16,6 +93,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const location = useLocation();
   const slideRefs = useRef({});
   const [documentMeta, setDocumentMeta] = useState(null);
+  const [generationReadiness, setGenerationReadiness] = useState(null);
   const [deck, setDeck] = useState(null);
   const [progress, setProgress] = useState(null);
   const [jobId, setJobId] = useState(null);
@@ -84,6 +162,7 @@ function SlideStudio({ documentId: propDocumentId }) {
     try {
       const data = await documentService.getDocument(documentId);
       setDocumentMeta(data);
+      setGenerationReadiness(normalizeGenerationReadiness(data?.generationReadiness));
       setDeckBrief((current) => ({
         ...current,
         narrativeGoal: briefDirty
@@ -203,10 +282,17 @@ function SlideStudio({ documentId: propDocumentId }) {
     try {
       setError('');
       setGenerationError('');
+      const readinessDecision = confirmGenerationReadiness(generationReadiness, language);
+      if (!readinessDecision.allowed) {
+        return;
+      }
+
       const response = await slideService.startGenerateSlides(documentId, {
         desiredSlideCount,
         ...deckBrief,
+        confirmLowConfidence: readinessDecision.confirmed,
       });
+      setGenerationReadiness(normalizeGenerationReadiness(response?.generationReadiness) || generationReadiness);
       setJobId(response.jobId);
       setProgress(normalizeProgressState(response.progress, {
         jobId: response.jobId,
@@ -239,7 +325,7 @@ function SlideStudio({ documentId: propDocumentId }) {
         heading: item.heading || '',
         subheading: item.subheading || '',
         goal: item.goal || '',
-        bodyText: (item.bodyBlocks || []).join('\n'),
+        bodyText: bodyBlocksToDraftText(item.bodyBlocks),
         speakerNotes: item.speakerNotes || '',
         accentTone: item.accentTone || '',
       },
@@ -500,6 +586,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const slidesWithSelectedMedia = allPreviewItems.filter((item) => buildSlideImageViewModel(item, t).selectedImage).length;
   const lowConfidenceCount = deck?.qualitySummary?.lowConfidenceCount
     ?? allPreviewItems.filter((item) => item.quality?.isLowConfidence).length;
+  const readinessMessage = getReadinessMessage(generationReadiness, language);
 
   useEffect(() => {
     if (!previewItems.length) {
@@ -524,7 +611,10 @@ function SlideStudio({ documentId: propDocumentId }) {
 
   const selectedSlide = previewItems.find((item) => item.id === selectedSlideId) || previewItems[0] || null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide, t) : null;
-  const selectedSlideNeedsMedia = selectedImageVm?.needsImage !== false;
+  const selectedSlideIsTextOnly = isTextOnlySlide(selectedSlide) || selectedImageVm?.needsImage === false;
+  const selectedSlideNeedsMedia = !selectedSlideIsTextOnly && selectedImageVm?.needsImage !== false;
+  const selectedSlideBodyBlocks = selectedSlide ? normalizeBodyBlocks(selectedSlide.bodyBlocks) : [];
+  const selectedSlideKeyMessage = selectedSlide?.keyMessage || selectedSlide?.KeyMessage || selectedSlide?.goal;
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
   const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
@@ -744,7 +834,26 @@ function SlideStudio({ documentId: propDocumentId }) {
                   <span className="studio-source-label">{t('slides.document')}</span>
                   <strong>{documentMeta?.fileName || t('slides.noData')}</strong>
                   <p>{documentMeta?.summary || t('slides.sourceFallbackBody')}</p>
+                  {generationReadiness && (
+                    <span className={`generation-readiness-badge tone-${generationReadiness.tone}`}>
+                      {getReadinessLabel(generationReadiness, language)}
+                    </span>
+                  )}
                 </div>
+
+                {readinessMessage && (
+                  <div className={`studio-source-card generation-readiness-card tone-${generationReadiness.tone}`}>
+                    <span className="studio-source-label">{readinessMessage.title}</span>
+                    <p>{readinessMessage.body}</p>
+                  </div>
+                )}
+
+                <DocumentUnderstandingPanel
+                  documentId={documentId}
+                  className="studio-source-card"
+                  showEmpty
+                  compact
+                />
 
                 <div className="studio-source-meta-grid">
                   <div className="studio-source-meta">
@@ -840,7 +949,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
             {selectedSlide ? (
               <div className="studio-canvas-stage" style={getZoomStyle(canvasZoom)}>
-                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideNeedsMedia ? '' : ' text-only-slide'}`}>
+                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideIsTextOnly ? ' text-only-slide' : ''}`}>
                   <div className="studio-slide-meta">
                     <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                     <div className="quality-toolbar">
@@ -853,17 +962,25 @@ function SlideStudio({ documentId: propDocumentId }) {
                     </div>
                   </div>
 
-                  <div className="studio-slide-content">
+                  <div className={`studio-slide-content${selectedSlideIsTextOnly ? ' text-only-layout' : ''}`}>
                     <div className="studio-slide-text">
                       <h3>{selectedSlide.heading}</h3>
                       {selectedSlide.subheading && <p className="studio-slide-subheading">{selectedSlide.subheading}</p>}
-                      {selectedSlide.goal && <div className="studio-slide-goal">{selectedSlide.goal}</div>}
-                      {(selectedSlide.bodyBlocks || []).length > 0 ? (
-                        <div className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)}`}>
-                          {(selectedSlide.bodyBlocks || []).map((block, index) => (
-                            <div key={index} className="studio-slide-bullet">{block}</div>
-                          ))}
-                        </div>
+                      {selectedSlideKeyMessage && <div className="studio-slide-goal studio-slide-key-message">{selectedSlideKeyMessage}</div>}
+                      {selectedSlideBodyBlocks.length > 0 ? (
+                        selectedSlideIsTextOnly ? (
+                          <ul className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)} slide-body-list`}>
+                            {selectedSlideBodyBlocks.map((block, index) => (
+                              <li key={index}>{block}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)}`}>
+                            {selectedSlideBodyBlocks.map((block, index) => (
+                              <div key={index} className="studio-slide-bullet">{block}</div>
+                            ))}
+                          </div>
+                        )
                       ) : (
                         <div className="slide-skeleton">
                           <span></span>

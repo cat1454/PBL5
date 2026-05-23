@@ -4,7 +4,10 @@ using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Models;
+using ELearnGamePlatform.Core.Options;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace ELearnGamePlatform.API.Services;
 
@@ -103,6 +106,7 @@ public class DocumentIngestionService : IDocumentIngestionService
         var qualityGate = scope.ServiceProvider.GetRequiredService<IDocumentInputQualityGate>();
         var tokenBudgetPlanner = scope.ServiceProvider.GetRequiredService<ITokenBudgetPlanner>();
         var ocrSettings = scope.ServiceProvider.GetRequiredService<IOptions<OcrSettings>>().Value;
+        var documentUnderstandingOptions = scope.ServiceProvider.GetRequiredService<IOptions<DocumentUnderstandingOptions>>().Value;
         var documentProcessors = scope.ServiceProvider.GetRequiredService<IEnumerable<IDocumentProcessor>>();
         var documentJobStore = scope.ServiceProvider.GetRequiredService<IDocumentProcessingJobStore>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<DocumentIngestionService>>();
@@ -164,10 +168,17 @@ public class DocumentIngestionService : IDocumentIngestionService
             });
 
             var extractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress);
+            var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
+            var understandingResult = await ApplyDocumentUnderstandingAsync(
+                document,
+                extractedText,
+                documentUnderstandingOptions,
+                pageQualityReport,
+                scope.ServiceProvider,
+                logger);
             document.ExtractedText = extractedText;
             var qualityResult = qualityGate.Evaluate(extractedText);
             var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
-            var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
             ApplyPageQualityCalibration(qualityResult, pageQualityReport, budgetPlan);
             var metadata = document.GetProcessingMetadata();
             metadata.InputQuality = qualityResult;
@@ -235,6 +246,9 @@ public class DocumentIngestionService : IDocumentIngestionService
                 state.StageLabel = "Kiểm tra chất lượng";
                 state.Message = "Đã xong bước trích xuất văn bản, đang kiểm tra chất lượng đầu vào cho AI";
                 state.Detail = $"Quality={qualityResult.Classification}, score={qualityResult.QualityScore}, tokens={qualityResult.EstimatedTokenCount}/{budgetPlan.MaxInputTokens}";
+                state.DocumentConfidence = understandingResult?.Confidence;
+                state.QualityStatus = understandingResult?.Status;
+                state.NeedsReview = understandingResult?.Quality?.NeedsReview;
                 state.StageIndex = 3;
                 state.StageCount = 6;
                 UpdateEta(state);
@@ -278,7 +292,7 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var processedContent = await contentAnalyzer.AnalyzeContentAsync(extractedText, analysisProgress);
+            var processedContent = await contentAnalyzer.AnalyzeContentAsync(extractedText, understandingResult, analysisProgress);
             var analysisChunkBudget = tokenBudgetPlanner.PlanChunks(processedContent.CoverageMap, "analysis");
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
@@ -342,6 +356,9 @@ public class DocumentIngestionService : IDocumentIngestionService
                 state.StageLabel = "Hoan tat";
                 state.Message = "Da xu ly xong tai lieu";
                 state.Detail = "San sang tao cau hoi va hoc bang game";
+                state.DocumentConfidence = understandingResult?.Confidence;
+                state.QualityStatus = understandingResult?.Status;
+                state.NeedsReview = understandingResult?.Quality?.NeedsReview;
                 state.StageIndex = 6;
                 state.StageCount = 6;
                 state.EstimatedRemainingSeconds = 0;
@@ -510,5 +527,119 @@ public class DocumentIngestionService : IDocumentIngestionService
         qualityResult.Warnings = qualityResult.Warnings
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static async Task<DocumentUnderstandingResult?> ApplyDocumentUnderstandingAsync(
+        Document document,
+        string? legacyExtractedText,
+        DocumentUnderstandingOptions options,
+        DocumentInputQualityReport? pageQualityReport,
+        IServiceProvider serviceProvider,
+        ILogger logger)
+    {
+        try
+        {
+            var orchestrator = serviceProvider.GetRequiredService<IDocumentUnderstandingOrchestrator>();
+            var runRepository = serviceProvider.GetRequiredService<IDocumentUnderstandingRunRepository>();
+            var result = await orchestrator.UnderstandAsync(
+                document.Id,
+                document.FilePath,
+                legacyExtractedText,
+                pageQualityReport);
+
+            await runRepository.CreateAsync(BuildUnderstandingRun(document.Id, result, options));
+
+            logger.LogInformation(
+                "DocumentUnderstanding completed and persisted for document {DocumentId}: status={Status}, confidence={Confidence}, combinedTextChars={CombinedTextChars}",
+                document.Id,
+                result.Status,
+                result.Confidence,
+                result.CombinedText?.Length ?? 0);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            await SaveFailedUnderstandingRunAsync(
+                document.Id,
+                legacyExtractedText,
+                ex.Message,
+                serviceProvider,
+                logger);
+
+            logger.LogWarning(
+                ex,
+                "DocumentUnderstanding failed for document {DocumentId} at {FilePath}; falling back to legacy extracted text. LegacyTextChars={LegacyTextChars}",
+                document.Id,
+                document.FilePath,
+                legacyExtractedText?.Length ?? 0);
+
+            return null;
+        }
+    }
+
+    private static DocumentUnderstandingRun BuildUnderstandingRun(
+        int documentId,
+        DocumentUnderstandingResult result,
+        DocumentUnderstandingOptions options)
+    {
+        var failureReasons = result.Warnings
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new DocumentUnderstandingRun
+        {
+            DocumentId = documentId,
+            Status = string.IsNullOrWhiteSpace(result.Status) ? "Completed" : result.Status,
+            DocumentConfidence = result.Confidence,
+            NeedsReview = result.Quality?.NeedsReview
+                ?? (result.Confidence < options.MinAutoGenerateConfidence || failureReasons.Count > 0),
+            CombinedText = result.CombinedText,
+            ResultJson = JsonSerializer.Serialize(new
+            {
+                result.Pages,
+                result.Regions,
+                result.Warnings,
+                result.Quality
+            }),
+            FailureReasonsJson = JsonSerializer.Serialize(failureReasons)
+        };
+    }
+
+    private static async Task SaveFailedUnderstandingRunAsync(
+        int documentId,
+        string? legacyExtractedText,
+        string failureReason,
+        IServiceProvider serviceProvider,
+        ILogger logger)
+    {
+        try
+        {
+            var runRepository = serviceProvider.GetRequiredService<IDocumentUnderstandingRunRepository>();
+            var failureReasons = new[] { failureReason };
+            await runRepository.CreateAsync(new DocumentUnderstandingRun
+            {
+                DocumentId = documentId,
+                Status = "Failed",
+                DocumentConfidence = null,
+                NeedsReview = true,
+                CombinedText = legacyExtractedText,
+                ResultJson = JsonSerializer.Serialize(new
+                {
+                    Pages = Array.Empty<PageUnderstandingResult>(),
+                    Regions = Array.Empty<DocumentRegion>(),
+                    Warnings = failureReasons
+                }),
+                FailureReasonsJson = JsonSerializer.Serialize(failureReasons)
+            });
+        }
+        catch (Exception saveException)
+        {
+            logger.LogWarning(
+                saveException,
+                "Failed to persist DocumentUnderstanding failure run for document {DocumentId}",
+                documentId);
+        }
     }
 }

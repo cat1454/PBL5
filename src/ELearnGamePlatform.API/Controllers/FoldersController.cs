@@ -18,6 +18,7 @@ public class FoldersController : AuthenticatedControllerBase
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
     private readonly IWorkspaceService _workspaceService;
+    private readonly IDocumentGenerationReadinessService _generationReadinessService;
     private readonly ILogger<FoldersController> _logger;
 
     public FoldersController(
@@ -26,6 +27,7 @@ public class FoldersController : AuthenticatedControllerBase
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
         IWorkspaceService workspaceService,
+        IDocumentGenerationReadinessService generationReadinessService,
         ILogger<FoldersController> logger)
     {
         _folderProjectRepository = folderProjectRepository;
@@ -33,6 +35,7 @@ public class FoldersController : AuthenticatedControllerBase
         _documentJobStore = documentJobStore;
         _documentIngestionService = documentIngestionService;
         _workspaceService = workspaceService;
+        _generationReadinessService = generationReadinessService;
         _logger = logger;
     }
 
@@ -162,7 +165,7 @@ public class FoldersController : AuthenticatedControllerBase
 
             return Ok(new
             {
-                source = BuildSourcePayload(createdDocument, 0),
+                source = await BuildSourcePayloadAsync(createdDocument, 0),
                 message = "Source uploaded successfully. Processing started.",
                 progressUrl = $"/api/documents/{createdDocument.Id}/progress",
                 progress = JobProgressPayloadFactory.BuildDocument(progressState, createdDocument)
@@ -193,7 +196,11 @@ public class FoldersController : AuthenticatedControllerBase
         }
 
         var sources = await _documentRepository.GetByFolderProjectIdAsync(id);
-        var payload = sources.Select(source => BuildSourcePayload(source, source.Questions.Count));
+        var payload = new List<object>();
+        foreach (var source in sources)
+        {
+            payload.Add(await BuildSourcePayloadAsync(source, source.Questions.Count));
+        }
         return Ok(payload);
     }
 
@@ -229,7 +236,7 @@ public class FoldersController : AuthenticatedControllerBase
         await _documentRepository.UpdateAsync(source.Id, source);
         await _folderProjectRepository.TouchAsync(id);
 
-        return Ok(BuildSourcePayload(source, source.Questions.Count));
+        return Ok(await BuildSourcePayloadAsync(source, source.Questions.Count));
     }
 
     private object BuildFolderPayload(FolderProject folder, IReadOnlyCollection<Document> sources, SlideDeck? deck)
@@ -268,9 +275,12 @@ public class FoldersController : AuthenticatedControllerBase
         };
     }
 
-    private object BuildSourcePayload(Document source, int questionsCount)
+    private async Task<object> BuildSourcePayloadAsync(Document source, int questionsCount)
     {
         _documentJobStore.TryGetJob(source.Id, out var progressState);
+        var generationReadiness = source.Status == DocumentStatus.Completed
+            ? await _generationReadinessService.GetReadinessAsync(source)
+            : null;
 
         return new
         {
@@ -293,6 +303,7 @@ public class FoldersController : AuthenticatedControllerBase
             includeInFolderSlides = source.IncludeInFolderSlides,
             folderSourceOrder = source.FolderSourceOrder,
             questionsCount,
+            generationReadiness,
             processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, source)
         };
     }

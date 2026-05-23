@@ -11,6 +11,12 @@ import {
 import { useLanguage } from '../context/LanguageContext';
 import { formatTopicForDisplay } from '../services/topicDisplay';
 import { isActiveProgress, normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+  normalizeGenerationReadiness,
+} from '../services/generationReadiness';
 
 const STUDY_MODES = ['quiz', 'flashcards', 'test', 'streak'];
 const DEFAULT_QUESTION_COUNT = 10;
@@ -61,6 +67,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const [progressLoading, setProgressLoading] = useState(shouldShowShell);
   const [progressError, setProgressError] = useState('');
   const [questionMetrics, setQuestionMetrics] = useState(null);
+  const [generationReadiness, setGenerationReadiness] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(shouldShowShell);
   const [metricsError, setMetricsError] = useState('');
 
@@ -85,6 +92,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const copy = useMemo(() => {
     if (language === 'vi') {
       return {
+        language: 'vi',
         back: 'Quay lại',
         backToWorkspace: 'Về Workspace',
         backToStudyHub: 'Về Study Hub',
@@ -167,6 +175,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     }
 
     return {
+      language: 'en',
       back: 'Back',
       backToWorkspace: 'Back to Workspace',
       backToStudyHub: 'Back to Study Hub',
@@ -340,12 +349,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
 
       setDocumentName(documentData?.fileName || documentData?.name || `${copy.sourceFallback} #${documentId}`);
       setDocumentStatus(documentData?.status ?? null);
+      setGenerationReadiness(normalizeGenerationReadiness(documentData?.generationReadiness));
       setQuestionCount(nextQuestionCount);
       setMetaError('');
       return documentData;
     } catch (error) {
       setDocumentName(`${copy.sourceFallback} #${documentId}`);
       setDocumentStatus(null);
+      setGenerationReadiness(null);
       setQuestionCount(0);
       setMetaError(getApiErrorMessage(error, copy.studyDataError));
       return null;
@@ -412,7 +423,19 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     setRegenerateMessage('');
 
     try {
-      const startResult = await questionService.startGenerateQuestions(documentId, DEFAULT_QUESTION_COUNT);
+      const readinessDecision = confirmGenerationReadiness(generationReadiness, language);
+      if (!readinessDecision.allowed) {
+        return;
+      }
+
+      if (readinessDecision.message) {
+        setRegenerateMessage(`${readinessDecision.message.title} ${readinessDecision.message.body}`);
+      }
+
+      const startResult = await questionService.startGenerateQuestions(documentId, DEFAULT_QUESTION_COUNT, null, {
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
+      setGenerationReadiness(normalizeGenerationReadiness(startResult?.generationReadiness) || generationReadiness);
       const nextJobId = startResult?.jobId || startResult?.progress?.jobId;
       if (!nextJobId) {
         throw new Error(copy.questionProgressLost);
@@ -435,7 +458,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       setQuestionGenerationProgress(null);
       setQuestionJobId(null);
     }
-  }, [copy.questionProgressLost, copy.regenerating, copy.regenerationReplaceHint, documentId, isRegenerating, t]);
+  }, [copy.questionProgressLost, copy.regenerating, copy.regenerationReplaceHint, documentId, generationReadiness, isRegenerating, language, t]);
 
   useEffect(() => {
     if (!questionJobId || !questionGenerationProgress || !isActiveProgress(questionGenerationProgress) || !documentId) {
@@ -641,6 +664,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
               questionGenerationRecovered={questionGenerationRecovered}
               questionCount={questionCount}
               documentStatus={documentStatus}
+              generationReadiness={generationReadiness}
               regenerateMessage={regenerateMessage}
               regenerating={isRegenerating}
             />
@@ -704,10 +728,12 @@ function StudySidebar({
   questionGenerationRecovered,
   questionCount,
   documentStatus,
+  generationReadiness,
   regenerateMessage,
   regenerating,
 }) {
   const sourceStatus = getStudySourceStatus(documentStatus, copy);
+  const readinessMessage = getReadinessMessage(generationReadiness, copy.language);
   const bankStatus = metaError
     ? copy.statusError
     : regenerating
@@ -734,7 +760,19 @@ function StudySidebar({
         <span className="study-sidebar-label">{copy.sourceStatusLabel}</span>
         <strong>{sourceStatus.title}</strong>
         <p>{sourceStatus.detail}</p>
+        {generationReadiness && (
+          <span className={`generation-readiness-badge tone-${generationReadiness.tone}`}>
+            {getReadinessLabel(generationReadiness, copy.language)}
+          </span>
+        )}
       </div>
+
+      {readinessMessage && (
+        <div className={`study-sidebar-card generation-readiness-card tone-${generationReadiness.tone}`}>
+          <span className="study-sidebar-label">{readinessMessage.title}</span>
+          <p>{readinessMessage.body}</p>
+        </div>
+      )}
 
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.bankLabel}</span>

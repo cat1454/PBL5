@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 using ELearnGamePlatform.Core.Configuration;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Models;
+using ELearnGamePlatform.Core.Options;
 using ELearnGamePlatform.Core.Utilities;
 using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
@@ -74,21 +76,62 @@ static async Task<OcrBenchmarkDocumentResult> BenchmarkDocumentAsync(
     }
 
     stopwatch.Stop();
+    var extractionTimeMs = stopwatch.ElapsedMilliseconds;
 
     var pageQualityReport = processor is IDocumentInputQualityReportProvider provider
         ? provider.LastInputQualityReport
         : BuildSinglePageQualityReport(extension, extractedText, tokenEstimator, settings, error);
+    var understanding = await BenchmarkDocumentUnderstandingAsync(filePath, extractedText, pageQualityReport);
 
     return OcrBenchmarkDocumentResult.Build(
         Path.GetRelativePath(inputDirectory, filePath),
         extension,
         new FileInfo(filePath).Length,
-        stopwatch.ElapsedMilliseconds,
+        extractionTimeMs,
         extractedText,
         error,
         pageQualityReport,
+        understanding,
         tokenEstimator,
         progress.StageTimings);
+}
+
+static async Task<DocumentUnderstandingBenchmarkResult> BenchmarkDocumentUnderstandingAsync(
+    string filePath,
+    string extractedText,
+    DocumentInputQualityReport? pageQualityReport)
+{
+    var vision = new CountingVisionRegionDescriber();
+    var orchestrator = new NoOpDocumentUnderstandingOrchestrator(
+        new LegacyKnowledgeMapBuilder(),
+        new LegacyDocumentQualityScorer(),
+        new HeuristicLayoutAnalyzer(),
+        vision,
+        new NoOpVisionPageImageProvider(),
+        Options.Create(new DocumentUnderstandingOptions
+        {
+            Enabled = true,
+            EnableLayoutAnalysis = true,
+            EnableVisionAnalysis = false
+        }),
+        NullLogger<NoOpDocumentUnderstandingOrchestrator>.Instance);
+
+    var stopwatch = Stopwatch.StartNew();
+    try
+    {
+        var result = await orchestrator.UnderstandAsync(
+            documentId: 0,
+            filePath,
+            extractedText,
+            pageQualityReport);
+        stopwatch.Stop();
+        return DocumentUnderstandingBenchmarkResult.Build(result, stopwatch.ElapsedMilliseconds, vision.CallCount, null);
+    }
+    catch (Exception ex)
+    {
+        stopwatch.Stop();
+        return DocumentUnderstandingBenchmarkResult.Build(null, stopwatch.ElapsedMilliseconds, vision.CallCount, ex.Message);
+    }
 }
 
 static IDocumentProcessor CreateProcessor(string extension, OcrSettings settings, ITokenEstimator tokenEstimator)
@@ -337,6 +380,19 @@ static string RenderMarkdown(OcrBenchmarkRun run)
     builder.AppendLine($"- Top preprocessing profiles: {FormatCounts(run.Summary.ProfileWinCounts)}");
     builder.AppendLine($"- Preprocessing skip reasons: {FormatCounts(run.Summary.SkipReasonCounts)}");
     builder.AppendLine();
+    builder.AppendLine("## Document Understanding");
+    builder.AppendLine();
+    builder.AppendLine("- Layout analysis: enabled for benchmark metrics");
+    builder.AppendLine("- Vision analysis: disabled by default; vision call count should be 0 unless benchmark wiring changes");
+    builder.AppendLine($"- Total pages: {run.Summary.UnderstandingTotalPages}");
+    builder.AppendLine($"- Total regions: {run.Summary.UnderstandingTotalRegions}");
+    builder.AppendLine($"- Total fallback count: {run.Summary.UnderstandingFallbackCount}");
+    builder.AppendLine($"- Total vision calls: {run.Summary.UnderstandingVisionCallCount}");
+    builder.AppendLine($"- Total failures: {run.Summary.UnderstandingFailureCount}");
+    builder.AppendLine($"- Average confidence: {run.Summary.AverageDocumentConfidence}");
+    builder.AppendLine($"- Status counts: {FormatCounts(run.Summary.UnderstandingStatusCounts)}");
+    builder.AppendLine($"- Top failure reasons: {FormatCounts(run.Summary.UnderstandingFailureReasonCounts)}");
+    builder.AppendLine();
     builder.AppendLine("## Threshold Recommendations");
     builder.AppendLine();
     foreach (var recommendation in run.ThresholdRecommendations)
@@ -355,6 +411,7 @@ static string RenderMarkdown(OcrBenchmarkRun run)
         builder.AppendLine($"- Type: {document.FileType}");
         builder.AppendLine($"- Size: {document.FileSizeBytes} bytes");
         builder.AppendLine($"- Duration: {document.DurationMs} ms");
+        builder.AppendLine($"- Extraction time: {document.ExtractionTimeMs} ms");
         builder.AppendLine($"- Chars: {document.CharCount}");
         builder.AppendLine($"- Words: {document.WordCount}");
         builder.AppendLine($"- Estimated tokens: {document.EstimatedTokenCount}");
@@ -377,6 +434,14 @@ static string RenderMarkdown(OcrBenchmarkRun run)
         builder.AppendLine($"- Best preprocessing profile: {document.PreprocessingEffectiveness.BestProfile ?? ""}");
         builder.AppendLine($"- Worst preprocessing profile: {document.PreprocessingEffectiveness.WorstProfile ?? ""}");
         builder.AppendLine($"- Preprocessing skip reasons: {FormatCounts(document.PreprocessingEffectiveness.SkipReasonCounts)}");
+        builder.AppendLine($"- Document confidence: {FormatNullable(document.DocumentConfidence)}");
+        builder.AppendLine($"- Understanding status: {document.UnderstandingStatus}");
+        builder.AppendLine($"- Needs review: {document.NeedsReview}");
+        builder.AppendLine($"- Understanding pages: {document.PageCount}");
+        builder.AppendLine($"- Understanding regions: {document.RegionCount}");
+        builder.AppendLine($"- Fallback count: {document.FallbackCount}");
+        builder.AppendLine($"- Vision call count: {document.VisionCallCount}");
+        builder.AppendLine($"- Failure reasons: {string.Join("; ", document.FailureReasons)}");
         if (!string.IsNullOrWhiteSpace(document.Error))
         {
             builder.AppendLine($"- Error: {document.Error}");
@@ -455,6 +520,74 @@ sealed class StageTiming
     public long LastSeenMs { get; set; }
     public int LastPercent { get; set; }
     public int UpdateCount { get; set; }
+}
+
+sealed class CountingVisionRegionDescriber : IVisionRegionDescriber
+{
+    public int CallCount { get; private set; }
+
+    public Task<VisionRegionDescriptionResult> DescribeAsync(
+        VisionRegionDescriptionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        CallCount++;
+        return Task.FromResult(VisionRegionDescriptionResult.Failed("Vision analysis is disabled in the default benchmark."));
+    }
+}
+
+sealed class NoOpVisionPageImageProvider : IVisionPageImageProvider
+{
+    public Task<VisionPageImageSource?> GetPageImageAsync(
+        string filePath,
+        string fileType,
+        int pageNumber,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<VisionPageImageSource?>(null);
+}
+
+sealed class DocumentUnderstandingBenchmarkResult
+{
+    public long DurationMs { get; set; }
+    public double? DocumentConfidence { get; set; }
+    public int PageCount { get; set; }
+    public int RegionCount { get; set; }
+    public int FallbackCount { get; set; }
+    public int VisionCallCount { get; set; }
+    public string UnderstandingStatus { get; set; } = string.Empty;
+    public bool NeedsReview { get; set; }
+    public List<string> FailureReasons { get; set; } = new();
+
+    public static DocumentUnderstandingBenchmarkResult Build(
+        DocumentUnderstandingResult? result,
+        long durationMs,
+        int visionCallCount,
+        string? error)
+    {
+        var failureReasons = result?.Warnings
+            .Where(reason => !string.IsNullOrWhiteSpace(reason))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            failureReasons.Add(error);
+        }
+
+        return new DocumentUnderstandingBenchmarkResult
+        {
+            DurationMs = durationMs,
+            DocumentConfidence = result?.Confidence,
+            PageCount = result?.Pages.Count ?? 0,
+            RegionCount = result?.Regions.Count ?? 0,
+            FallbackCount = string.IsNullOrWhiteSpace(error) ? 0 : 1,
+            VisionCallCount = visionCallCount,
+            UnderstandingStatus = string.IsNullOrWhiteSpace(error)
+                ? result?.Status ?? "NotRun"
+                : "Failed",
+            NeedsReview = result?.Quality?.NeedsReview ?? !string.IsNullOrWhiteSpace(error),
+            FailureReasons = failureReasons
+        };
+    }
 }
 
 sealed class OcrBenchmarkRun
@@ -645,6 +778,14 @@ sealed class OcrBenchmarkSummary
     public int LowGainPreprocessingAttemptCount { get; set; }
     public double AveragePreprocessingGain { get; set; }
     public double AveragePreprocessingDurationMs { get; set; }
+    public int UnderstandingTotalPages { get; set; }
+    public int UnderstandingTotalRegions { get; set; }
+    public int UnderstandingFallbackCount { get; set; }
+    public int UnderstandingVisionCallCount { get; set; }
+    public int UnderstandingFailureCount { get; set; }
+    public double AverageDocumentConfidence { get; set; }
+    public Dictionary<string, int> UnderstandingStatusCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> UnderstandingFailureReasonCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, int> ProfileWinCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, int> SkipReasonCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -685,6 +826,25 @@ sealed class OcrBenchmarkSummary
             LowGainPreprocessingAttemptCount = preprocessingAttempts.Count(attempt => attempt.IsLowGain),
             AveragePreprocessingGain = preprocessingAttempts.Count == 0 ? 0d : Math.Round(preprocessingAttempts.Average(attempt => attempt.QualityGain), 2),
             AveragePreprocessingDurationMs = preprocessingAttempts.Count == 0 ? 0d : Math.Round(preprocessingAttempts.Average(attempt => attempt.DurationMs), 2),
+            UnderstandingTotalPages = documents.Sum(document => document.PageCount),
+            UnderstandingTotalRegions = documents.Sum(document => document.RegionCount),
+            UnderstandingFallbackCount = documents.Sum(document => document.FallbackCount),
+            UnderstandingVisionCallCount = documents.Sum(document => document.VisionCallCount),
+            UnderstandingFailureCount = documents.Count(document => document.FailureReasons.Count > 0 || string.Equals(document.UnderstandingStatus, "Failed", StringComparison.OrdinalIgnoreCase)),
+            AverageDocumentConfidence = Math.Round(documents
+                .Where(document => document.DocumentConfidence.HasValue)
+                .Select(document => document.DocumentConfidence!.Value)
+                .DefaultIfEmpty(0d)
+                .Average(), 4),
+            UnderstandingStatusCounts = documents
+                .Select(document => string.IsNullOrWhiteSpace(document.UnderstandingStatus) ? "unknown" : document.UnderstandingStatus)
+                .GroupBy(status => status, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase),
+            UnderstandingFailureReasonCounts = documents
+                .SelectMany(document => document.FailureReasons)
+                .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                .GroupBy(reason => reason, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase),
             ProfileWinCounts = preprocessingAttempts
                 .Where(attempt => attempt.IsSelectedBest && !string.IsNullOrWhiteSpace(attempt.PreprocessingProfile))
                 .GroupBy(attempt => attempt.PreprocessingProfile!, StringComparer.OrdinalIgnoreCase)
@@ -704,6 +864,7 @@ sealed class OcrBenchmarkDocumentResult
     public string FileType { get; set; } = string.Empty;
     public long FileSizeBytes { get; set; }
     public long DurationMs { get; set; }
+    public long ExtractionTimeMs { get; set; }
     public int CharCount { get; set; }
     public int WordCount { get; set; }
     public int EstimatedTokenCount { get; set; }
@@ -731,6 +892,16 @@ sealed class OcrBenchmarkDocumentResult
     public List<string> Warnings { get; set; } = new();
     public List<OcrBenchmarkPageResult> Pages { get; set; } = new();
     public DocumentPreprocessingEffectivenessSummary PreprocessingEffectiveness { get; set; } = new();
+    public long UnderstandingDurationMs { get; set; }
+    public double? DocumentConfidence { get; set; }
+    public int PageCount { get; set; }
+    public int RegionCount { get; set; }
+    public int FallbackCount { get; set; }
+    public int VisionCallCount { get; set; }
+    public string UnderstandingStatus { get; set; } = string.Empty;
+    public bool NeedsReview { get; set; }
+    public List<string> FailureReasons { get; set; } = new();
+    public DocumentUnderstandingBenchmarkResult Understanding { get; set; } = new();
     public IReadOnlyCollection<StageTiming> StageTimings { get; set; } = Array.Empty<StageTiming>();
 
     public static OcrBenchmarkDocumentResult Build(
@@ -741,6 +912,7 @@ sealed class OcrBenchmarkDocumentResult
         string extractedText,
         string? error,
         DocumentInputQualityReport? pageQualityReport,
+        DocumentUnderstandingBenchmarkResult understanding,
         ITokenEstimator tokenEstimator,
         IReadOnlyCollection<StageTiming> stageTimings)
     {
@@ -752,6 +924,7 @@ sealed class OcrBenchmarkDocumentResult
             FileType = fileType,
             FileSizeBytes = fileSizeBytes,
             DurationMs = durationMs,
+            ExtractionTimeMs = durationMs,
             CharCount = normalized.Length,
             WordCount = Regex.Matches(normalized, @"\b[\p{L}\p{N}]+\b").Count,
             EstimatedTokenCount = report.TotalEstimatedTokens,
@@ -781,6 +954,16 @@ sealed class OcrBenchmarkDocumentResult
             Warnings = report.Warnings,
             Pages = report.Pages.Select(OcrBenchmarkPageResult.From).ToList(),
             PreprocessingEffectiveness = report.PreprocessingEffectiveness,
+            UnderstandingDurationMs = understanding.DurationMs,
+            DocumentConfidence = understanding.DocumentConfidence,
+            PageCount = understanding.PageCount,
+            RegionCount = understanding.RegionCount,
+            FallbackCount = understanding.FallbackCount,
+            VisionCallCount = understanding.VisionCallCount,
+            UnderstandingStatus = understanding.UnderstandingStatus,
+            NeedsReview = understanding.NeedsReview,
+            FailureReasons = understanding.FailureReasons,
+            Understanding = understanding,
             StageTimings = stageTimings
         };
     }

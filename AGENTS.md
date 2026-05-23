@@ -42,11 +42,14 @@ PBL5 là MVP `.NET + React` cho ingest tài liệu, OCR, AI analysis, question g
 - Backend: `dotnet build ELearnGamePlatform.sln`
 - Frontend: `cd client && npm run build`
 - Startup-sensitive backend: `dotnet run --project src/ELearnGamePlatform.API`
+- Không tự chạy lại test/build/verify nếu user muốn tiết kiệm thời gian; thay vào đó, nêu rõ lệnh cần chạy để user tự thực thi.
 - Nếu không verify được, nói rõ lệnh nào đã bỏ qua và vì sao.
 
 ## Local rules
 
 - Dùng `.local-agent-rules/*.md` như lớp hướng dẫn chi tiết bổ sung.
+- Luôn xem `ECC/` như thư mục tham chiếu mặc định để tối ưu workflow, skill, rule, MCP, prompt, và agent pattern trước khi làm task đáng kể.
+- Khi dùng `ECC/`, chỉ áp dụng có chọn lọc phần phù hợp với repo hiện tại; không copy nguyên xi rule, hook, installer, global config, package, hoặc credential nếu user chưa yêu cầu rõ.
 - Nếu rule local mâu thuẫn với `AGENTS.md` hoặc source runtime hiện tại, ưu tiên `AGENTS.md` và code.
 - Sau mỗi task có thay đổi đáng kể, append `.local-agent-rules/CHANGELOG.md` và giữ file này local-only.
 

@@ -1,10 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useLanguage } from '../context/LanguageContext';
 import ProgressCard from './ProgressCard';
 import { useToast } from './common/ToastProvider';
 import { documentService, getApiErrorMessage, isApiNotFound, questionService, slideService } from '../services/api';
 import { getProgressStageLabel, isActiveProgress, normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getDocumentReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+} from '../services/generationReadiness';
+import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -40,6 +48,7 @@ const getDocumentReadyHint = (doc) => {
 function DocumentListScreen() {
   const { currentUser } = useAuth();
   const { showToast } = useToast();
+  const { language } = useLanguage();
   const [documents, setDocuments] = useState([]);
   const [documentProgress, setDocumentProgress] = useState({});
   const [questionProgress, setQuestionProgress] = useState({});
@@ -204,6 +213,12 @@ function DocumentListScreen() {
   }, [activeDocumentIds.length, loadDocuments, slideDecks, slideProgress]);
 
   const handleGenerateQuestions = async (documentId) => {
+    const document = documents.find((doc) => Number(doc.id) === Number(documentId));
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(document), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     setQuestionProgress((current) => ({
       ...current,
       [documentId]: normalizeProgressState({
@@ -221,7 +236,9 @@ function DocumentListScreen() {
     });
 
     try {
-      const startResult = await questionService.startGenerateQuestions(documentId, 5);
+      const startResult = await questionService.startGenerateQuestions(documentId, 5, null, {
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
       const jobId = startResult.jobId;
       const timeoutAt = Date.now() + 5 * 60 * 1000;
       let delayMs = 1200;
@@ -295,6 +312,12 @@ function DocumentListScreen() {
   };
 
   const handleGenerateSlides = async (documentId) => {
+    const document = documents.find((doc) => Number(doc.id) === Number(documentId));
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(document), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     setSlideProgress((current) => ({
       ...current,
       [documentId]: normalizeProgressState({
@@ -316,7 +339,10 @@ function DocumentListScreen() {
     });
 
     try {
-      const startResult = await slideService.startGenerateSlides(documentId, 8);
+      const startResult = await slideService.startGenerateSlides(documentId, {
+        desiredSlideCount: 8,
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
       const jobId = startResult.jobId;
       const timeoutAt = Date.now() + 8 * 60 * 1000;
       let delayMs = 1200;
@@ -585,6 +611,8 @@ function DocumentListScreen() {
                 : Array.from({ length: 3 }, (_, index) => ({ slideIndex: index + 1 }));
               const statusLabel = getProgressStageLabel(docProgress);
               const statusHint = docProgress.message || (doc.status === 3 ? getDocumentReadyHint(doc) : 'Dang cap nhat trang thai tai lieu.');
+              const readiness = getDocumentReadiness(doc);
+              const readinessMessage = getReadinessMessage(readiness, language);
 
               return (
                 <div key={doc.id} className="document-item">
@@ -603,6 +631,24 @@ function DocumentListScreen() {
                     </p>
 
                     <p className="status-hint">{statusHint}</p>
+
+                    {readiness && (
+                      <span className={`generation-readiness-badge tone-${readiness.tone}`}>
+                        {getReadinessLabel(readiness, language)}
+                      </span>
+                    )}
+
+                    {readinessMessage && (
+                      <div className={`generation-readiness-card tone-${readiness.tone}`}>
+                        <strong>{readinessMessage.title}</strong>
+                        <p>{readinessMessage.body}</p>
+                      </div>
+                    )}
+
+                    <DocumentUnderstandingPanel
+                      documentId={doc.id}
+                      compact
+                    />
 
                     {showDocumentProgress && (
                       <ProgressCard
@@ -843,6 +889,11 @@ function DocumentListScreen() {
                   </div>
                 </div>
               )}
+              <DocumentUnderstandingPanel
+                documentId={showAnalysis.id}
+                showEmpty
+                defaultOpen
+              />
             </div>
           </div>
         </div>

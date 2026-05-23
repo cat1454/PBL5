@@ -19,6 +19,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<LearningAttempt> LearningAttempts { get; set; }
     public DbSet<LearningProgress> LearningProgresses { get; set; }
     public DbSet<LearningTestResult> LearningTestResults { get; set; }
+    public DbSet<DocumentUnderstandingRun> DocumentUnderstandingRuns { get; set; }
     public DbSet<SlideDeck> SlideDecks { get; set; }
     public DbSet<SlideItem> SlideItems { get; set; }
 
@@ -99,9 +100,34 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(deck => deck.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasMany(d => d.UnderstandingRuns)
+                .WithOne(run => run.Document)
+                .HasForeignKey(run => run.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             entity.Property(e => e.ProcessedMetadataJson)
                 .HasColumnName("processed_metadata")
                 .HasColumnType("text");
+        });
+
+        modelBuilder.Entity<DocumentUnderstandingRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
+
+            entity.Property(e => e.Status)
+                .HasMaxLength(80)
+                .IsRequired();
+
+            entity.Property(e => e.CombinedText)
+                .HasColumnType("text");
+
+            entity.Property(e => e.ResultJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.FailureReasonsJson)
+                .HasColumnType("jsonb");
         });
 
         // Question configuration

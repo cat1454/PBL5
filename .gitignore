@@ -49,18 +49,43 @@ yarn-error.log*
 client/build/
 client/dist/
 
-# Uploaded files
+# Runtime and generated files
 uploads/
 temp/
+.tmp/
+.tmp-build/
+.artifacts/
+artifacts/
+.agent-vendor/
+.agents/
+ECC/
+poppler-25.12.0/
 .runtime-h/
 .dotnet/
 .dotnet-cli/
+exports/
+reports/generated/
+giao_an_slide_editor.html
+api-build-diag-audit.txt
+build-9203-diag.txt
+restore-diag.txt
+*.pptx
+*.pdf
+
+# Local app data and OCR assets
+src/ELearnGamePlatform.API/local-store/
+src/ELearnGamePlatform.API/logs/
+src/ELearnGamePlatform.API/tessdata/*.traineddata
 
 # Local OCR benchmark artifacts
 benchmarks/input-documents/*
 !benchmarks/input-documents/.gitkeep
 benchmarks/output/*
 !benchmarks/output/.gitkeep
+
+# Local agent and generated snapshots
+.local-agent-rules/
+commit-history/
 
 # Environment variables
 .env
@@ -72,3 +97,10 @@ benchmarks/output/*
 Thumbs.db
 
 *.log
+*.csproj.lscache
+
+# Local model weights and binary model artifacts
+*.gguf
+*.safetensors
+*.onnx
+*.bin

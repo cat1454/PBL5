@@ -51,6 +51,7 @@ public class ImageReviewSettings
 public class ImageGenerationSettings
 {
     public string Provider { get; set; } = "openai";
+    public string? ApiKey { get; set; }
     public string Model { get; set; } = "gpt-image-1.5";
     public bool UseOnlyAsFallback { get; set; } = true;
     public int TimeoutSeconds { get; set; } = 120;
@@ -63,6 +64,6 @@ public class ImageWebSourceSettings
     public bool Enabled { get; set; } = true;
     public int MaxResultsPerQuery { get; set; } = 20;
     public int MaxDownloadsPerSlide { get; set; } = 8;
-    public double MinAcceptableScore { get; set; } = 0.85;
+    public double MinAcceptableScore { get; set; } = 0.86;
     public List<string> AllowedDomains { get; set; } = new();
 }

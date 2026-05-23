@@ -2,8 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
+import { useLanguage } from '../context/LanguageContext';
 import { documentService, getApiErrorMessage, questionService, slideService } from '../services/api';
 import { isActiveProgress, normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getDocumentReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+} from '../services/generationReadiness';
+import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,8 +67,9 @@ function ProgressPanel({ tone, kicker, title, summary, metaLines = [], percent =
   );
 }
 
-function SourceItem({ doc, active, statusMeta, onClick }) {
+function SourceItem({ doc, active, statusMeta, onClick, language }) {
   const kind = getDocumentKind(doc.fileName);
+  const readiness = getDocumentReadiness(doc);
 
   return (
     <button type="button" className={`documents-source-item${active ? ' active' : ''}`} onClick={onClick}>
@@ -69,6 +78,11 @@ function SourceItem({ doc, active, statusMeta, onClick }) {
         <p>{doc.fileName}</p>
         <div className="documents-source-meta">
           <span className={`documents-source-badge tone-${statusMeta.tone}`}>{statusMeta.label}</span>
+          {readiness && (
+            <span className={`generation-readiness-badge tone-${readiness.tone}`}>
+              {getReadinessLabel(readiness, language)}
+            </span>
+          )}
           <span>{statusMeta.detail}</span>
         </div>
       </div>
@@ -96,6 +110,7 @@ function ActionButton({ label, detail, onClick, disabled = false, tone = 'defaul
 function DocumentList() {
   const { currentUser } = useAuth();
   const { showToast } = useToast();
+  const { language } = useLanguage();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -215,6 +230,12 @@ function DocumentList() {
   }, [documents, loadDocuments, slideDecks, slideGenerating]);
 
   const handleGenerateQuestions = async (documentId) => {
+    const document = documents.find((doc) => Number(doc.id) === Number(documentId));
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(document), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     setGenerating((current) => ({
       ...current,
       [documentId]: {
@@ -232,7 +253,9 @@ function DocumentList() {
     });
 
     try {
-      const startResult = await questionService.startGenerateQuestions(documentId, 5);
+      const startResult = await questionService.startGenerateQuestions(documentId, 5, null, {
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
       const jobId = startResult.jobId;
       const pollStartedAt = Date.now();
       const pollTimeoutMs = 5 * 60 * 1000;
@@ -298,6 +321,12 @@ function DocumentList() {
   };
 
   const handleGenerateSlides = async (documentId) => {
+    const document = documents.find((doc) => Number(doc.id) === Number(documentId));
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(document), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     setSlideGenerating((current) => ({
       ...current,
       [documentId]: {
@@ -319,7 +348,10 @@ function DocumentList() {
     });
 
     try {
-      const startResult = await slideService.startGenerateSlides(documentId, 8);
+      const startResult = await slideService.startGenerateSlides(documentId, {
+        desiredSlideCount: 8,
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
       const jobId = startResult.jobId;
       const pollStartedAt = Date.now();
       const pollTimeoutMs = 8 * 60 * 1000;
@@ -525,6 +557,8 @@ function DocumentList() {
   const selectedQuestionRunning = !!selectedGenerationState?.running;
   const selectedSlideState = selectedDocument ? slideGenerating[selectedDocument.id] : null;
   const selectedSlideDeck = selectedDocument ? slideDecks[selectedDocument.id] : null;
+  const selectedReadiness = getDocumentReadiness(selectedDocument);
+  const selectedReadinessMessage = getReadinessMessage(selectedReadiness, language);
   const selectedActiveSlideProgress = selectedSlideState || selectedSlideDeck?.generationProgress;
   const selectedSlidesRunning = ['queued', 'running'].includes(String(selectedActiveSlideProgress?.status || '').toLowerCase());
   const selectedProcessingState = selectedDocument?.processingProgress
@@ -826,6 +860,18 @@ function DocumentList() {
             <span>AI hint</span>
             <p>{selectedHint}</p>
           </div>
+
+          {selectedReadinessMessage && (
+            <div className={`generation-readiness-card tone-${selectedReadiness.tone}`}>
+              <strong>{selectedReadinessMessage.title}</strong>
+              <p>{selectedReadinessMessage.body}</p>
+            </div>
+          )}
+          <DocumentUnderstandingPanel
+            documentId={selectedDocument.id}
+            showEmpty
+            compact
+          />
         </div>
 
         {(selectedProcessingRunning || selectedQuestionRunning || selectedSlidesRunning) && (
@@ -1092,6 +1138,7 @@ function DocumentList() {
                   active={doc.id === selectedDocument?.id}
                   statusMeta={getSourceStatusMeta(doc)}
                   onClick={() => setSelectedDocumentId(doc.id)}
+                  language={language}
                 />
               )) : (
                 <div className="documents-sidebar-empty">Không tìm thấy tài liệu phù hợp bộ lọc.</div>

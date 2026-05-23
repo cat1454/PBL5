@@ -44,6 +44,15 @@ public sealed class JobProgressPayload
     public string Error { get; init; } = string.Empty;
     public string TopicTag { get; init; } = string.Empty;
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? DocumentConfidence { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? QualityStatus { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? NeedsReview { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public int? QuestionsGenerated { get; init; }
 
@@ -77,7 +86,10 @@ public static class JobProgressPayloadFactory
                 StageCount = state.StageCount,
                 ElapsedSeconds = state.ElapsedSeconds ?? 0,
                 EstimatedRemainingSeconds = state.EstimatedRemainingSeconds,
-                Error = Clean(state.Error)
+                Error = Clean(state.Error),
+                DocumentConfidence = state.DocumentConfidence,
+                QualityStatus = string.IsNullOrWhiteSpace(state.QualityStatus) ? null : state.QualityStatus.Trim(),
+                NeedsReview = state.NeedsReview
             };
         }
 

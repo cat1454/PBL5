@@ -11,9 +11,16 @@ import {
 } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
+import {
+  confirmGenerationReadiness,
+  getReadinessLabel,
+  getReadinessMessage,
+  getDocumentReadiness,
+} from '../services/generationReadiness';
 import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
+import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
@@ -1408,6 +1415,11 @@ function FolderStudio() {
       return;
     }
 
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(selectedSource), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     try {
     setError('');
     const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
@@ -1416,6 +1428,7 @@ function FolderStudio() {
       selectedSectionIds,
       mode: brief.mode,
       scopePolicy: 'selected-sections-only',
+      confirmLowConfidence: readinessDecision.confirmed,
     });
 
     setScopeRecommendation(response.scopeRecommendation || null);
@@ -1478,6 +1491,11 @@ function FolderStudio() {
       return;
     }
 
+    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(selectedSource), language);
+    if (!readinessDecision.allowed) {
+      return;
+    }
+
     setQuestionError('');
     setQuestionProgress(normalizeProgressState({
       status: 'queued',
@@ -1499,7 +1517,9 @@ function FolderStudio() {
     });
 
     try {
-      const startResult = await questionService.startGenerateQuestions(selectedSourceDocumentId, 5);
+      const startResult = await questionService.startGenerateQuestions(selectedSourceDocumentId, 5, null, {
+        confirmLowConfidence: readinessDecision.confirmed,
+      });
       const nextJobId = startResult?.jobId;
       if (!nextJobId) {
         throw new Error(language === 'vi'
@@ -1792,6 +1812,7 @@ function FolderStudio() {
   const activeFieldState = selectedDraft?.[activeField] || null;
   const activeHistory = selectedSlide ? (history[selectedSlide.id] || { past: [], future: [] }) : { past: [], future: [] };
   const selectedImage = selectedImageVm?.selectedImage || null;
+  const selectedSlideNeedsMedia = selectedImageVm?.needsImage !== false;
   const deckProgressActive = Boolean(activeProgress && isActiveProgress(activeProgress));
   const generateDisabledReason = deckProgressActive
     ? t('slides.folderGenerate.disabledGenerating')
@@ -2058,6 +2079,7 @@ function FolderStudio() {
                       : 'file';
                 const showLive = sourceVm.isActive;
                 const progressState = sourceVm.progressState;
+                const readiness = getDocumentReadiness(source);
 
                 return (
                   <div key={source.id} className={`folder-studio-source-item${isSelected ? ' selected' : ''}`}>
@@ -2103,6 +2125,11 @@ function FolderStudio() {
                               ? sourceVm.failedLabel
                               : normalizeStatusLabel(source.status)}
                         </span>
+                        {readiness && (
+                          <span className={`generation-readiness-badge tone-${readiness.tone}`}>
+                            {getReadinessLabel(readiness, language)}
+                          </span>
+                        )}
                       </div>
                       {showLive && (
                         <>
@@ -2154,6 +2181,8 @@ function FolderStudio() {
                 const isScopeActionDisabled = Boolean(disabledReason);
                 const isActiveScopeSource = source.id === selectedSourceId;
                 const sourceStatusLabel = getSourceScopeStatusLabel(sourceVm, source);
+                const readiness = getDocumentReadiness(source);
+                const readinessMessage = getReadinessMessage(readiness, language);
 
                 return (
                   <div
@@ -2177,7 +2206,19 @@ function FolderStudio() {
                           {t('slides.scopePicker.currentSource')}
                         </span>
                       )}
+                      {readiness && (
+                        <span className={`generation-readiness-badge tone-${readiness.tone}`}>
+                          {getReadinessLabel(readiness, language)}
+                        </span>
+                      )}
                     </div>
+
+                    {readinessMessage && (
+                      <div className={`folder-studio-scope-hint generation-readiness-card tone-${readiness.tone}`}>
+                        <strong>{readinessMessage.title}</strong>
+                        <span>{readinessMessage.body}</span>
+                      </div>
+                    )}
 
                     {sourceVm.isActive && (
                       <div className="folder-studio-source-live">
@@ -2305,7 +2346,7 @@ function FolderStudio() {
               <div className="folder-studio-toolbar-sep"></div>
               <button type="button" className="folder-studio-toolbar-btn" onClick={handleUndo} disabled={!activeHistory.past.length}>{language === 'vi' ? 'Hoàn tác' : 'Undo'}</button>
               <button type="button" className="folder-studio-toolbar-btn" onClick={handleRedo} disabled={!activeHistory.future.length}>{language === 'vi' ? 'Làm lại' : 'Redo'}</button>
-              <button type="button" className="folder-studio-toolbar-btn" onClick={() => setMediaOpen((current) => !current)} disabled={!selectedSlide}>
+              <button type="button" className="folder-studio-toolbar-btn" onClick={() => setMediaOpen((current) => !current)} disabled={!selectedSlide || !selectedSlideNeedsMedia}>
                 {mediaOpen ? (language === 'vi' ? 'Ẩn media' : 'Hide media') : (language === 'vi' ? 'Mở media' : 'Open media')}
               </button>
             </div>
@@ -2410,7 +2451,7 @@ function FolderStudio() {
               ) : (
                 <>
                   <article className="folder-slide-card">
-                    <div className="folder-slide-layout">
+                    <div className={`folder-slide-layout${selectedSlideNeedsMedia ? '' : ' text-only-layout'}`}>
                       <div className="folder-slide-copy">
                         <div className={`folder-editable-block${activeField === 'title' ? ' active' : ''}`} onClick={() => setActiveField('title')}>
                           <textarea
@@ -2466,6 +2507,7 @@ function FolderStudio() {
                         </div>
                       </div>
 
+                      {selectedSlideNeedsMedia && (
                       <div className="folder-slide-visual">
                         {selectedImage?.localAssetUrl ? (
                           <img src={selectedImage.localAssetUrl} alt={selectedImage.altText || 'Selected media'} />
@@ -2482,6 +2524,7 @@ function FolderStudio() {
                           <small>{selectedImageVm?.attributionText || (language === 'vi' ? 'Có thể refresh để lấy image candidates mới.' : 'You can refresh to get new image candidates.')}</small>
                         </div>
                       </div>
+                      )}
                     </div>
 
                     <div className="folder-slide-hint">
@@ -2512,6 +2555,7 @@ function FolderStudio() {
                       />
                     </section>
 
+                    {selectedSlideNeedsMedia && (
                     <section className="folder-studio-panel-card">
                       <div className="folder-studio-panel-card-head">
                         <strong>{language === 'vi' ? 'Dải media' : 'Media strip'}</strong>
@@ -2562,6 +2606,7 @@ function FolderStudio() {
                         </p>
                       )}
                     </section>
+                    )}
                   </div>
                 </>
               )}
@@ -2645,6 +2690,13 @@ function FolderStudio() {
                     ? 'Bước 1-2: chọn tài liệu chính và phạm vi chapter/section trước khi tạo deck.'
                     : 'Steps 1-2: choose the primary source and chapter/section scope before generating the deck.')}
               </div>
+              {selectedSourceDocumentId && (
+                <DocumentUnderstandingPanel
+                  documentId={selectedSourceDocumentId}
+                  showEmpty
+                  compact
+                />
+              )}
               {scopeRecommendation && (
                 <div className="folder-studio-source-live">
                   {language === 'vi'

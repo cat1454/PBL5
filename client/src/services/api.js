@@ -204,6 +204,11 @@ export const documentService = {
     return response.data;
   },
 
+  getLatestUnderstanding: async (id) => {
+    const response = await apiClient.get(`/documents/${id}/understanding/latest`);
+    return response.data;
+  },
+
   getStructure: async (id) => {
     const response = await apiClient.get(`/documents/${id}/structure`);
     return response.data;
@@ -339,22 +344,24 @@ export const workspaceService = {
 };
 
 export const questionService = {
-  generateQuestions: async (documentId, count = 5, questionType = null) => {
+  generateQuestions: async (documentId, count = 5, questionType = null, options = {}) => {
     const response = await apiClient.post('/questions/generate', {
       documentId,
       count,
       questionType,
+      confirmLowConfidence: Boolean(options?.confirmLowConfidence),
     }, {
       timeout: 65000,
     });
     return response.data;
   },
 
-  startGenerateQuestions: async (documentId, count = 5, questionType = null) => {
+  startGenerateQuestions: async (documentId, count = 5, questionType = null, options = {}) => {
     const response = await apiClient.post('/questions/generate/start', {
       documentId,
       count,
       questionType,
+      confirmLowConfidence: Boolean(options?.confirmLowConfidence),
     });
     return response.data;
   },
@@ -522,6 +529,7 @@ export const slideService = {
       selectedSectionIds: payload?.selectedSectionIds,
       mode: payload?.mode,
       scopePolicy: payload?.scopePolicy,
+      confirmLowConfidence: Boolean(payload?.confirmLowConfidence),
     });
     return response.data;
   },
@@ -547,6 +555,7 @@ export const slideService = {
       selectedSectionIds: payload?.selectedSectionIds,
       mode: payload?.mode,
       scopePolicy: payload?.scopePolicy,
+      confirmLowConfidence: Boolean(payload?.confirmLowConfidence),
     });
     return response.data;
   },
