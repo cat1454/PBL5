@@ -1513,6 +1513,10 @@ function FolderStudio() {
       return;
     }
 
+    navigate(`/question-studio/${selectedSourceDocumentId}`);
+    return;
+
+    // eslint-disable-next-line no-unreachable
     const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(selectedSource), language);
     if (!readinessDecision.allowed) {
       return;

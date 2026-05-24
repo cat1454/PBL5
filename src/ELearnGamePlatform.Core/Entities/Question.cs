@@ -44,6 +44,12 @@ public class Question
     [Column("verifier_issues")]
     public string? VerifierIssuesJson { get; set; }
 
+    [Column("source_draft_id")]
+    public int? SourceDraftId { get; set; }
+
+    [Column("quality_score")]
+    public double? QualityScore { get; set; }
+
     [Column("is_archived")]
     public bool IsArchived { get; set; }
 

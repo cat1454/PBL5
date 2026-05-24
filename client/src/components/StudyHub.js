@@ -12,7 +12,6 @@ import { useLanguage } from '../context/LanguageContext';
 import { formatTopicForDisplay } from '../services/topicDisplay';
 import { isActiveProgress, normalizeProgressState } from '../services/progress';
 import {
-  confirmGenerationReadiness,
   getReadinessLabel,
   getReadinessMessage,
   normalizeGenerationReadiness,
@@ -426,47 +425,8 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       return;
     }
 
-    setQuestionGenerationRecovered(false);
-    setQuestionGenerationError('');
-    setRegenerateMessage('');
-
-    try {
-      const readinessDecision = confirmGenerationReadiness(generationReadiness, language);
-      if (!readinessDecision.allowed) {
-        return;
-      }
-
-      if (readinessDecision.message) {
-        setRegenerateMessage(`${readinessDecision.message.title} ${readinessDecision.message.body}`);
-      }
-
-      const startResult = await questionService.startGenerateQuestions(documentId, DEFAULT_QUESTION_COUNT, null, {
-        confirmLowConfidence: readinessDecision.confirmed,
-      });
-      setGenerationReadiness(normalizeGenerationReadiness(startResult?.generationReadiness) || generationReadiness);
-      const nextJobId = startResult?.jobId || startResult?.progress?.jobId;
-      if (!nextJobId) {
-        throw new Error(copy.questionProgressLost);
-      }
-
-      setQuestionJobId(nextJobId);
-      setQuestionGenerationProgress(normalizeProgressState(startResult?.progress, {
-        documentId: Number(documentId),
-        jobId: nextJobId,
-        status: startResult?.status || 'queued',
-        stage: 'queued',
-        stageLabel: copy.regenerating,
-        message: copy.regenerationReplaceHint,
-        percent: 0,
-      }));
-    } catch (error) {
-      const nextError = getApiErrorMessage(error, t('workspace.study.failed'));
-      setQuestionGenerationError(nextError);
-      setRegenerateMessage(nextError);
-      setQuestionGenerationProgress(null);
-      setQuestionJobId(null);
-    }
-  }, [copy.questionProgressLost, copy.regenerating, copy.regenerationReplaceHint, documentId, generationReadiness, isRegenerating, language, t]);
+    navigate(`/question-studio/${documentId}`);
+  }, [documentId, isRegenerating, navigate]);
 
   useEffect(() => {
     if (!questionJobId || !questionGenerationProgress || !isActiveProgress(questionGenerationProgress) || !documentId) {

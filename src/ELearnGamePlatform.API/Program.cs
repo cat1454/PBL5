@@ -16,6 +16,7 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
 using ELearnGamePlatform.Services.OCR;
+using ELearnGamePlatform.Services.QuestionStudio;
 using ELearnGamePlatform.Services.Slides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -122,6 +123,13 @@ builder.Services.AddScoped<IDocumentGenerationReadinessService, DocumentGenerati
 builder.Services.AddScoped<ITokenBudgetPlanner, TokenBudgetPlanner>();
 builder.Services.AddScoped<IPromptAssembler, PromptAssembler>();
 builder.Services.AddScoped<IQuestionGenerator, QuestionGeneratorService>();
+builder.Services.AddScoped<IQuestionSourceUnitExtractor, QuestionSourceUnitExtractor>();
+builder.Services.AddScoped<ICanonicalQuestionGenerator, CanonicalQuestionGenerator>();
+builder.Services.AddScoped<IQuestionVariantGenerator, QuestionVariantGenerator>();
+builder.Services.AddScoped<IQuestionDraftVerifier, QuestionDraftVerifier>();
+builder.Services.AddScoped<IQuestionDraftDeduplicator, QuestionDraftDeduplicator>();
+builder.Services.AddScoped<IQuestionDraftImportService, QuestionDraftImportService>();
+builder.Services.AddScoped<QuestionStudioOrchestrator>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<ISlideExportService, SlideExportService>();
 builder.Services.AddScoped<ISlideImagePlannerService, SlideImagePlannerService>();
@@ -223,6 +231,8 @@ static void ValidateCriticalSchema(ApplicationDbContext dbContext)
     {
     EnsureColumnExists(connection, "questions", "verifier_score");
     EnsureColumnExists(connection, "questions", "verifier_issues");
+    EnsureColumnExists(connection, "questions", "source_draft_id");
+    EnsureColumnExists(connection, "questions", "quality_score");
 
     EnsureColumnExists(connection, "documents", "processed_metadata");
 

@@ -1,0 +1,467 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { documentService, getApiErrorMessage, questionStudioService } from '../../services/api';
+import { useLanguage } from '../../context/LanguageContext';
+
+const MODES = ['fast', 'balanced', 'quality', 'max_draft'];
+const QUESTION_TYPES = ['MultipleChoice', 'Flashcard', 'ShortAnswer', 'TrueFalse', 'FillInTheBlank'];
+const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
+const STATUSES = ['', 'Draft', 'Verified', 'Borderline', 'Rejected', 'Quarantined', 'Imported'];
+
+function QuestionStudioPage() {
+  const { documentId: routeDocumentId } = useParams();
+  const documentId = Number(routeDocumentId);
+  const navigate = useNavigate();
+  const { t } = useLanguage();
+  const [documentMeta, setDocumentMeta] = useState(null);
+  const [run, setRun] = useState(null);
+  const [runId, setRunId] = useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [selectedDraftIds, setSelectedDraftIds] = useState([]);
+  const [form, setForm] = useState({
+    targetDraftCount: 30,
+    mode: 'balanced',
+    questionTypes: ['MultipleChoice', 'Flashcard', 'ShortAnswer'],
+    difficulties: ['Easy', 'Medium', 'Hard'],
+  });
+  const [filters, setFilters] = useState({
+    status: 'Verified',
+    type: '',
+    difficulty: '',
+    minScore: '',
+    page: 1,
+    pageSize: 20,
+  });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [editingDraft, setEditingDraft] = useState(null);
+
+  const terminalRun = run?.status === 'Completed' || run?.status === 'Failed' || run?.status === 'Cancelled';
+  const progressPercent = run
+    ? Math.min(100, Math.max(0, Math.round(
+      Number.isFinite(Number(run.progressPercent))
+        ? Number(run.progressPercent)
+        : (Number(run.generatedDraftCount || 0) / Math.max(1, Number(run.targetDraftCount || 1))) * 100
+    )))
+    : 0;
+
+  const loadDrafts = useCallback(async (nextFilters = filters) => {
+    if (!documentId) {
+      return;
+    }
+
+    const payload = await questionStudioService.listDrafts({
+      documentId,
+      runId: runId || undefined,
+      status: nextFilters.status || undefined,
+      type: nextFilters.type || undefined,
+      difficulty: nextFilters.difficulty || undefined,
+      minScore: nextFilters.minScore || undefined,
+      page: nextFilters.page,
+      pageSize: nextFilters.pageSize,
+    });
+    setDrafts(Array.isArray(payload?.data) ? payload.data : []);
+    setPagination(payload?.pagination || null);
+    setSelectedDraftIds((current) => current.filter((id) => (payload?.data || []).some((draft) => draft.id === id)));
+  }, [documentId, filters, runId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadInitial() {
+      setLoading(true);
+      setError('');
+      try {
+        const documentData = await documentService.getDocument(documentId);
+        if (!active) {
+          return;
+        }
+        setDocumentMeta(documentData);
+        await loadDrafts();
+      } catch (err) {
+        if (active) {
+          setError(getApiErrorMessage(err, t('questionStudio.errors.loadFailed')));
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadInitial();
+    return () => {
+      active = false;
+    };
+  }, [documentId, loadDrafts, t]);
+
+  useEffect(() => {
+    if (!runId || terminalRun) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(async () => {
+      try {
+        const nextRun = await questionStudioService.getRun(runId);
+        setRun(nextRun);
+        await loadDrafts();
+      } catch (err) {
+        setError(getApiErrorMessage(err, t('questionStudio.errors.progressFailed')));
+      }
+    }, 2500);
+
+    return () => window.clearInterval(timer);
+  }, [loadDrafts, runId, terminalRun, t]);
+
+  const selectedVerifiedCount = useMemo(
+    () => drafts.filter((draft) => selectedDraftIds.includes(draft.id) && ['Verified', 'Borderline'].includes(draft.status)).length,
+    [drafts, selectedDraftIds]
+  );
+
+  const startRun = async () => {
+    setBusy(true);
+    setError('');
+    setFeedback('');
+    try {
+      const result = await questionStudioService.startRun({
+        documentId,
+        targetDraftCount: Number(form.targetDraftCount),
+        mode: form.mode,
+        questionTypes: form.questionTypes,
+        difficulties: form.difficulties,
+      });
+      setRunId(result.runId);
+      setRun({ runId: result.runId, status: result.status, stage: 'Created', progressPercent: 0, targetDraftCount: form.targetDraftCount });
+      setFeedback(t('questionStudio.feedback.started'));
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.startFailed')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyFilters = async (patch) => {
+    const nextFilters = { ...filters, ...patch, page: patch.page || 1 };
+    setFilters(nextFilters);
+    setError('');
+    try {
+      await loadDrafts(nextFilters);
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.loadDraftsFailed')));
+    }
+  };
+
+  const toggleDraftSelection = (draftId) => {
+    setSelectedDraftIds((current) => (
+      current.includes(draftId)
+        ? current.filter((id) => id !== draftId)
+        : [...current, draftId]
+    ));
+  };
+
+  const selectVisible = () => {
+    setSelectedDraftIds(drafts.map((draft) => draft.id));
+  };
+
+  const updateDraftAction = async (draftId, action) => {
+    setBusy(true);
+    setError('');
+    try {
+      if (action === 'accept') await questionStudioService.acceptDraft(draftId);
+      if (action === 'reject') await questionStudioService.rejectDraft(draftId);
+      if (action === 'quarantine') await questionStudioService.quarantineDraft(draftId);
+      if (action === 'restore') await questionStudioService.restoreDraft(draftId);
+      await loadDrafts();
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.actionFailed')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importSelected = async () => {
+    setBusy(true);
+    setError('');
+    setFeedback('');
+    try {
+      const result = await questionStudioService.importDrafts({ documentId, draftIds: selectedDraftIds });
+      setFeedback(t('questionStudio.feedback.imported', { count: result.importedCount || 0, skipped: result.skippedCount || 0 }));
+      setSelectedDraftIds([]);
+      await loadDrafts();
+      if (runId) {
+        setRun(await questionStudioService.getRun(runId));
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.importFailed')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingDraft) {
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    try {
+      await questionStudioService.updateDraft(editingDraft.id, {
+        questionText: editingDraft.questionText,
+        options: Array.isArray(editingDraft.options) ? editingDraft.options.map((option) => `${option.key}. ${option.text}`) : [],
+        correctAnswer: editingDraft.correctAnswer,
+        explanation: editingDraft.explanation,
+        difficulty: editingDraft.difficulty,
+        topicTag: editingDraft.topicTag,
+      });
+      setEditingDraft(null);
+      await loadDrafts();
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.saveFailed')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="question-studio-page">
+      <header className="question-studio-header">
+        <div>
+          <button type="button" className="button button-secondary" onClick={() => navigate(-1)}>
+            {t('questionStudio.back')}
+          </button>
+          <p className="question-studio-kicker">{t('questionStudio.kicker')}</p>
+          <h1>{t('questionStudio.title')}</h1>
+          <p>{documentMeta?.fileName || t('questionStudio.documentFallback')}</p>
+        </div>
+        <div className="question-studio-header-stats">
+          <span>{t('questionStudio.target')}</span>
+          <strong>{run?.targetDraftCount || form.targetDraftCount}</strong>
+          <span>{t('questionStudio.generated')}</span>
+          <strong>{run?.generatedDraftCount || drafts.length}</strong>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="card question-studio-state">{t('questionStudio.loading')}</div>
+      ) : (
+        <>
+          {error && <div className="alert alert-error question-studio-alert">{error}</div>}
+          {feedback && <div className="alert alert-success question-studio-alert">{feedback}</div>}
+
+          <section className="question-studio-grid">
+            <div className="question-studio-panel">
+              <h2>{t('questionStudio.generateTitle')}</h2>
+              <label>
+                {t('questionStudio.targetDraftCount')}
+                <input
+                  type="number"
+                  min="1"
+                  max="300"
+                  value={form.targetDraftCount}
+                  onChange={(event) => setForm((current) => ({ ...current, targetDraftCount: event.target.value }))}
+                />
+              </label>
+              <div className="question-studio-segmented">
+                {MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={form.mode === mode ? 'active' : ''}
+                    onClick={() => setForm((current) => ({ ...current, mode }))}
+                  >
+                    {t(`questionStudio.modes.${mode}`)}
+                  </button>
+                ))}
+              </div>
+              <ToggleGroup
+                title={t('questionStudio.types')}
+                values={QUESTION_TYPES}
+                selected={form.questionTypes}
+                onChange={(questionTypes) => setForm((current) => ({ ...current, questionTypes }))}
+              />
+              <ToggleGroup
+                title={t('questionStudio.difficulties')}
+                values={DIFFICULTIES}
+                selected={form.difficulties}
+                onChange={(difficulties) => setForm((current) => ({ ...current, difficulties }))}
+              />
+              <button type="button" className="button" onClick={startRun} disabled={busy || form.questionTypes.length === 0 || form.difficulties.length === 0}>
+                {busy ? t('questionStudio.busy') : t('questionStudio.start')}
+              </button>
+            </div>
+
+            <div className="question-studio-panel">
+              <h2>{t('questionStudio.progressTitle')}</h2>
+              <div className={`question-studio-progress${run && !terminalRun ? ' is-active' : ''}`}>
+                <div style={{ width: `${progressPercent}%` }} />
+              </div>
+              <div className="question-studio-progress-meta">
+                <strong>{run?.status || t('questionStudio.noRun')}</strong>
+                <span>{run?.stage || '-'}</span>
+                <span>{progressPercent}%</span>
+              </div>
+              <div className="question-studio-metrics">
+                <Metric label={t('questionStudio.metrics.verified')} value={run?.verifiedDraftCount || 0} />
+                <Metric label={t('questionStudio.metrics.borderline')} value={run?.borderlineCount || 0} />
+                <Metric label={t('questionStudio.metrics.rejected')} value={run?.rejectedCount || 0} />
+                <Metric label={t('questionStudio.metrics.imported')} value={run?.importedCount || 0} />
+              </div>
+            </div>
+          </section>
+
+          <section className="question-studio-toolbar">
+            <select value={filters.status} onChange={(event) => applyFilters({ status: event.target.value })}>
+              {STATUSES.map((status) => <option key={status || 'all'} value={status}>{status || t('questionStudio.allStatuses')}</option>)}
+            </select>
+            <select value={filters.type} onChange={(event) => applyFilters({ type: event.target.value })}>
+              <option value="">{t('questionStudio.allTypes')}</option>
+              {QUESTION_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <select value={filters.difficulty} onChange={(event) => applyFilters({ difficulty: event.target.value })}>
+              <option value="">{t('questionStudio.allDifficulties')}</option>
+              {DIFFICULTIES.map((difficulty) => <option key={difficulty} value={difficulty}>{difficulty}</option>)}
+            </select>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              placeholder={t('questionStudio.minScore')}
+              value={filters.minScore}
+              onChange={(event) => applyFilters({ minScore: event.target.value })}
+            />
+            <button type="button" className="button button-secondary" onClick={selectVisible}>{t('questionStudio.selectVisible')}</button>
+            <button type="button" className="button" onClick={importSelected} disabled={busy || selectedVerifiedCount === 0}>
+              {t('questionStudio.importSelected', { count: selectedVerifiedCount })}
+            </button>
+          </section>
+
+          <section className="question-studio-list">
+            {drafts.map((draft) => (
+              <DraftCard
+                key={draft.id}
+                draft={draft}
+                selected={selectedDraftIds.includes(draft.id)}
+                onSelect={() => toggleDraftSelection(draft.id)}
+                onEdit={() => setEditingDraft(draft)}
+                onAction={(action) => updateDraftAction(draft.id, action)}
+                t={t}
+              />
+            ))}
+            {drafts.length === 0 && <div className="card question-studio-state">{t('questionStudio.empty')}</div>}
+          </section>
+
+          {pagination && (
+            <div className="question-studio-pagination">
+              <button type="button" className="button button-secondary" disabled={filters.page <= 1} onClick={() => applyFilters({ page: filters.page - 1 })}>
+                {t('questionStudio.previous')}
+              </button>
+              <span>{pagination.page} / {pagination.totalPages || 1}</span>
+              <button type="button" className="button button-secondary" disabled={pagination.page >= pagination.totalPages} onClick={() => applyFilters({ page: filters.page + 1 })}>
+                {t('questionStudio.next')}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {editingDraft && (
+        <div className="question-studio-modal" role="dialog" aria-modal="true">
+          <div className="question-studio-modal-panel">
+            <h2>{t('questionStudio.editTitle')}</h2>
+            <label>
+              {t('questionStudio.questionText')}
+              <textarea value={editingDraft.questionText || ''} onChange={(event) => setEditingDraft((current) => ({ ...current, questionText: event.target.value }))} />
+            </label>
+            <label>
+              {t('questionStudio.correctAnswer')}
+              <input value={editingDraft.correctAnswer || ''} onChange={(event) => setEditingDraft((current) => ({ ...current, correctAnswer: event.target.value }))} />
+            </label>
+            <label>
+              {t('questionStudio.explanation')}
+              <textarea value={editingDraft.explanation || ''} onChange={(event) => setEditingDraft((current) => ({ ...current, explanation: event.target.value }))} />
+            </label>
+            <div className="question-studio-modal-actions">
+              <button type="button" className="button button-secondary" onClick={() => setEditingDraft(null)}>{t('questionStudio.cancel')}</button>
+              <button type="button" className="button" onClick={saveEdit} disabled={busy}>{t('questionStudio.save')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToggleGroup({ title, values, selected, onChange }) {
+  return (
+    <fieldset className="question-studio-toggle-group">
+      <legend>{title}</legend>
+      {values.map((value) => (
+        <label key={value}>
+          <input
+            type="checkbox"
+            checked={selected.includes(value)}
+            onChange={(event) => {
+              onChange(event.target.checked
+                ? [...selected, value]
+                : selected.filter((item) => item !== value));
+            }}
+          />
+          <span>{value}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function DraftCard({ draft, selected, onSelect, onEdit, onAction, t }) {
+  return (
+    <article className={`question-studio-card status-${String(draft.status || '').toLowerCase()}`}>
+      <div className="question-studio-card-select">
+        <input type="checkbox" checked={selected} onChange={onSelect} />
+      </div>
+      <div className="question-studio-card-body">
+        <div className="question-studio-card-head">
+          <span>{draft.status}</span>
+          <span>{draft.questionType}</span>
+          <span>{draft.difficulty}</span>
+          <strong>{Math.round(Number(draft.overallScore || 0) * 100)}%</strong>
+        </div>
+        <h3>{draft.questionText}</h3>
+        <p>{draft.explanation}</p>
+        <div className="question-studio-score-row">
+          <span>G {Math.round(Number(draft.groundingScore || 0) * 100)}%</span>
+          <span>A {Math.round(Number(draft.answerScore || 0) * 100)}%</span>
+          <span>C {Math.round(Number(draft.clarityScore || 0) * 100)}%</span>
+          {draft.duplicateWarning && <span>{t('questionStudio.duplicate')}</span>}
+        </div>
+        <details>
+          <summary>{t('questionStudio.sourceEvidence')}</summary>
+          <p>{draft.sourceEvidence || '-'}</p>
+        </details>
+      </div>
+      <div className="question-studio-card-actions">
+        <button type="button" onClick={onEdit}>{t('questionStudio.edit')}</button>
+        <button type="button" onClick={() => onAction('accept')}>{t('questionStudio.accept')}</button>
+        <button type="button" onClick={() => onAction('reject')}>{t('questionStudio.reject')}</button>
+        <button type="button" onClick={() => onAction('quarantine')}>{t('questionStudio.quarantine')}</button>
+        <button type="button" onClick={() => onAction('restore')}>{t('questionStudio.restore')}</button>
+      </div>
+    </article>
+  );
+}
+
+export default QuestionStudioPage;

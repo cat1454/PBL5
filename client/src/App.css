@@ -9887,3 +9887,329 @@ textarea:focus-visible {
     width: 100%;
   }
 }
+/* Question Studio */
+.question-studio-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  color: #14213d;
+}
+
+.question-studio-header,
+.question-studio-grid,
+.question-studio-toolbar,
+.question-studio-card,
+.question-studio-pagination {
+  background: #ffffff;
+  border: 1px solid rgba(20, 33, 61, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(20, 33, 61, 0.08);
+}
+
+.question-studio-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.question-studio-header h1 {
+  margin: 8px 0;
+  font-size: 32px;
+  line-height: 1.15;
+}
+
+.question-studio-kicker {
+  margin: 18px 0 0;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.question-studio-header-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(90px, 1fr));
+  gap: 8px 14px;
+  min-width: 220px;
+}
+
+.question-studio-header-stats span,
+.question-studio-progress-meta span,
+.question-studio-metrics span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.question-studio-header-stats strong,
+.question-studio-metrics strong {
+  font-size: 22px;
+}
+
+.question-studio-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(280px, 1.1fr);
+  gap: 18px;
+  padding: 18px;
+}
+
+.question-studio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.question-studio-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.question-studio-panel label,
+.question-studio-modal-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.question-studio-panel input,
+.question-studio-toolbar input,
+.question-studio-toolbar select,
+.question-studio-modal-panel input,
+.question-studio-modal-panel textarea {
+  width: 100%;
+  border: 1px solid rgba(20, 33, 61, 0.16);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.question-studio-modal-panel textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.question-studio-segmented {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.question-studio-segmented button,
+.question-studio-card-actions button {
+  border: 1px solid rgba(20, 33, 61, 0.14);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #14213d;
+  cursor: pointer;
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.question-studio-segmented button.active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.question-studio-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.question-studio-toggle-group legend {
+  width: 100%;
+  margin-bottom: 2px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.question-studio-toggle-group label {
+  flex-direction: row;
+  align-items: center;
+  border: 1px solid rgba(20, 33, 61, 0.12);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.question-studio-progress {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.question-studio-progress div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e, #2563eb);
+  transition: width 220ms ease;
+}
+
+.question-studio-progress.is-active div {
+  background-size: 200% 100%;
+  animation: question-studio-progress-shift 1.4s linear infinite;
+}
+
+@keyframes question-studio-progress-shift {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.question-studio-progress-meta,
+.question-studio-metrics,
+.question-studio-score-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.question-studio-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.question-studio-metrics div {
+  border: 1px solid rgba(20, 33, 61, 0.1);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.question-studio-toolbar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.question-studio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question-studio-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 150px;
+  gap: 14px;
+  padding: 16px;
+}
+
+.question-studio-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.question-studio-card-head span,
+.question-studio-score-row span {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.question-studio-card h3 {
+  margin: 10px 0;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.question-studio-card p {
+  color: #475569;
+}
+
+.question-studio-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.question-studio-card-actions button:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+}
+
+.question-studio-state,
+.question-studio-alert,
+.question-studio-pagination {
+  padding: 16px;
+}
+
+.question-studio-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.question-studio-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.48);
+  padding: 20px;
+}
+
+.question-studio-modal-panel {
+  display: flex;
+  width: min(680px, 100%);
+  max-height: 90vh;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+}
+
+.question-studio-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .question-studio-header,
+  .question-studio-grid,
+  .question-studio-card {
+    grid-template-columns: 1fr;
+  }
+
+  .question-studio-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .question-studio-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .question-studio-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .question-studio-card-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
