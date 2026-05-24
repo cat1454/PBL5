@@ -1049,16 +1049,32 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setStreakBump(false);
     submittedQuestionKeysRef.current = new Set();
     questionStartTimeRef.current = Date.now();
-  }, [allQuestions, hideLowConfidence, mode]);
+  }, [documentId, mode, refreshToken, reloadKey]);
 
-  const currentQuestion = questions[currentQuestionIndex];
-  const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
+  useEffect(() => {
+    setCurrentQuestionIndex(0);
+    setSelectedAnswer(null);
+    setShowResult(false);
+    setAnswers([]);
+    setFinalScore(null);
+    setCurrentStreak(0);
+    setBestStreak(0);
+    setStreakBump(false);
+    submittedQuestionKeysRef.current = new Set();
+    questionStartTimeRef.current = Date.now();
+  }, [hideLowConfidence]);
+
+  const activeQuestionIndex = questions.length > 0
+    ? Math.min(currentQuestionIndex, questions.length - 1)
+    : 0;
+  const currentQuestion = questions[activeQuestionIndex];
+  const progress = questions.length > 0 ? ((activeQuestionIndex + 1) / questions.length) * 100 : 0;
   const topicDisplay = currentQuestion ? formatTopicForDisplay(currentQuestion.topic) : null;
   const quality = currentQuestion?.quality || {};
 
   useEffect(() => {
     questionStartTimeRef.current = Date.now();
-  }, [currentQuestion?.id, currentQuestionIndex, mode]);
+  }, [currentQuestion?.id, activeQuestionIndex, mode]);
 
   const handleAnswerSelect = (optionKey) => {
     if (!showResult) {
@@ -1090,7 +1106,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     }
 
     const submissionMode = isWeakReviewMode ? 'quiz' : mode;
-    const submissionKey = `${submissionMode}:${currentQuestion.id}:${currentQuestionIndex}`;
+    const submissionKey = `${submissionMode}:${currentQuestion.id}:${activeQuestionIndex}`;
     if (submittedQuestionKeysRef.current.has(submissionKey)) {
       return false;
     }
@@ -1491,7 +1507,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       <div className={`card study-card${isStreakMode ? ' streak-card' : ''}`}>
         <div className="study-card-toolbar">
           <div>
-            <h3>{t('quiz.questionProgress', { current: currentQuestionIndex + 1, total: questions.length })}</h3>
+            <h3>{t('quiz.questionProgress', { current: activeQuestionIndex + 1, total: questions.length })}</h3>
             <p className="study-card-caption">{isWeakReviewMode ? copy.weakReviewHint : getModeHint(mode, copy)}</p>
           </div>
           <div className="study-card-tools">
@@ -1510,7 +1526,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
           <StreakSummary
             currentStreak={currentStreak}
             bestStreak={bestStreak}
-            currentQuestionIndex={currentQuestionIndex}
+            currentQuestionIndex={activeQuestionIndex}
             total={questions.length}
             progress={progress}
             streakBump={streakBump}
