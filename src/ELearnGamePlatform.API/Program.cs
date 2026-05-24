@@ -16,7 +16,7 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
 using ELearnGamePlatform.Services.OCR;
-using ELearnGamePlatform.Services.QuestionStudio;
+using ELearnGamePlatform.API.Services.QuestionStudio;
 using ELearnGamePlatform.Services.Slides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;

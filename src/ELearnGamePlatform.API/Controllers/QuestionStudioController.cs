@@ -1,7 +1,7 @@
 using System.Text.Json;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
-using ELearnGamePlatform.Services.QuestionStudio;
+using ELearnGamePlatform.API.Services.QuestionStudio;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -245,7 +245,7 @@ public class QuestionStudioController : AuthenticatedControllerBase
             {
                 Key = ResolveOptionKey(option, index),
                 Text = ResolveOptionText(option),
-                IsCorrect = IsCorrectOption(option, request.CorrectAnswer)
+                IsCorrect = IsCorrectOption(option, index, request.CorrectAnswer)
             }).ToList());
         }
 
@@ -544,14 +544,14 @@ public class QuestionStudioController : AuthenticatedControllerBase
         return match.Success ? match.Groups[2].Value.Trim() : option.Trim();
     }
 
-    private static bool IsCorrectOption(string option, string? correctAnswer)
+    private static bool IsCorrectOption(string option, int index, string? correctAnswer)
     {
         if (string.IsNullOrWhiteSpace(correctAnswer))
         {
             return false;
         }
 
-        var key = ResolveOptionKey(option, 0);
+        var key = ResolveOptionKey(option, index);
         var text = ResolveOptionText(option);
         return string.Equals(key, correctAnswer.Trim(), StringComparison.OrdinalIgnoreCase)
             || string.Equals(text, correctAnswer.Trim(), StringComparison.OrdinalIgnoreCase);
