@@ -125,6 +125,8 @@ const questions = [
   },
 ];
 
+const originalRequestAnimationFrame = window.requestAnimationFrame;
+
 function cloneQuestions(items = questions) {
   return items.map((question) => ({
     ...question,
@@ -221,6 +223,14 @@ describe('StudyHub question modes', () => {
     learningService.recordAttempt.mockResolvedValue({});
   });
 
+  afterEach(() => {
+    if (originalRequestAnimationFrame) {
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+    } else {
+      delete window.requestAnimationFrame;
+    }
+  });
+
   it('keeps quiz result visible after revealing the answered question', async () => {
     gameService.getQuizGame.mockResolvedValue({ questions: cloneQuestions() });
     gameService.submitQuizAnswer.mockResolvedValue({
@@ -244,6 +254,53 @@ describe('StudyHub question modes', () => {
       await click(buttonByText(view.container, 'Next'));
 
       await waitFor(() => expect(view.container.textContent).toContain('Question 2 of 3'));
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('clears prior quiz answers when hiding low-confidence questions', async () => {
+    const mixedConfidenceQuestions = cloneQuestions([
+      questions[0],
+      {
+        ...questions[1],
+        quality: { isLowConfidence: true, score: 45 },
+      },
+    ]);
+
+    gameService.getQuizGame.mockResolvedValue({ questions: mixedConfidenceQuestions });
+    gameService.submitQuizAnswer.mockImplementation((documentId, questionId, selectedAnswer) => Promise.resolve({
+      questionId,
+      isCorrect: true,
+      correctAnswer: selectedAnswer,
+      explanation: `Explanation ${questionId}`,
+    }));
+
+    const view = await renderStudyHub('quiz');
+
+    try {
+      await waitFor(() => expect(view.container.textContent).toContain('Question 1 of 2'));
+
+      await click(buttonContaining(view.container, 'Alpha'));
+      await click(buttonByText(view.container, 'Submit'));
+      await waitFor(() => expect(view.container.textContent).toContain('Correct'));
+      await click(buttonByText(view.container, 'Next'));
+
+      await click(buttonContaining(view.container, 'Gamma'));
+      await click(buttonByText(view.container, 'Submit'));
+      await waitFor(() => expect(view.container.textContent).toContain('Explanation 102'));
+
+      await click(buttonByText(view.container, 'Hide low confidence'));
+      await waitFor(() => expect(view.container.textContent).toContain('Question 1 of 1'));
+      expect(view.container.textContent).not.toContain('Correct');
+
+      await click(buttonContaining(view.container, 'Alpha'));
+      await click(buttonByText(view.container, 'Submit'));
+      await waitFor(() => expect(view.container.textContent).toContain('Correct'));
+      await click(buttonByText(view.container, 'Finish'));
+
+      await waitFor(() => expect(view.container.textContent).toContain('Quiz completed'));
+      expect(view.container.textContent).toContain('1/1 correct');
     } finally {
       view.unmount();
     }
