@@ -191,6 +191,7 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
 
             migrationBuilder.CreateIndex(name: "ix_question_generation_runs_document_id_created_at", table: "question_generation_runs", columns: new[] { "document_id", "created_at" });
             migrationBuilder.CreateIndex(name: "ix_question_generation_runs_status", table: "question_generation_runs", column: "status");
+            migrationBuilder.CreateIndex(name: "ix_questions_source_draft_id", table: "questions", column: "source_draft_id", unique: true, filter: "source_draft_id IS NOT NULL");
             migrationBuilder.CreateIndex(name: "ix_question_source_units_document_id_topic_tag", table: "question_source_units", columns: new[] { "document_id", "topic_tag" });
             migrationBuilder.CreateIndex(name: "ix_question_source_units_generation_run_id", table: "question_source_units", column: "generation_run_id");
             migrationBuilder.CreateIndex(name: "ix_question_source_units_source_hash", table: "question_source_units", column: "source_hash");
@@ -211,6 +212,7 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
             migrationBuilder.DropTable(name: "question_drafts");
             migrationBuilder.DropTable(name: "question_source_units");
             migrationBuilder.DropTable(name: "question_generation_runs");
+            migrationBuilder.DropIndex(name: "ix_questions_source_draft_id", table: "questions");
             migrationBuilder.DropColumn(name: "quality_score", table: "questions");
             migrationBuilder.DropColumn(name: "source_draft_id", table: "questions");
         }

@@ -47,6 +47,7 @@ yarn-error.log*
 
 # React build
 client/build/
+client/build-codex-*/
 client/dist/
 
 # Runtime and generated files

@@ -8,6 +8,7 @@ using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace ELearnGamePlatform.Services.QuestionStudio;
 
@@ -23,6 +24,7 @@ public interface ICanonicalQuestionGenerator
         IReadOnlyCollection<QuestionSourceUnit> sourceUnits,
         IReadOnlyCollection<string> questionTypes,
         IReadOnlyCollection<string> difficulties,
+        int maxDrafts,
         CancellationToken cancellationToken = default);
 }
 
@@ -33,6 +35,7 @@ public interface IQuestionVariantGenerator
         IReadOnlyCollection<QuestionDraft> canonicalDrafts,
         IReadOnlyCollection<string> questionTypes,
         IReadOnlyCollection<string> difficulties,
+        int remainingDraftBudget,
         CancellationToken cancellationToken = default);
 }
 
@@ -106,7 +109,9 @@ public sealed class QuestionStudioOrchestrator
             await UpdateRunMetricsAsync(run, cancellationToken);
 
             await UpdateRunAsync(run, "Running", "GeneratingCanonical", cancellationToken);
-            var canonicalDrafts = await _canonicalQuestionGenerator.GenerateAsync(run, sourceUnits, questionTypes, difficulties, cancellationToken);
+            var profile = QuestionStudioDefaults.ResolveProfile(run.Mode);
+            var canonicalDraftBudget = CalculateCanonicalDraftBudget(run.TargetDraftCount, profile);
+            var canonicalDrafts = await _canonicalQuestionGenerator.GenerateAsync(run, sourceUnits, questionTypes, difficulties, canonicalDraftBudget, cancellationToken);
             _context.QuestionDrafts.AddRange(canonicalDrafts);
             await _context.SaveChangesAsync(cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
@@ -130,7 +135,8 @@ public sealed class QuestionStudioOrchestrator
                 .ToListAsync(cancellationToken);
 
             await UpdateRunAsync(run, "Running", "GeneratingVariants", cancellationToken);
-            var variantDrafts = await _variantGenerator.GenerateAsync(run, refreshedCanonical, questionTypes, difficulties, cancellationToken);
+            var remainingDraftBudget = Math.Max(0, run.TargetDraftCount - canonicalDrafts.Count);
+            var variantDrafts = await _variantGenerator.GenerateAsync(run, refreshedCanonical, questionTypes, difficulties, remainingDraftBudget, cancellationToken);
             _context.QuestionDrafts.AddRange(variantDrafts);
             await _context.SaveChangesAsync(cancellationToken);
 
@@ -154,6 +160,17 @@ public sealed class QuestionStudioOrchestrator
             _logger.LogError(ex, "Question Studio run {RunId} failed", runId);
             await UpdateRunAsync(run, "Failed", "Failed", cancellationToken, errorMessage: ex.Message, completedAt: DateTime.UtcNow);
         }
+    }
+
+    private static int CalculateCanonicalDraftBudget(int targetDraftCount, QuestionStudioProfile profile)
+    {
+        if (targetDraftCount <= 1 || profile.VariantsPerCanonical <= 0)
+        {
+            return Math.Max(1, targetDraftCount);
+        }
+
+        var seedBudget = (int)Math.Ceiling(targetDraftCount / (double)(profile.VariantsPerCanonical + 1));
+        return Math.Clamp(seedBudget, 1, targetDraftCount);
     }
 
     private async Task UpdateRunAsync(
@@ -398,14 +415,16 @@ public sealed class CanonicalQuestionGenerator : ICanonicalQuestionGenerator
         IReadOnlyCollection<QuestionSourceUnit> sourceUnits,
         IReadOnlyCollection<string> questionTypes,
         IReadOnlyCollection<string> difficulties,
+        int maxDrafts,
         CancellationToken cancellationToken = default)
     {
         var profile = QuestionStudioDefaults.ResolveProfile(run.Mode);
         var drafts = new List<QuestionDraft>();
+        var draftLimit = Math.Clamp(maxDrafts, 0, run.TargetDraftCount);
 
         foreach (var unit in sourceUnits.OrderByDescending(x => x.Confidence))
         {
-            if (drafts.Count >= run.TargetDraftCount)
+            if (drafts.Count >= draftLimit)
             {
                 break;
             }
@@ -418,7 +437,7 @@ public sealed class CanonicalQuestionGenerator : ICanonicalQuestionGenerator
 
             foreach (var item in generated.Take(profile.CanonicalPerUnit))
             {
-                if (drafts.Count >= run.TargetDraftCount)
+                if (drafts.Count >= draftLimit)
                 {
                     break;
                 }
@@ -505,11 +524,12 @@ public sealed class QuestionVariantGenerator : IQuestionVariantGenerator
         IReadOnlyCollection<QuestionDraft> canonicalDrafts,
         IReadOnlyCollection<string> questionTypes,
         IReadOnlyCollection<string> difficulties,
+        int remainingDraftBudget,
         CancellationToken cancellationToken = default)
     {
         var profile = QuestionStudioDefaults.ResolveProfile(run.Mode);
         var drafts = new List<QuestionDraft>();
-        var remaining = Math.Max(0, run.TargetDraftCount - canonicalDrafts.Count);
+        var remaining = Math.Clamp(remainingDraftBudget, 0, run.TargetDraftCount);
 
         foreach (var canonical in canonicalDrafts.OrderByDescending(x => x.OverallScore))
         {
@@ -577,6 +597,7 @@ public sealed class QuestionDraftVerifier : IQuestionDraftVerifier
         var issues = new List<string>();
         if (string.IsNullOrWhiteSpace(draft.QuestionText)) issues.Add("Question text is required.");
         if (RequiresAnswer(draft.QuestionType) && string.IsNullOrWhiteSpace(draft.CorrectAnswer)) issues.Add("Correct answer is required.");
+        if (RequiresAnswer(draft.QuestionType) && IsPlaceholderAnswer(draft.QuestionType, draft.CorrectAnswer)) issues.Add("Correct answer looks like a placeholder.");
         if (draft.QuestionText.Length > 700) issues.Add("Question text is too long.");
         if (draft.QuestionText.Contains("```", StringComparison.Ordinal) || draft.QuestionText.Contains("{\"", StringComparison.Ordinal)) issues.Add("Question text contains markup or JSON artifacts.");
         if (draft.DraftKind == "Canonical" && string.IsNullOrWhiteSpace(draft.SourceEvidence)) issues.Add("Source evidence is required.");
@@ -596,6 +617,21 @@ public sealed class QuestionDraftVerifier : IQuestionDraftVerifier
         return issues;
     }
 
+    private static bool IsPlaceholderAnswer(string questionType, string? answer)
+    {
+        if (questionType is not ("ShortAnswer" or "Flashcard" or "FillInTheBlank"))
+        {
+            return false;
+        }
+
+        var normalized = answer?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ||
+            string.Equals(normalized, "A", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "N/A", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "TODO", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("Reference option ", StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<QuestionStudioVerificationResult?> VerifyWithAiAsync(QuestionDraft draft)
     {
         try
@@ -608,7 +644,8 @@ Correct answer: {draft.CorrectAnswer}
 Explanation: {draft.Explanation}
 Source evidence: {draft.SourceEvidence}
 
-Return JSON only:
+Return JSON only. All score fields must be JSON numbers between 0.0 and 1.0.
+Never return scores as strings, empty strings, null, percentages, or words.
 {{
   ""groundingScore"": 0.0,
   ""answerScore"": 0.0,
@@ -617,7 +654,7 @@ Return JSON only:
 }}";
             return await _ollamaService.GenerateStructuredResponseAsync<QuestionStudioVerificationResult>(
                 prompt,
-                "Return valid JSON only.",
+                "Return valid JSON only. Score fields must be numeric JSON values from 0.0 to 1.0, never strings.",
                 OllamaModelProfile.Verification);
         }
         catch (Exception ex)
@@ -757,13 +794,6 @@ public sealed class QuestionDraftImportService : IQuestionDraftImportService
     public async Task<QuestionDraftImportResult> ImportAsync(int documentId, IReadOnlyCollection<int> draftIds, string userId, CancellationToken cancellationToken = default)
     {
         var normalizedIds = draftIds.Distinct().ToList();
-        var drafts = await _context.QuestionDrafts
-            .Where(x => normalizedIds.Contains(x.Id) && x.DocumentId == documentId)
-            .ToListAsync(cancellationToken);
-        var existingSourceDraftIds = await _context.Questions
-            .Where(x => x.SourceDraftId.HasValue && normalizedIds.Contains(x.SourceDraftId.Value))
-            .Select(x => x.SourceDraftId!.Value)
-            .ToListAsync(cancellationToken);
         var existingQuestionHashes = (await _context.Questions
             .Where(x => x.DocumentId == documentId && !x.IsArchived)
             .Select(x => x.QuestionText)
@@ -773,43 +803,70 @@ public sealed class QuestionDraftImportService : IQuestionDraftImportService
 
         var skipped = new List<int>();
         var imported = 0;
-        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        var affectedRunIds = new HashSet<int>();
 
         foreach (var draftId in normalizedIds)
         {
-            var draft = drafts.FirstOrDefault(x => x.Id == draftId);
-            if (draft == null ||
-                draft.Status is not ("Verified" or "Borderline") ||
-                existingSourceDraftIds.Contains(draft.Id) ||
-                existingQuestionHashes.Contains(QuestionStudioText.HashStem(draft.QuestionText)))
+            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+            var draft = await _context.QuestionDrafts
+                .FirstOrDefaultAsync(x => x.Id == draftId && x.DocumentId == documentId, cancellationToken);
+            if (draft == null || draft.Status is not ("Verified" or "Borderline"))
             {
                 skipped.Add(draftId);
+                await transaction.RollbackAsync(cancellationToken);
                 continue;
             }
 
-            var question = BuildQuestion(draft);
-            _context.Questions.Add(question);
-            var before = JsonSerializer.Serialize(new { draft.Status });
-            draft.Status = "Imported";
-            draft.ImportedAt = DateTime.UtcNow;
-            _context.QuestionReviewEvents.Add(new QuestionReviewEvent
+            var alreadyImported = await _context.Questions
+                .AnyAsync(x => x.SourceDraftId == draft.Id, cancellationToken);
+            var draftHash = QuestionStudioText.HashStem(draft.QuestionText);
+            if (alreadyImported || existingQuestionHashes.Contains(draftHash))
             {
-                QuestionDraftId = draft.Id,
-                UserId = userId,
-                Action = "Import",
-                BeforeJson = before,
-                AfterJson = JsonSerializer.Serialize(new { draft.Status, draft.ImportedAt }),
-                Note = "Imported into Question bank."
-            });
-            existingQuestionHashes.Add(QuestionStudioText.HashStem(draft.QuestionText));
-            imported++;
+                skipped.Add(draftId);
+                await transaction.RollbackAsync(cancellationToken);
+                continue;
+            }
+
+            try
+            {
+                var question = BuildQuestion(draft);
+                _context.Questions.Add(question);
+                var before = JsonSerializer.Serialize(new { draft.Status });
+                draft.Status = "Imported";
+                draft.ImportedAt = DateTime.UtcNow;
+                _context.QuestionReviewEvents.Add(new QuestionReviewEvent
+                {
+                    QuestionDraftId = draft.Id,
+                    UserId = userId,
+                    Action = "Import",
+                    BeforeJson = before,
+                    AfterJson = JsonSerializer.Serialize(new { draft.Status, draft.ImportedAt }),
+                    Note = "Imported into Question bank."
+                });
+
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                existingQuestionHashes.Add(draftHash);
+                affectedRunIds.Add(draft.GenerationRunId);
+                imported++;
+            }
+            catch (DbUpdateException ex) when (IsUniqueSourceDraftViolation(ex))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                _context.ChangeTracker.Clear();
+                skipped.Add(draftId);
+            }
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        await UpdateRunImportedCountsAsync(drafts.Select(x => x.GenerationRunId).Distinct().ToList(), cancellationToken);
+        await UpdateRunImportedCountsAsync(affectedRunIds.ToList(), cancellationToken);
         return new QuestionDraftImportResult(imported, skipped.Count, skipped);
     }
+
+    private static bool IsUniqueSourceDraftViolation(DbUpdateException exception)
+        => exception.InnerException is PostgresException postgresException &&
+            postgresException.SqlState == PostgresErrorCodes.UniqueViolation &&
+            (string.Equals(postgresException.ConstraintName, "ix_questions_source_draft_id", StringComparison.OrdinalIgnoreCase) ||
+                postgresException.MessageText.Contains("source_draft_id", StringComparison.OrdinalIgnoreCase));
 
     private async Task UpdateRunImportedCountsAsync(IReadOnlyCollection<int> runIds, CancellationToken cancellationToken)
     {
@@ -1162,9 +1219,16 @@ internal static class QuestionStudioDraftFactory
 
     private static string NormalizeAnswer(string? value, string questionType)
     {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return questionType is "ShortAnswer" or "Flashcard" or "FillInTheBlank"
+                ? string.Empty
+                : "A";
+        }
+
         if (questionType == "TrueFalse")
         {
-            return value?.Trim().ToLowerInvariant() switch
+            return value.Trim().ToLowerInvariant() switch
             {
                 "false" => "B",
                 "b" => "B",
@@ -1172,7 +1236,7 @@ internal static class QuestionStudioDraftFactory
             };
         }
 
-        return string.IsNullOrWhiteSpace(value) ? "A" : Truncate(NormalizeText(value), 500);
+        return Truncate(NormalizeText(value), 500);
     }
 
     private static string NormalizeDifficulty(string? value)

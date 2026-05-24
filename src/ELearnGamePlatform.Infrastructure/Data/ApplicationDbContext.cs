@@ -156,6 +156,9 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => e.IsArchived);
             entity.HasIndex(e => new { e.DocumentId, e.QuestionType });
+            entity.HasIndex(e => e.SourceDraftId)
+                .IsUnique()
+                .HasFilter("source_draft_id IS NOT NULL");
 
             entity.Property(e => e.QuestionText)
                 .HasColumnType("text")
@@ -200,6 +203,7 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.DocumentId, e.TopicTag });
+            entity.HasIndex(e => e.GenerationRunId);
             entity.HasIndex(e => e.SourceHash);
 
             entity.Property(e => e.Content)
@@ -220,6 +224,8 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => new { e.DocumentId, e.Status });
             entity.HasIndex(e => new { e.GenerationRunId, e.Status });
             entity.HasIndex(e => new { e.TopicTag, e.Difficulty });
+            entity.HasIndex(e => e.ParentDraftId);
+            entity.HasIndex(e => e.SourceUnitId);
             entity.HasIndex(e => e.StemHash);
 
             entity.Property(e => e.QuestionText)

@@ -5,7 +5,6 @@ import {
   getApiErrorMessage,
   isApiJobNotFound,
   isSlideSchemaUnavailable,
-  questionService,
   slideService,
   workspaceService,
 } from '../services/api';
@@ -494,18 +493,6 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
       </div>
     </div>
   );
-}
-
-function getQuestionCountFromCollection(payload) {
-  if (Array.isArray(payload)) {
-    return payload.length;
-  }
-
-  if (Array.isArray(payload?.questions)) {
-    return payload.questions.length;
-  }
-
-  return 0;
 }
 
 function FolderStudio() {
@@ -1514,147 +1501,6 @@ function FolderStudio() {
     }
 
     navigate(`/question-studio/${selectedSourceDocumentId}`);
-    return;
-
-    // eslint-disable-next-line no-unreachable
-    const readinessDecision = confirmGenerationReadiness(getDocumentReadiness(selectedSource), language);
-    if (!readinessDecision.allowed) {
-      return;
-    }
-
-    setQuestionError('');
-    setQuestionProgress(normalizeProgressState({
-      status: 'queued',
-      stage: 'queued',
-      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
-      message: language === 'vi'
-        ? 'Đã tạo job sinh câu hỏi cho source đã chọn.'
-        : 'Created a question generation job for the selected source.',
-      percent: 0,
-      documentId: selectedSourceDocumentId,
-    }, { documentId: selectedSourceDocumentId }));
-
-    showToast({
-      type: 'info',
-      message: language === 'vi' ? 'Đã bắt đầu tạo bộ câu hỏi.' : 'Started generating the question bank.',
-      description: language === 'vi'
-        ? 'Tiến trình sẽ hiển thị ngay trong action panel.'
-        : 'Progress will continue in the action panel.',
-    });
-
-    try {
-      const startResult = await questionService.startGenerateQuestions(selectedSourceDocumentId, 5, null, {
-        confirmLowConfidence: readinessDecision.confirmed,
-      });
-      const nextJobId = startResult?.jobId;
-      if (!nextJobId) {
-        throw new Error(language === 'vi'
-          ? 'Không tạo được mã tiến trình cho question bank.'
-          : 'Could not create a progress job for the question bank.');
-      }
-
-      const timeoutAt = Date.now() + (5 * 60 * 1000);
-
-      while (Date.now() < timeoutAt) {
-        let nextProgress;
-
-        try {
-          nextProgress = normalizeProgressState(
-            await questionService.getGenerateProgress(nextJobId),
-            { documentId: selectedSourceDocumentId, jobId: nextJobId }
-          );
-        } catch (progressError) {
-          if (!isApiJobNotFound(progressError)) {
-            throw progressError;
-          }
-
-          const workspaceSnapshot = await loadWorkspace({ silent: true });
-          const refreshedSource = (workspaceSnapshot?.sourceData || []).find((source) => Number(source.id) === Number(selectedSourceDocumentId));
-          const persistedCount = Number(refreshedSource?.questionsCount ?? refreshedSource?.QuestionsCount ?? 0);
-          const fallbackQuestions = persistedCount > 0
-            ? null
-            : await questionService.getQuestionsByDocument(selectedSourceDocumentId);
-          const recoveredCount = persistedCount > 0 ? persistedCount : getQuestionCountFromCollection(fallbackQuestions);
-
-          if (recoveredCount > 0) {
-            setQuestionProgress(normalizeProgressState(questionProgress, {
-              documentId: selectedSourceDocumentId,
-              jobId: nextJobId,
-              status: 'completed',
-              percent: 100,
-              questionsGenerated: recoveredCount,
-              message: language === 'vi'
-                ? 'Khôi phục question bank sau khi mất tiến trình.'
-                : 'Recovered the question bank after progress tracking was lost.',
-            }));
-            setQuestionError('');
-            showToast({
-              type: 'success',
-              message: language === 'vi'
-                ? `Đã khôi phục question bank (${recoveredCount} câu).`
-                : `Recovered question bank (${recoveredCount} questions).`,
-            });
-            navigate(`/study/${selectedSourceDocumentId}`);
-            return;
-          }
-
-          throw new Error(language === 'vi'
-            ? 'Mất tiến trình tạo câu hỏi. Hãy thử lại.'
-            : 'Question generation progress was lost. Please try again.');
-        }
-
-        setQuestionProgress(nextProgress);
-
-        if (nextProgress.status === 'completed') {
-          const latestQuestions = await questionService.getQuestionsByDocument(selectedSourceDocumentId);
-          const generatedCount = getQuestionCountFromCollection(latestQuestions) || nextProgress.questionsGenerated || 0;
-          await loadWorkspace({ silent: true });
-          showToast({
-            type: 'success',
-            message: language === 'vi'
-              ? `Đã tạo xong bộ câu hỏi (${generatedCount} câu).`
-              : `Question bank ready (${generatedCount} questions).`,
-          });
-          navigate(`/study/${selectedSourceDocumentId}`);
-          return;
-        }
-
-        if (nextProgress.status === 'failed') {
-          throw new Error(nextProgress.error || nextProgress.detail || nextProgress.message || 'Question generation failed');
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-      }
-
-      throw new Error(language === 'vi'
-        ? 'Hết thời gian chờ tiến trình tạo câu hỏi.'
-        : 'Timed out while waiting for question generation progress.');
-    } catch (err) {
-      console.error(err);
-      const nextError = getApiErrorMessage(err, language === 'vi'
-        ? 'Không thể tạo question bank lúc này.'
-        : 'Could not generate the question bank right now.');
-      setQuestionError(nextError);
-      setQuestionProgress((current) => (
-        current?.status === 'completed'
-          ? current
-          : normalizeProgressState(current, {
-            documentId: selectedSourceDocumentId,
-            status: 'failed',
-            error: nextError,
-            message: nextError,
-          })
-      ));
-      showToast({
-        type: 'error',
-        message: language === 'vi' ? 'Không tạo được câu hỏi.' : 'Could not generate questions.',
-        description: nextError,
-      });
-    } finally {
-      setQuestionProgress((current) => (
-        current?.status === 'completed' || current?.status === 'failed' ? current : null
-      ));
-    }
   };
 
   const handleSelectImage = async (candidateKey) => {

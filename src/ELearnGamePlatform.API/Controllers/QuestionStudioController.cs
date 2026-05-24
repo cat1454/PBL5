@@ -51,12 +51,13 @@ public class QuestionStudioController : AuthenticatedControllerBase
     [HttpPost("runs/start")]
     public async Task<IActionResult> StartRun([FromBody] StartQuestionStudioRunRequest request, CancellationToken cancellationToken)
     {
+        var normalizedMode = request.Mode?.Trim().ToLowerInvariant();
         if (request.TargetDraftCount < 1 || request.TargetDraftCount > 300)
         {
             return ApiBadRequest("invalid_target_draft_count", "targetDraftCount must be between 1 and 300.");
         }
 
-        if (!AllowedModes.Contains(request.Mode))
+        if (string.IsNullOrWhiteSpace(normalizedMode) || !AllowedModes.Contains(normalizedMode))
         {
             return ApiBadRequest("invalid_mode", "mode must be fast, balanced, quality, or max_draft.");
         }
@@ -94,13 +95,13 @@ public class QuestionStudioController : AuthenticatedControllerBase
         {
             DocumentId = document.Id,
             UserId = CurrentUserIdAsString,
-            Mode = request.Mode.Trim().ToLowerInvariant(),
+            Mode = normalizedMode,
             Status = "Pending",
             Stage = "Created",
             TargetDraftCount = request.TargetDraftCount,
             RequestedQuestionTypesJson = JsonSerializer.Serialize(questionTypes),
             RequestedDifficultiesJson = JsonSerializer.Serialize(difficulties),
-            ModelProfileJson = JsonSerializer.Serialize(new { mode = request.Mode.Trim().ToLowerInvariant() })
+            ModelProfileJson = JsonSerializer.Serialize(new { mode = normalizedMode })
         };
 
         _context.QuestionGenerationRuns.Add(run);
@@ -251,7 +252,17 @@ public class QuestionStudioController : AuthenticatedControllerBase
         draft.CorrectAnswer = request.CorrectAnswer?.Trim() ?? draft.CorrectAnswer;
         draft.Explanation = request.Explanation?.Trim() ?? draft.Explanation;
         draft.Difficulty = NormalizeDifficulties(new[] { request.Difficulty ?? draft.Difficulty }).FirstOrDefault() ?? draft.Difficulty;
-        draft.TopicTag = request.TopicTag?.Trim() ?? draft.TopicTag;
+        if (request.TopicTag != null)
+        {
+            var topicTag = request.TopicTag.Trim();
+            if (topicTag.Length > 200)
+            {
+                return ApiBadRequest("invalid_topic_tag", "topicTag must be 200 characters or fewer.");
+            }
+
+            draft.TopicTag = topicTag;
+        }
+
         draft.OverallScore = 0;
         draft.GroundingScore = 0;
         draft.AnswerScore = 0;

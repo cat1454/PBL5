@@ -48,14 +48,14 @@ function QuestionStudioPage() {
     )))
     : 0;
 
-  const loadDrafts = useCallback(async (nextFilters = filters) => {
+  const loadDrafts = useCallback(async (nextFilters, nextRunId) => {
     if (!documentId) {
       return;
     }
 
     const payload = await questionStudioService.listDrafts({
       documentId,
-      runId: runId || undefined,
+      runId: nextRunId || undefined,
       status: nextFilters.status || undefined,
       type: nextFilters.type || undefined,
       difficulty: nextFilters.difficulty || undefined,
@@ -66,7 +66,7 @@ function QuestionStudioPage() {
     setDrafts(Array.isArray(payload?.data) ? payload.data : []);
     setPagination(payload?.pagination || null);
     setSelectedDraftIds((current) => current.filter((id) => (payload?.data || []).some((draft) => draft.id === id)));
-  }, [documentId, filters, runId]);
+  }, [documentId]);
 
   useEffect(() => {
     let active = true;
@@ -80,7 +80,6 @@ function QuestionStudioPage() {
           return;
         }
         setDocumentMeta(documentData);
-        await loadDrafts();
       } catch (err) {
         if (active) {
           setError(getApiErrorMessage(err, t('questionStudio.errors.loadFailed')));
@@ -96,7 +95,26 @@ function QuestionStudioPage() {
     return () => {
       active = false;
     };
-  }, [documentId, loadDrafts, t]);
+  }, [documentId, t]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadFilteredDrafts() {
+      try {
+        await loadDrafts(filters, runId);
+      } catch (err) {
+        if (active) {
+          setError(getApiErrorMessage(err, t('questionStudio.errors.loadDraftsFailed')));
+        }
+      }
+    }
+
+    loadFilteredDrafts();
+    return () => {
+      active = false;
+    };
+  }, [filters, loadDrafts, runId, t]);
 
   useEffect(() => {
     if (!runId || terminalRun) {
@@ -107,14 +125,14 @@ function QuestionStudioPage() {
       try {
         const nextRun = await questionStudioService.getRun(runId);
         setRun(nextRun);
-        await loadDrafts();
+        await loadDrafts(filters, runId);
       } catch (err) {
         setError(getApiErrorMessage(err, t('questionStudio.errors.progressFailed')));
       }
     }, 2500);
 
     return () => window.clearInterval(timer);
-  }, [loadDrafts, runId, terminalRun, t]);
+  }, [filters, loadDrafts, runId, terminalRun, t]);
 
   const selectedVerifiedCount = useMemo(
     () => drafts.filter((draft) => selectedDraftIds.includes(draft.id) && ['Verified', 'Borderline'].includes(draft.status)).length,
@@ -147,11 +165,6 @@ function QuestionStudioPage() {
     const nextFilters = { ...filters, ...patch, page: patch.page || 1 };
     setFilters(nextFilters);
     setError('');
-    try {
-      await loadDrafts(nextFilters);
-    } catch (err) {
-      setError(getApiErrorMessage(err, t('questionStudio.errors.loadDraftsFailed')));
-    }
   };
 
   const toggleDraftSelection = (draftId) => {
@@ -174,7 +187,7 @@ function QuestionStudioPage() {
       if (action === 'reject') await questionStudioService.rejectDraft(draftId);
       if (action === 'quarantine') await questionStudioService.quarantineDraft(draftId);
       if (action === 'restore') await questionStudioService.restoreDraft(draftId);
-      await loadDrafts();
+      await loadDrafts(filters, runId);
     } catch (err) {
       setError(getApiErrorMessage(err, t('questionStudio.errors.actionFailed')));
     } finally {
@@ -190,7 +203,7 @@ function QuestionStudioPage() {
       const result = await questionStudioService.importDrafts({ documentId, draftIds: selectedDraftIds });
       setFeedback(t('questionStudio.feedback.imported', { count: result.importedCount || 0, skipped: result.skippedCount || 0 }));
       setSelectedDraftIds([]);
-      await loadDrafts();
+      await loadDrafts(filters, runId);
       if (runId) {
         setRun(await questionStudioService.getRun(runId));
       }
@@ -218,7 +231,7 @@ function QuestionStudioPage() {
         topicTag: editingDraft.topicTag,
       });
       setEditingDraft(null);
-      await loadDrafts();
+      await loadDrafts(filters, runId);
     } catch (err) {
       setError(getApiErrorMessage(err, t('questionStudio.errors.saveFailed')));
     } finally {
@@ -384,6 +397,10 @@ function QuestionStudioPage() {
             <label>
               {t('questionStudio.explanation')}
               <textarea value={editingDraft.explanation || ''} onChange={(event) => setEditingDraft((current) => ({ ...current, explanation: event.target.value }))} />
+            </label>
+            <label>
+              {t('questionStudio.topicTag')}
+              <input maxLength={200} value={editingDraft.topicTag || ''} onChange={(event) => setEditingDraft((current) => ({ ...current, topicTag: event.target.value }))} />
             </label>
             <div className="question-studio-modal-actions">
               <button type="button" className="button button-secondary" onClick={() => setEditingDraft(null)}>{t('questionStudio.cancel')}</button>
