@@ -1049,7 +1049,14 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     setStreakBump(false);
     submittedQuestionKeysRef.current = new Set();
     questionStartTimeRef.current = Date.now();
-  }, [allQuestions, hideLowConfidence, mode]);
+  }, [documentId, mode, refreshToken, reloadKey]);
+
+  useEffect(() => {
+    setCurrentQuestionIndex(0);
+    setSelectedAnswer(null);
+    setShowResult(false);
+    questionStartTimeRef.current = Date.now();
+  }, [hideLowConfidence]);
 
   const currentQuestion = questions[currentQuestionIndex];
   const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
