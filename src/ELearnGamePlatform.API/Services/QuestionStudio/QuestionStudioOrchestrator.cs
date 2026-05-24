@@ -14,6 +14,7 @@ namespace ELearnGamePlatform.API.Services.QuestionStudio;
 public sealed class QuestionStudioOrchestrator
 {
     private const string SafeRunFailureMessage = "Question Studio run failed. Please try again or contact support if the problem continues.";
+    private const string MissingDocumentFailureMessage = "Question Studio source document was not found.";
 
     private readonly ApplicationDbContext _context;
     private readonly IQuestionSourceUnitExtractor _sourceUnitExtractor;
@@ -44,10 +45,18 @@ public sealed class QuestionStudioOrchestrator
     public async Task RunAsync(int runId, CancellationToken cancellationToken = default)
     {
         var run = await _context.QuestionGenerationRuns
-            .Include(x => x.Document)
             .FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
-        if (run?.Document == null)
+        if (run == null)
         {
+            _logger.LogWarning("Question Studio run {RunId} was not found", runId);
+            return;
+        }
+
+        var document = await _context.Documents.FirstOrDefaultAsync(x => x.Id == run.DocumentId, cancellationToken);
+        if (document == null)
+        {
+            _logger.LogWarning("Question Studio run {RunId} has no source document", runId);
+            await UpdateRunAsync(run, "Failed", "Failed", cancellationToken, errorMessage: MissingDocumentFailureMessage, completedAt: DateTime.UtcNow);
             return;
         }
 
@@ -58,7 +67,7 @@ public sealed class QuestionStudioOrchestrator
             var questionTypes = ParseStringList(run.RequestedQuestionTypesJson, QuestionStudioDefaults.DefaultQuestionTypes);
             var difficulties = ParseStringList(run.RequestedDifficultiesJson, QuestionStudioDefaults.DefaultDifficulties);
 
-            var sourceUnits = await _sourceUnitExtractor.ExtractAsync(run.Document, run.Id, cancellationToken);
+            var sourceUnits = await _sourceUnitExtractor.ExtractAsync(document, run.Id, cancellationToken);
             _context.QuestionSourceUnits.AddRange(sourceUnits);
             await _context.SaveChangesAsync(cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
@@ -79,7 +88,7 @@ public sealed class QuestionStudioOrchestrator
 
             await _context.SaveChangesAsync(cancellationToken);
 
-            await UpdateRunAsync(run, "Running", "Deduplicating", cancellationToken);
+            await UpdateRunAsync(run, "Running", "DeduplicatingCanonical", cancellationToken);
             await _deduplicator.MarkDuplicatesAsync(run.Id, cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
 
@@ -115,7 +124,7 @@ public sealed class QuestionStudioOrchestrator
 
             await _context.SaveChangesAsync(cancellationToken);
 
-            await UpdateRunAsync(run, "Running", "Deduplicating", cancellationToken);
+            await UpdateRunAsync(run, "Running", "DeduplicatingVariants", cancellationToken);
             await _deduplicator.MarkDuplicatesAsync(run.Id, cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
 

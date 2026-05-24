@@ -241,6 +241,11 @@ public class QuestionStudioController : AuthenticatedControllerBase
         draft.QuestionText = request.QuestionText?.Trim() ?? draft.QuestionText;
         if (request.Options != null)
         {
+            if (request.Options.Count > 6)
+            {
+                return ApiBadRequest("invalid_options", "options must include 6 items or fewer.");
+            }
+
             draft.OptionsJson = JsonSerializer.Serialize(request.Options.Select((option, index) => new QuestionOption
             {
                 Key = ResolveOptionKey(option, index),
@@ -432,9 +437,10 @@ public class QuestionStudioController : AuthenticatedControllerBase
             "ExtractingSourceUnits" => 5,
             "GeneratingCanonical" => Math.Max(10, EstimateDraftProgress(run, 10, 55)),
             "VerifyingCanonical" => Math.Max(55, EstimateDraftProgress(run, 55, 65)),
-            "Deduplicating" => Math.Max(65, EstimateDraftProgress(run, 65, 75)),
+            "DeduplicatingCanonical" => Math.Max(65, EstimateDraftProgress(run, 65, 75)),
             "GeneratingVariants" => Math.Max(75, EstimateDraftProgress(run, 75, 90)),
             "VerifyingVariants" => Math.Max(90, EstimateDraftProgress(run, 90, 96)),
+            "DeduplicatingVariants" => Math.Max(96, EstimateDraftProgress(run, 96, 99)),
             _ => Math.Clamp(EstimateDraftProgress(run, 0, 95), 0, 95)
         };
     }
@@ -457,7 +463,7 @@ public class QuestionStudioController : AuthenticatedControllerBase
             draft.ParentDraftId,
             draft.QuestionText,
             draft.QuestionType,
-            options = ParseJsonArray(draft.OptionsJson),
+            options = BuildOptionPayloads(draft.OptionsJson),
             draft.CorrectAnswer,
             draft.Explanation,
             draft.Difficulty,
@@ -475,6 +481,16 @@ public class QuestionStudioController : AuthenticatedControllerBase
             draft.VerifiedAt,
             draft.ImportedAt
         };
+
+    private static object BuildOptionPayloads(string? optionsJson)
+        => QuestionStudioDraftFactory.ParseOptions(optionsJson)
+            .Select(option => new
+            {
+                key = option.Key,
+                text = option.Text,
+                isCorrect = option.IsCorrect
+            })
+            .ToList();
 
     private static List<string> NormalizeQuestionTypes(IEnumerable<string>? values)
     {
@@ -534,14 +550,15 @@ public class QuestionStudioController : AuthenticatedControllerBase
 
     private static string ResolveOptionKey(string option, int index)
     {
-        var match = System.Text.RegularExpressions.Regex.Match(option.Trim(), @"^([A-Fa-f])[\).\:\-]\s*(.+)$");
+        var match = System.Text.RegularExpressions.Regex.Match((option ?? string.Empty).Trim(), @"^([A-Fa-f])[\).\:\-]\s*(.+)$");
         return match.Success ? match.Groups[1].Value.ToUpperInvariant() : ((char)('A' + index)).ToString();
     }
 
     private static string ResolveOptionText(string option)
     {
-        var match = System.Text.RegularExpressions.Regex.Match(option.Trim(), @"^([A-Fa-f])[\).\:\-]\s*(.+)$");
-        return match.Success ? match.Groups[2].Value.Trim() : option.Trim();
+        var value = (option ?? string.Empty).Trim();
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"^([A-Fa-f])[\).\:\-]\s*(.+)$");
+        return match.Success ? match.Groups[2].Value.Trim() : value;
     }
 
     private static bool IsCorrectOption(string option, int index, string? correctAnswer)
