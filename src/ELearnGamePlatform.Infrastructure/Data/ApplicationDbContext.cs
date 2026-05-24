@@ -15,6 +15,10 @@ public class ApplicationDbContext : DbContext
     public DbSet<Document> Documents { get; set; }
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
+    public DbSet<QuestionGenerationRun> QuestionGenerationRuns { get; set; }
+    public DbSet<QuestionSourceUnit> QuestionSourceUnits { get; set; }
+    public DbSet<QuestionDraft> QuestionDrafts { get; set; }
+    public DbSet<QuestionReviewEvent> QuestionReviewEvents { get; set; }
     public DbSet<GameSession> GameSessions { get; set; }
     public DbSet<LearningAttempt> LearningAttempts { get; set; }
     public DbSet<LearningProgress> LearningProgresses { get; set; }
@@ -85,6 +89,21 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(q => q.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasMany(d => d.QuestionGenerationRuns)
+                .WithOne(run => run.Document)
+                .HasForeignKey(run => run.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(d => d.QuestionSourceUnits)
+                .WithOne(unit => unit.Document)
+                .HasForeignKey(unit => unit.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(d => d.QuestionDrafts)
+                .WithOne(draft => draft.Document)
+                .HasForeignKey(draft => draft.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             entity.HasMany(d => d.GameSessions)
                 .WithOne(g => g.Document)
                 .HasForeignKey(g => g.DocumentId)
@@ -137,6 +156,9 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => e.IsArchived);
             entity.HasIndex(e => new { e.DocumentId, e.QuestionType });
+            entity.HasIndex(e => e.SourceDraftId)
+                .IsUnique()
+                .HasFilter("source_draft_id IS NOT NULL");
 
             entity.Property(e => e.QuestionText)
                 .HasColumnType("text")
@@ -150,6 +172,119 @@ public class ApplicationDbContext : DbContext
 
             entity.Property(e => e.VerifierIssuesJson)
                 .HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<QuestionGenerationRun>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.DocumentId, e.CreatedAt });
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.RequestedQuestionTypesJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.RequestedDifficultiesJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.ModelProfileJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.FailureStatsJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.MetricsJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.ErrorMessage)
+                .HasColumnType("text");
+        });
+
+        modelBuilder.Entity<QuestionSourceUnit>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.DocumentId, e.TopicTag });
+            entity.HasIndex(e => e.GenerationRunId);
+            entity.HasIndex(e => e.SourceHash);
+
+            entity.Property(e => e.Content)
+                .HasColumnType("text");
+
+            entity.Property(e => e.MetadataJson)
+                .HasColumnType("jsonb");
+
+            entity.HasOne(e => e.GenerationRun)
+                .WithMany(run => run.SourceUnits)
+                .HasForeignKey(e => e.GenerationRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<QuestionDraft>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.DocumentId, e.Status });
+            entity.HasIndex(e => new { e.GenerationRunId, e.Status });
+            entity.HasIndex(e => new { e.TopicTag, e.Difficulty });
+            entity.HasIndex(e => e.ParentDraftId);
+            entity.HasIndex(e => e.SourceUnitId);
+            entity.HasIndex(e => e.StemHash);
+
+            entity.Property(e => e.QuestionText)
+                .HasColumnType("text");
+
+            entity.Property(e => e.OptionsJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.CorrectAnswer)
+                .HasColumnType("text");
+
+            entity.Property(e => e.Explanation)
+                .HasColumnType("text");
+
+            entity.Property(e => e.FailureReason)
+                .HasColumnType("text");
+
+            entity.Property(e => e.SourceEvidence)
+                .HasColumnType("text");
+
+            entity.Property(e => e.MetadataJson)
+                .HasColumnType("jsonb");
+
+            entity.HasOne(e => e.GenerationRun)
+                .WithMany(run => run.Drafts)
+                .HasForeignKey(e => e.GenerationRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.SourceUnit)
+                .WithMany(unit => unit.Drafts)
+                .HasForeignKey(e => e.SourceUnitId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.ParentDraft)
+                .WithMany(parent => parent.Variants)
+                .HasForeignKey(e => e.ParentDraftId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QuestionReviewEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.QuestionDraftId);
+            entity.HasIndex(e => new { e.QuestionDraftId, e.CreatedAt });
+            entity.HasIndex(e => e.Action);
+
+            entity.Property(e => e.BeforeJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.AfterJson)
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.Note)
+                .HasColumnType("text");
+
+            entity.HasOne(e => e.QuestionDraft)
+                .WithMany(draft => draft.ReviewEvents)
+                .HasForeignKey(e => e.QuestionDraftId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // GameSession configuration

@@ -7,6 +7,7 @@ import FlashcardGame from './components/FlashcardGame';
 import FolderProjects from './components/FolderProjects';
 import FolderStudio from './components/FolderStudio';
 import QuizGame from './components/QuizGame';
+import QuestionStudioPage from './components/question-studio/QuestionStudioPage';
 import SlideStudio from './components/SlideStudio';
 import StreakGame from './components/StreakGame';
 import StudyHub from './components/StudyHub';
@@ -78,7 +79,7 @@ function AppShell({ user, onLogout }) {
   const { language, setLanguage, t } = useLanguage();
   const { currentUser } = useAuth();
   const isHybridRoute = location.pathname.startsWith('/documents') || location.pathname.startsWith('/folders') || location.pathname.startsWith('/workspaces');
-  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/') || location.pathname.startsWith('/study/');
+  const isStudioRoute = location.pathname.startsWith('/slides/') || location.pathname.startsWith('/folders/') || location.pathname.startsWith('/workspaces/') || location.pathname.startsWith('/study/') || location.pathname.startsWith('/question-studio/');
   const isSlideStudioRoute = location.pathname.startsWith('/slides/');
 
   useEffect(() => {
@@ -282,6 +283,7 @@ function AppShell({ user, onLogout }) {
               <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
               <Route path="/study/:documentId" element={<StudyHub />} />
               <Route path="/study/:documentId/:mode" element={<StudyHub />} />
+              <Route path="/question-studio/:documentId" element={<QuestionStudioPage />} />
               <Route path="/quiz/:documentId" element={<QuizGame />} />
               <Route path="/flashcards/:documentId" element={<FlashcardGame />} />
               <Route path="/streak/:documentId" element={<StreakGame />} />
@@ -816,6 +818,10 @@ function getPageTitle(pathname, t) {
 
   if (pathname.startsWith('/study/')) {
     return t('app.pageTitle.studyHub');
+  }
+
+  if (pathname.startsWith('/question-studio/')) {
+    return t('app.pageTitle.questionStudio');
   }
 
   if (pathname.startsWith('/flashcards/')) {

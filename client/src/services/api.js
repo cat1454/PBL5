@@ -382,6 +382,62 @@ export const questionService = {
   },
 };
 
+export const questionStudioService = {
+  startRun: async ({ documentId, targetDraftCount = 30, mode = 'balanced', questionTypes, difficulties }) => {
+    const response = await apiClient.post('/question-studio/runs/start', {
+      documentId,
+      targetDraftCount,
+      mode,
+      questionTypes,
+      difficulties,
+    });
+    return response.data;
+  },
+
+  getRun: async (runId) => {
+    const response = await apiClient.get(`/question-studio/runs/${runId}`);
+    return response.data;
+  },
+
+  listDrafts: async (params) => {
+    const response = await apiClient.get('/question-studio/drafts', { params });
+    return response.data;
+  },
+
+  updateDraft: async (draftId, payload) => {
+    const response = await apiClient.put(`/question-studio/drafts/${draftId}`, payload);
+    return response.data;
+  },
+
+  acceptDraft: async (draftId) => {
+    const response = await apiClient.post(`/question-studio/drafts/${draftId}/accept`);
+    return response.data;
+  },
+
+  rejectDraft: async (draftId) => {
+    const response = await apiClient.post(`/question-studio/drafts/${draftId}/reject`);
+    return response.data;
+  },
+
+  quarantineDraft: async (draftId) => {
+    const response = await apiClient.post(`/question-studio/drafts/${draftId}/quarantine`);
+    return response.data;
+  },
+
+  restoreDraft: async (draftId) => {
+    const response = await apiClient.post(`/question-studio/drafts/${draftId}/restore`);
+    return response.data;
+  },
+
+  importDrafts: async ({ documentId, draftIds }) => {
+    const response = await apiClient.post('/question-studio/import', {
+      documentId,
+      draftIds,
+    });
+    return response.data;
+  },
+};
+
 export const learningService = {
   recordAttempt: async ({ documentId, questionId, mode, selectedAnswer, isCorrect, responseTimeMs }) => {
     const response = await apiClient.post('/learning/attempts', {

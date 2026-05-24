@@ -78,6 +78,9 @@ public class Document
     public virtual FolderProject? FolderProject { get; set; }
 
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
+    public virtual ICollection<QuestionGenerationRun> QuestionGenerationRuns { get; set; } = new List<QuestionGenerationRun>();
+    public virtual ICollection<QuestionSourceUnit> QuestionSourceUnits { get; set; } = new List<QuestionSourceUnit>();
+    public virtual ICollection<QuestionDraft> QuestionDrafts { get; set; } = new List<QuestionDraft>();
     public virtual ICollection<GameSession> GameSessions { get; set; } = new List<GameSession>();
     public virtual ICollection<LearningAttempt> LearningAttempts { get; set; } = new List<LearningAttempt>();
     public virtual ICollection<LearningProgress> LearningProgresses { get; set; } = new List<LearningProgress>();
