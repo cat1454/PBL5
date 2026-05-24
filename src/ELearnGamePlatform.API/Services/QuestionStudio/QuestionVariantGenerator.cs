@@ -41,7 +41,14 @@ public sealed class QuestionVariantGenerator : IQuestionVariantGenerator
 
                 var difficulty = difficulties.ElementAtOrDefault(drafts.Count % Math.Max(1, difficulties.Count)) ?? canonical.Difficulty;
                 var item = QuestionStudioDraftFactory.BuildVariantQuestion(type, difficulty, canonical);
-                drafts.Add(QuestionStudioDraftFactory.Create(run, canonical.SourceUnit, item, "Variant", canonical.Id));
+                var variant = QuestionStudioDraftFactory.Create(run, canonical.SourceUnit, item, "Variant", canonical.Id);
+                variant.SourceUnitId ??= canonical.SourceUnitId;
+                if (string.IsNullOrWhiteSpace(variant.TopicTag))
+                {
+                    variant.TopicTag = canonical.TopicTag;
+                }
+
+                drafts.Add(variant);
                 remaining--;
             }
         }

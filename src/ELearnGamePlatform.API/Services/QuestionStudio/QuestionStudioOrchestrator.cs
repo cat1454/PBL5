@@ -84,10 +84,12 @@ public sealed class QuestionStudioOrchestrator
             await UpdateRunMetricsAsync(run, cancellationToken);
 
             var refreshedCanonicalQuery = _context.QuestionDrafts
+                .Include(x => x.SourceUnit)
                 .Where(x => x.GenerationRunId == run.Id && x.DraftKind == "Canonical" && x.Status == "Verified");
             if (profile.AllowBorderlineDrafts)
             {
                 refreshedCanonicalQuery = _context.QuestionDrafts
+                    .Include(x => x.SourceUnit)
                     .Where(x => x.GenerationRunId == run.Id && x.DraftKind == "Canonical" && (x.Status == "Verified" || x.Status == "Borderline"));
             }
 

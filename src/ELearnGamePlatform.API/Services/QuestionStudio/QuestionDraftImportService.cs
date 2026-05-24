@@ -23,40 +23,70 @@ public sealed class QuestionDraftImportService : IQuestionDraftImportService
     public async Task<QuestionDraftImportResult> ImportAsync(int documentId, IReadOnlyCollection<int> draftIds, string userId, CancellationToken cancellationToken = default)
     {
         var normalizedIds = draftIds.Distinct().ToList();
+        return await ImportCoreAsync(documentId, normalizedIds, userId, retryOnUniqueSourceDraftViolation: true, cancellationToken);
+    }
+
+    private async Task<QuestionDraftImportResult> ImportCoreAsync(
+        int documentId,
+        IReadOnlyCollection<int> normalizedIds,
+        string userId,
+        bool retryOnUniqueSourceDraftViolation,
+        CancellationToken cancellationToken)
+    {
+        if (normalizedIds.Count == 0)
+        {
+            return new QuestionDraftImportResult(0, 0, Array.Empty<int>());
+        }
+
         var existingQuestionHashes = (await _context.Questions
             .Where(x => x.DocumentId == documentId && !x.IsArchived)
             .Select(x => x.QuestionText)
             .ToListAsync(cancellationToken))
             .Select(QuestionStudioText.HashStem)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var importedSourceDraftIds = await _context.Questions
+            .Where(x => x.SourceDraftId.HasValue && normalizedIds.Contains(x.SourceDraftId.Value))
+            .Select(x => x.SourceDraftId!.Value)
+            .ToListAsync(cancellationToken);
+        var importedSourceDraftIdSet = importedSourceDraftIds.ToHashSet();
+        var draftsById = await _context.QuestionDrafts
+            .Where(x => x.DocumentId == documentId && normalizedIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
 
         var skipped = new List<int>();
-        var imported = 0;
+        var eligibleDrafts = new List<QuestionDraft>();
         var affectedRunIds = new HashSet<int>();
 
         foreach (var draftId in normalizedIds)
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-            var draft = await _context.QuestionDrafts
-                .FirstOrDefaultAsync(x => x.Id == draftId && x.DocumentId == documentId, cancellationToken);
-            if (draft == null || draft.Status is not ("Verified" or "Borderline"))
+            if (!draftsById.TryGetValue(draftId, out var draft) ||
+                draft.Status is not ("Verified" or "Borderline") ||
+                importedSourceDraftIdSet.Contains(draft.Id))
             {
                 skipped.Add(draftId);
-                await transaction.RollbackAsync(cancellationToken);
                 continue;
             }
 
-            var alreadyImported = await _context.Questions
-                .AnyAsync(x => x.SourceDraftId == draft.Id, cancellationToken);
             var draftHash = QuestionStudioText.HashStem(draft.QuestionText);
-            if (alreadyImported || existingQuestionHashes.Contains(draftHash))
+            if (existingQuestionHashes.Contains(draftHash))
             {
                 skipped.Add(draftId);
-                await transaction.RollbackAsync(cancellationToken);
                 continue;
             }
 
-            try
+            eligibleDrafts.Add(draft);
+            existingQuestionHashes.Add(draftHash);
+        }
+
+        if (eligibleDrafts.Count == 0)
+        {
+            return new QuestionDraftImportResult(0, skipped.Count, skipped);
+        }
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            foreach (var draft in eligibleDrafts)
             {
                 var question = BuildQuestion(draft);
                 _context.Questions.Add(question);
@@ -73,22 +103,27 @@ public sealed class QuestionDraftImportService : IQuestionDraftImportService
                     Note = "Imported into Question bank."
                 });
 
-                await _context.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-                existingQuestionHashes.Add(draftHash);
                 affectedRunIds.Add(draft.GenerationRunId);
-                imported++;
             }
-            catch (DbUpdateException ex) when (IsUniqueSourceDraftViolation(ex))
+
+            await _context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (IsUniqueSourceDraftViolation(ex))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            _context.ChangeTracker.Clear();
+            if (retryOnUniqueSourceDraftViolation)
             {
-                await transaction.RollbackAsync(cancellationToken);
-                _context.ChangeTracker.Clear();
-                skipped.Add(draftId);
+                return await ImportCoreAsync(documentId, normalizedIds, userId, retryOnUniqueSourceDraftViolation: false, cancellationToken);
             }
+
+            skipped.AddRange(eligibleDrafts.Select(x => x.Id));
+            return new QuestionDraftImportResult(0, skipped.Count, skipped);
         }
 
         await UpdateRunImportedCountsAsync(affectedRunIds.ToList(), cancellationToken);
-        return new QuestionDraftImportResult(imported, skipped.Count, skipped);
+        return new QuestionDraftImportResult(eligibleDrafts.Count, skipped.Count, skipped);
     }
 
     private static bool IsUniqueSourceDraftViolation(DbUpdateException exception)
