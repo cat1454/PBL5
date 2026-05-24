@@ -86,6 +86,7 @@ benchmarks/output/*
 # Local agent and generated snapshots
 .local-agent-rules/
 commit-history/
+.playwright-mcp/
 
 # Environment variables
 .env

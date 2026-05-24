@@ -2182,6 +2182,8 @@ translations.vi.slides = {
   downloadPptx: 'Tai PPTX',
   exportingPptx: 'Dang tai PPTX...',
   pptxComingSoon: 'PPTX sap co',
+  slideNotFoundTitle: 'Không tìm thấy nội dung slide',
+  slideNotFoundBody: 'Không tìm thấy nội dung slide này. Vui lòng chọn slide khác hoặc tạo lại deck.',
   feedback: {
     ...(translations.vi.slides.feedback || {}),
     htmlExported: 'Da tai file HTML.',
@@ -2205,6 +2207,8 @@ translations.en.slides = {
   downloadPptx: 'Download PPTX',
   exportingPptx: 'Downloading PPTX...',
   pptxComingSoon: 'PPTX coming soon',
+  slideNotFoundTitle: 'Slide content not found',
+  slideNotFoundBody: 'Could not find this slide content. Please choose another slide or regenerate the deck.',
   feedback: {
     ...(translations.en.slides.feedback || {}),
     htmlExported: 'HTML file downloaded.',

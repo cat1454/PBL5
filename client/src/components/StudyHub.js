@@ -103,6 +103,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         statusMissing: 'Chưa có question bank',
         statusRefreshing: 'Đang cập nhật question bank...',
         statusError: 'Không tải được dữ liệu học tập',
+        statusNeedsQuestions: 'Cần tạo question bank',
         countLabel: 'Số câu hỏi',
         sourceLabel: 'Source hiện tại',
         sourceStatusLabel: 'Trạng thái source',
@@ -114,12 +115,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         sourceStatusUnknown: 'Chưa xác định',
         bankLabel: 'Question bank',
         regenerate: 'Tạo lại câu hỏi',
+        generateQuestions: 'Tạo câu hỏi',
         regenerating: 'Đang tạo lại...',
         generated: 'Đã làm mới question bank.',
         generatedRecovered: 'Đã khôi phục question bank sau khi mất tiến trình.',
         regenerationReplaceHint: 'Tạo lại sẽ thay thế question bank hiện tại.',
         questionProgressLost: 'Mất tiến trình tạo câu hỏi. Hãy kiểm tra question bank hiện tại hoặc thử lại.',
         bankMissingBody: 'Chưa có question bank nào. Hãy tạo câu hỏi trước.',
+        bankMissingReadyBody: 'Source đã xử lý xong nhưng chưa có question bank. Tạo câu hỏi để mở Quiz, Flashcards, Test và Streak.',
         bankGeneratingBody: 'Question bank đang được tạo. Bạn có thể ở lại để theo dõi tiến trình.',
         studyDataError: 'Không tải được thông tin Study Hub cho source này.',
         studyDataLoading: 'Đang tải thông tin Study Hub...',
@@ -154,6 +157,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         validRate: 'Valid Rate',
         averageQualityScore: 'Quality TB',
         missingTopics: 'Topic còn thiếu',
+        moreTopics: '+{{count}} topic khác',
         totalQuestions: 'Tổng số câu',
         attemptedQuestions: 'Đã làm',
         averageMastery: 'Mastery TB',
@@ -186,6 +190,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       statusMissing: 'Question bank missing',
       statusRefreshing: 'Refreshing question bank...',
       statusError: 'Study data unavailable',
+      statusNeedsQuestions: 'Questions needed',
       countLabel: 'Question count',
       sourceLabel: 'Current source',
       sourceStatusLabel: 'Source status',
@@ -197,12 +202,14 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       sourceStatusUnknown: 'Status unavailable',
       bankLabel: 'Question bank',
       regenerate: 'Regenerate questions',
+      generateQuestions: 'Generate questions',
       regenerating: 'Regenerating...',
       generated: 'Question bank refreshed.',
       generatedRecovered: 'Recovered the question bank after progress tracking was lost.',
       regenerationReplaceHint: 'Regenerate will replace the active question bank.',
       questionProgressLost: 'Question generation progress was lost. Check the current question bank or try again.',
       bankMissingBody: 'No question bank is available yet. Generate questions first.',
+      bankMissingReadyBody: 'This source is processed, but it does not have a question bank yet. Generate questions to unlock Quiz, Flashcards, Test, and Streak.',
       bankGeneratingBody: 'The question bank is still generating. Stay here to monitor progress.',
       studyDataError: 'Could not load study data for this source.',
       studyDataLoading: 'Loading study data...',
@@ -237,6 +244,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       validRate: 'Valid Rate',
       averageQualityScore: 'Avg quality',
       missingTopics: 'Missing topics',
+      moreTopics: '+{{count}} more topics',
       totalQuestions: 'Total questions',
       attemptedQuestions: 'Attempted',
       averageMastery: 'Avg mastery',
@@ -734,13 +742,14 @@ function StudySidebar({
 }) {
   const sourceStatus = getStudySourceStatus(documentStatus, copy);
   const readinessMessage = getReadinessMessage(generationReadiness, copy.language);
+  const hasQuestionBank = questionCount > 0;
   const bankStatus = metaError
     ? copy.statusError
     : regenerating
       ? copy.statusRefreshing
-      : questionCount > 0
+      : hasQuestionBank
         ? copy.statusReady
-        : copy.statusMissing;
+        : copy.statusNeedsQuestions;
 
   const bankDetail = metaError
     ? metaError
@@ -750,16 +759,16 @@ function StudySidebar({
         ? regenerateMessage
         : regenerating
           ? copy.bankGeneratingBody
-        : questionCount > 0
+        : hasQuestionBank
           ? `${questionCount}`
-          : copy.bankMissingBody;
+          : copy.bankMissingReadyBody;
 
   return (
     <aside className="study-sidebar">
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.sourceStatusLabel}</span>
-        <strong>{sourceStatus.title}</strong>
-        <p>{sourceStatus.detail}</p>
+        <strong>{hasQuestionBank ? sourceStatus.title : copy.statusNeedsQuestions}</strong>
+        <p>{hasQuestionBank ? sourceStatus.detail : copy.bankMissingReadyBody}</p>
         {generationReadiness && (
           <span className={`generation-readiness-badge tone-${generationReadiness.tone}`}>
             {getReadinessLabel(generationReadiness, copy.language)}
@@ -783,7 +792,7 @@ function StudySidebar({
       <div className="study-sidebar-card">
         <span className="study-sidebar-label">{copy.countLabel}</span>
         <strong>{questionCount}</strong>
-        <p>{copy.regenerationReplaceHint}</p>
+        <p>{hasQuestionBank ? copy.regenerationReplaceHint : copy.bankMissingBody}</p>
       </div>
 
       <ProgressSummaryCard
@@ -811,7 +820,7 @@ function StudySidebar({
           {copy.backToWorkspace}
         </button>
         <button type="button" className="button" onClick={onRegenerate} disabled={regenerating}>
-          {regenerating ? copy.regenerating : copy.regenerate}
+          {regenerating ? copy.regenerating : hasQuestionBank ? copy.regenerate : copy.generateQuestions}
         </button>
       </div>
 
@@ -872,6 +881,11 @@ function QuestionMetricsCard({ copy, metricsError, metricsLoading, questionMetri
   const missingTopics = Array.isArray(questionMetrics?.missingTopics)
     ? questionMetrics.missingTopics.filter(Boolean)
     : [];
+  const visibleMissingTopics = missingTopics.slice(0, 3).map((topic) => {
+    const normalized = String(topic).replace(/\s+/g, ' ').trim();
+    return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized;
+  });
+  const hiddenTopicCount = Math.max(0, missingTopics.length - visibleMissingTopics.length);
 
   return (
     <div className="study-sidebar-card study-question-metrics-card">
@@ -892,7 +906,14 @@ function QuestionMetricsCard({ copy, metricsError, metricsLoading, questionMetri
           {missingTopics.length > 0 && (
             <div className="study-missing-topics">
               <span>{copy.missingTopics}</span>
-              <p>{missingTopics.slice(0, 4).join(', ')}</p>
+              <div className="study-topic-chips study-missing-topic-chips">
+                {visibleMissingTopics.map((topic) => (
+                  <span key={topic} className="study-topic-chip" title={topic}>{topic}</span>
+                ))}
+                {hiddenTopicCount > 0 && (
+                  <span className="study-topic-chip">{copy.moreTopics.replace('{{count}}', hiddenTopicCount)}</span>
+                )}
+              </div>
             </div>
           )}
         </>

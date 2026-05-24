@@ -515,6 +515,7 @@ function FolderStudio() {
   const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const centerCanvasRef = useRef(null);
 
   const [folder, setFolder] = useState(null);
   const [sources, setSources] = useState([]);
@@ -837,7 +838,7 @@ function FolderStudio() {
     });
   }, [deck, dirtyDrafts, draftMeta, selectedSlideId]);
 
-  const selectedSlide = deck?.items?.find((item) => item.id === selectedSlideId) || deck?.items?.[0] || null;
+  const selectedSlide = deck?.items?.find((item) => item.id === selectedSlideId) || null;
   const selectedDraft = selectedSlide ? (drafts[selectedSlide.id] || createFallbackEditorState(selectedSlide)) : null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide) : null;
 
@@ -870,6 +871,27 @@ function FolderStudio() {
       }
     });
   }, [selectedSlideId, stopTypewriterAnimation]);
+
+  useEffect(() => {
+    if (!selectedSlideId || !centerCanvasRef.current) {
+      return;
+    }
+
+    centerCanvasRef.current.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  }, [selectedSlideId]);
+
+  const handleSelectSlide = useCallback((slideId) => {
+    setSelectedSlideId(slideId);
+    if (centerCanvasRef.current) {
+      centerCanvasRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const activeTimers = typewriterTimersRef.current;
@@ -2040,14 +2062,23 @@ function FolderStudio() {
             <div className="folder-studio-panel-title">{language === 'vi' ? 'Nguồn / Slides' : 'Sources / Slides'}</div>
 
             <div className="folder-studio-filter">
+              <label className="sr-only" htmlFor="folder-studio-source-search">
+                {language === 'vi' ? 'Tìm nguồn tài liệu' : 'Search document sources'}
+              </label>
               <input
+                id="folder-studio-source-search"
                 type="text"
                 value={filterText}
                 onChange={(event) => setFilterText(event.target.value)}
                 placeholder={language === 'vi' ? 'Tìm trong tên file hoặc summary' : 'Search by file name or summary'}
               />
-              <button type="button" className="folder-studio-mini-btn" onClick={() => setFilterText('')}>
-                x
+              <button
+                type="button"
+                className="folder-studio-mini-btn"
+                onClick={() => setFilterText('')}
+                aria-label={language === 'vi' ? 'Xóa tìm kiếm' : 'Clear search'}
+              >
+                ×
               </button>
             </div>
 
@@ -2274,7 +2305,7 @@ function FolderStudio() {
                   key={item.id}
                   type="button"
                   className={`folder-studio-flow-item${item.id === selectedSlideId ? ' active' : ''}`}
-                  onClick={() => setSelectedSlideId(item.id)}
+                  onClick={() => handleSelectSlide(item.id)}
                 >
                   <div className="folder-studio-flow-thumb">
                     <span className="w-80"></span>
@@ -2316,9 +2347,9 @@ function FolderStudio() {
               </select>
 
               <div className="folder-studio-toolbar-sep"></div>
-              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.bold ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, bold: !block.bold }))} disabled={!selectedDraft}>B</button>
-              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.italic ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, italic: !block.italic }))} disabled={!selectedDraft}>I</button>
-              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.underline ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, underline: !block.underline }))} disabled={!selectedDraft}>U</button>
+              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.bold ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, bold: !block.bold }))} disabled={!selectedDraft} aria-label={language === 'vi' ? 'In đậm' : 'Bold'} title={language === 'vi' ? 'In đậm' : 'Bold'}><strong>B</strong></button>
+              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.italic ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, italic: !block.italic }))} disabled={!selectedDraft} aria-label={language === 'vi' ? 'In nghiêng' : 'Italic'} title={language === 'vi' ? 'In nghiêng' : 'Italic'}><em>I</em></button>
+              <button type="button" className={`folder-studio-toolbar-btn${activeFieldState?.underline ? ' active' : ''}`} onClick={() => handleStyleChange((block) => ({ ...block, underline: !block.underline }))} disabled={!selectedDraft} aria-label={language === 'vi' ? 'Gạch chân' : 'Underline'} title={language === 'vi' ? 'Gạch chân' : 'Underline'}><span style={{ textDecoration: 'underline' }}>U</span></button>
               <div className="folder-studio-toolbar-sep"></div>
               {[
                 { key: 'left', label: language === 'vi' ? 'Trái' : 'Left' },
@@ -2331,6 +2362,8 @@ function FolderStudio() {
                   className={`folder-studio-toolbar-btn folder-studio-toolbar-btn-word${activeFieldState?.align === key ? ' active' : ''}`}
                   onClick={() => handleStyleChange((block) => ({ ...block, align: key }))}
                   disabled={!selectedDraft}
+                  aria-label={label}
+                  title={label}
                 >
                   {label}
                 </button>
@@ -2351,7 +2384,7 @@ function FolderStudio() {
               </button>
             </div>
 
-            <div className="folder-studio-canvas">
+            <div className="folder-studio-canvas" ref={centerCanvasRef}>
               {!selectedSlide || !selectedDraft ? (
                 isGeneratingDeck ? (
                   <WorkspaceDeckProgressCard

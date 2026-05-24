@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage, workspaceService } from '../services/api';
@@ -15,6 +15,9 @@ function FolderProjects() {
   const [actionError, setActionError] = useState('');
   const [formError, setFormError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortMode, setSortMode] = useState('updated');
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -56,6 +59,25 @@ function FolderProjects() {
       default:
         return deck.status;
     }
+  };
+
+  const getDeckStatusKey = (deck) => {
+    if (!deck) {
+      return 'none';
+    }
+
+    const status = String(deck.status || '').toLowerCase();
+    if (status === 'completed') {
+      return deck.isStale ? 'stale' : 'ready';
+    }
+    if (status === 'failed') {
+      return 'failed';
+    }
+    if (status === 'generatingslides' || status === 'generatingoutline') {
+      return 'generating';
+    }
+
+    return 'other';
   };
 
   const loadFolders = useCallback(async () => {
@@ -124,6 +146,31 @@ function FolderProjects() {
     }
   };
 
+  const filteredFolders = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return folders
+      .filter((folder) => {
+        const matchesQuery = !normalizedQuery
+          || String(folder.name || '').toLowerCase().includes(normalizedQuery)
+          || String(folder.description || '').toLowerCase().includes(normalizedQuery)
+          || String(folder.latestDeck?.title || '').toLowerCase().includes(normalizedQuery);
+        const matchesStatus = statusFilter === 'all' || getDeckStatusKey(folder.latestDeck) === statusFilter;
+
+        return matchesQuery && matchesStatus;
+      })
+      .sort((left, right) => {
+        if (sortMode === 'name') {
+          return String(left.name || '').localeCompare(String(right.name || ''));
+        }
+        if (sortMode === 'sources') {
+          return Number(right.sourceCount || 0) - Number(left.sourceCount || 0);
+        }
+
+        return new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime();
+      });
+  }, [folders, searchQuery, sortMode, statusFilter]);
+
   if (loading) {
     return (
       <div className="loading">
@@ -144,24 +191,30 @@ function FolderProjects() {
 
         <form className="folders-create-card" onSubmit={handleCreate}>
           <strong>{t('workspaces.createTitle')}</strong>
-          <input
-            type="text"
-            value={form.name}
-            onChange={(event) => {
-              setFormError('');
-              setForm((current) => ({ ...current, name: event.target.value }));
-            }}
-            placeholder={t('workspaces.createNamePlaceholder')}
-          />
-          <textarea
-            rows={3}
-            value={form.description}
-            onChange={(event) => {
-              setFormError('');
-              setForm((current) => ({ ...current, description: event.target.value }));
-            }}
-            placeholder={t('workspaces.createDescriptionPlaceholder')}
-          />
+          <label className="folders-field-label">
+            <span>{t('workspaces.createNameLabel')}</span>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(event) => {
+                setFormError('');
+                setForm((current) => ({ ...current, name: event.target.value }));
+              }}
+              placeholder={t('workspaces.createNamePlaceholder')}
+            />
+          </label>
+          <label className="folders-field-label">
+            <span>{t('workspaces.createDescriptionLabel')}</span>
+            <textarea
+              rows={3}
+              value={form.description}
+              onChange={(event) => {
+                setFormError('');
+                setForm((current) => ({ ...current, description: event.target.value }));
+              }}
+              placeholder={t('workspaces.createDescriptionPlaceholder')}
+            />
+          </label>
           {formError && <div className="alert alert-error">{formError}</div>}
           <button type="submit" className="button" disabled={creating}>
             {creating ? t('workspaces.creating') : t('workspaces.createButton')}
@@ -172,6 +225,40 @@ function FolderProjects() {
       {error && <div className="alert alert-error">{error}</div>}
       {actionError && <div className="alert alert-error">{actionError}</div>}
 
+      <section className="folders-toolbar card" aria-label={t('workspaces.filters.label')}>
+        <label className="folders-field-label folders-search-field">
+          <span>{t('workspaces.filters.searchLabel')}</span>
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={t('workspaces.filters.searchPlaceholder')}
+          />
+        </label>
+        <label className="folders-field-label">
+          <span>{t('workspaces.filters.statusLabel')}</span>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="all">{t('workspaces.filters.statusAll')}</option>
+            <option value="ready">{t('workspaces.filters.statusReady')}</option>
+            <option value="stale">{t('workspaces.filters.statusStale')}</option>
+            <option value="generating">{t('workspaces.filters.statusGenerating')}</option>
+            <option value="failed">{t('workspaces.filters.statusFailed')}</option>
+            <option value="none">{t('workspaces.filters.statusNone')}</option>
+          </select>
+        </label>
+        <label className="folders-field-label">
+          <span>{t('workspaces.filters.sortLabel')}</span>
+          <select value={sortMode} onChange={(event) => setSortMode(event.target.value)}>
+            <option value="updated">{t('workspaces.filters.sortUpdated')}</option>
+            <option value="name">{t('workspaces.filters.sortName')}</option>
+            <option value="sources">{t('workspaces.filters.sortSources')}</option>
+          </select>
+        </label>
+        <span className="folders-result-count">
+          {t('workspaces.filters.resultCount', { count: filteredFolders.length })}
+        </span>
+      </section>
+
       <section className="folders-grid">
         {folders.length === 0 && (
           <div className="folders-empty card">
@@ -180,7 +267,14 @@ function FolderProjects() {
           </div>
         )}
 
-        {folders.map((folder) => (
+        {folders.length > 0 && filteredFolders.length === 0 && (
+          <div className="folders-empty card">
+            <h3>{t('workspaces.filters.emptyTitle')}</h3>
+            <p>{t('workspaces.filters.emptyBody')}</p>
+          </div>
+        )}
+
+        {filteredFolders.map((folder) => (
           <article key={folder.id} className="folder-card card">
             <div className="folder-card-head">
               <div>

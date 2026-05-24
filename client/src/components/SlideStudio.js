@@ -92,6 +92,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const navigate = useNavigate();
   const location = useLocation();
   const slideRefs = useRef({});
+  const centerPanelRef = useRef(null);
   const [documentMeta, setDocumentMeta] = useState(null);
   const [generationReadiness, setGenerationReadiness] = useState(null);
   const [deck, setDeck] = useState(null);
@@ -600,6 +601,17 @@ function SlideStudio({ documentId: propDocumentId }) {
     }
   }, [previewItems, selectedSlideId]);
 
+  useEffect(() => {
+    if (!selectedSlideId || !centerPanelRef.current) {
+      return;
+    }
+
+    centerPanelRef.current.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  }, [selectedSlideId]);
+
   if (loading) {
     return (
       <div className="loading">
@@ -609,7 +621,7 @@ function SlideStudio({ documentId: propDocumentId }) {
     );
   }
 
-  const selectedSlide = previewItems.find((item) => item.id === selectedSlideId) || previewItems[0] || null;
+  const selectedSlide = previewItems.find((item) => item.id === selectedSlideId) || null;
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide, t) : null;
   const selectedSlideIsTextOnly = isTextOnlySlide(selectedSlide) || selectedImageVm?.needsImage === false;
   const selectedSlideNeedsMedia = !selectedSlideIsTextOnly && selectedImageVm?.needsImage !== false;
@@ -891,7 +903,7 @@ function SlideStudio({ documentId: propDocumentId }) {
           </section>
         </aside>
 
-        <section className="studio-canvas-column">
+        <section className="studio-canvas-column" ref={centerPanelRef}>
           <section className="card studio-canvas-toolbar">
             <div>
               <span className="studio-kicker">{t('slides.previewCanvas')}</span>
@@ -1029,8 +1041,8 @@ function SlideStudio({ documentId: propDocumentId }) {
                   <div className="gamma-empty-mockup-card"></div>
                   <div className="gamma-empty-mockup-card"></div>
                 </div>
-                <h3>{allPreviewItems.length > 0 ? t('slides.hiddenSlidesTitle') : t('slides.noDeckTitle')}</h3>
-                <p>{allPreviewItems.length > 0 ? t('slides.hiddenSlidesBody') : t('slides.noDeckBody')}</p>
+                <h3>{allPreviewItems.length > 0 ? t('slides.slideNotFoundTitle') : t('slides.noDeckTitle')}</h3>
+                <p>{allPreviewItems.length > 0 ? t('slides.slideNotFoundBody') : t('slides.noDeckBody')}</p>
               </div>
             )}
 
