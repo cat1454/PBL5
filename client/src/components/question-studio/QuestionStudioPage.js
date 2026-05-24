@@ -1,12 +1,53 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, getApiErrorMessage, questionStudioService } from '../../services/api';
+import { trackEvent } from '../../services/analytics';
 import { useLanguage } from '../../context/LanguageContext';
 
 const MODES = ['fast', 'balanced', 'quality', 'max_draft'];
 const QUESTION_TYPES = ['MultipleChoice', 'Flashcard', 'ShortAnswer', 'TrueFalse', 'FillInTheBlank'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
 const STATUSES = ['', 'Draft', 'Verified', 'Borderline', 'Rejected', 'Quarantined', 'Imported'];
+const PRESET_KEYS = ['quick_review', 'deep_practice', 'mock_exam', 'flashcard_first', 'review_bank'];
+const PRESETS = {
+  quick_review: {
+    targetDraftCount: 12,
+    mode: 'fast',
+    questionTypes: ['MultipleChoice', 'TrueFalse'],
+    difficulties: ['Easy', 'Medium'],
+  },
+  deep_practice: {
+    targetDraftCount: 24,
+    mode: 'quality',
+    questionTypes: ['MultipleChoice', 'ShortAnswer', 'FillInTheBlank'],
+    difficulties: ['Medium', 'Hard'],
+  },
+  mock_exam: {
+    targetDraftCount: 30,
+    mode: 'balanced',
+    questionTypes: ['MultipleChoice', 'ShortAnswer'],
+    difficulties: ['Medium', 'Hard'],
+  },
+  flashcard_first: {
+    targetDraftCount: 20,
+    mode: 'balanced',
+    questionTypes: ['Flashcard', 'ShortAnswer'],
+    difficulties: ['Easy', 'Medium'],
+  },
+  review_bank: {
+    targetDraftCount: 50,
+    mode: 'max_draft',
+    questionTypes: ['MultipleChoice', 'Flashcard', 'ShortAnswer', 'TrueFalse'],
+    difficulties: ['Easy', 'Medium', 'Hard'],
+  },
+};
+const TIMELINE_STEPS = [
+  { key: 'source', stages: ['Created', 'ExtractingSourceUnits'] },
+  { key: 'generate', stages: ['GeneratingCanonical', 'GeneratingVariants'] },
+  { key: 'verify', stages: ['VerifyingCanonical', 'VerifyingVariants'] },
+  { key: 'dedupe', stages: ['DeduplicatingCanonical', 'DeduplicatingVariants'] },
+  { key: 'ready', terminal: true },
+];
 
 function QuestionStudioPage() {
   const { documentId: routeDocumentId } = useParams();
@@ -38,6 +79,8 @@ function QuestionStudioPage() {
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [editingDraft, setEditingDraft] = useState(null);
+  const [selectedPreset, setSelectedPreset] = useState('deep_practice');
+  const [importResult, setImportResult] = useState(null);
 
   const terminalRun = run?.status === 'Completed' || run?.status === 'Failed' || run?.status === 'Cancelled';
   const progressPercent = run
@@ -143,6 +186,13 @@ function QuestionStudioPage() {
     setBusy(true);
     setError('');
     setFeedback('');
+    setImportResult(null);
+    trackEvent('question_studio_run_started', {
+      documentId,
+      preset: selectedPreset,
+      mode: form.mode,
+      targetDraftCount: Number(form.targetDraftCount),
+    });
     try {
       const result = await questionStudioService.startRun({
         documentId,
@@ -154,6 +204,7 @@ function QuestionStudioPage() {
       setRunId(result.runId);
       setRun({ runId: result.runId, status: result.status, stage: 'Created', progressPercent: 0, targetDraftCount: form.targetDraftCount });
       setFeedback(t('questionStudio.feedback.started'));
+      trackEvent('question_studio_run_created', { documentId, runId: result.runId });
     } catch (err) {
       setError(getApiErrorMessage(err, t('questionStudio.errors.startFailed')));
     } finally {
@@ -199,9 +250,16 @@ function QuestionStudioPage() {
     setBusy(true);
     setError('');
     setFeedback('');
+    const selectedDrafts = drafts.filter((draft) => selectedDraftIds.includes(draft.id));
     try {
       const result = await questionStudioService.importDrafts({ documentId, draftIds: selectedDraftIds });
       setFeedback(t('questionStudio.feedback.imported', { count: result.importedCount || 0, skipped: result.skippedCount || 0 }));
+      setImportResult(buildImportResult(result, selectedDrafts));
+      trackEvent('question_drafts_imported', {
+        documentId,
+        importedCount: result.importedCount || 0,
+        skippedCount: result.skippedCount || 0,
+      });
       setSelectedDraftIds([]);
       await loadDrafts(filters, runId);
       if (runId) {
@@ -212,6 +270,26 @@ function QuestionStudioPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const applyPreset = (presetKey) => {
+    const preset = PRESETS[presetKey];
+    if (!preset) {
+      return;
+    }
+
+    setSelectedPreset(presetKey);
+    setForm({
+      targetDraftCount: preset.targetDraftCount,
+      mode: preset.mode,
+      questionTypes: preset.questionTypes,
+      difficulties: preset.difficulties,
+    });
+    trackEvent('question_studio_preset_selected', {
+      documentId,
+      preset: presetKey,
+      mode: preset.mode,
+    });
   };
 
   const saveEdit = async () => {
@@ -264,10 +342,48 @@ function QuestionStudioPage() {
         <>
           {error && <div className="alert alert-error question-studio-alert">{error}</div>}
           {feedback && <div className="alert alert-success question-studio-alert">{feedback}</div>}
+          {importResult && (
+            <ImportSuccessSheet
+              result={importResult}
+              t={t}
+              onQuiz={() => navigate(`/quiz/${documentId}`)}
+              onFlashcards={() => navigate(`/flashcards/${documentId}`)}
+            />
+          )}
+
+          <section className="question-studio-presets" aria-label={t('questionStudio.presets.title')}>
+            <div className="question-studio-section-copy">
+              <p className="question-studio-kicker">{t('questionStudio.presets.kicker')}</p>
+              <h2>{t('questionStudio.presets.title')}</h2>
+              <p>{t('questionStudio.presets.subtitle')}</p>
+            </div>
+            <div className="question-studio-preset-grid">
+              {PRESET_KEYS.map((presetKey) => {
+                const preset = PRESETS[presetKey];
+                return (
+                  <button
+                    key={presetKey}
+                    type="button"
+                    className={`question-studio-preset${selectedPreset === presetKey ? ' active' : ''}`}
+                    onClick={() => applyPreset(presetKey)}
+                  >
+                    <strong>{t(`questionStudio.presets.items.${presetKey}.title`)}</strong>
+                    <span>{t(`questionStudio.presets.items.${presetKey}.body`)}</span>
+                    <small>
+                      {t('questionStudio.presets.meta', {
+                        count: preset.targetDraftCount,
+                        mode: t(`questionStudio.modes.${preset.mode}`),
+                      })}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <section className="question-studio-grid">
             <div className="question-studio-panel">
-              <h2>{t('questionStudio.generateTitle')}</h2>
+              <h2>{t('questionStudio.advancedTitle')}</h2>
               <label>
                 {t('questionStudio.targetDraftCount')}
                 <input
@@ -323,6 +439,7 @@ function QuestionStudioPage() {
                 <Metric label={t('questionStudio.metrics.rejected')} value={run?.rejectedCount || 0} />
                 <Metric label={t('questionStudio.metrics.imported')} value={run?.importedCount || 0} />
               </div>
+              <ProgressTimeline run={run} terminalRun={terminalRun} t={t} />
             </div>
           </section>
 
@@ -444,7 +561,107 @@ function Metric({ label, value }) {
   );
 }
 
+function ProgressTimeline({ run, terminalRun, t }) {
+  const activeStage = run?.stage || 'Created';
+  const status = String(run?.status || '').toLowerCase();
+
+  return (
+    <div className="question-studio-timeline">
+      {TIMELINE_STEPS.map((step, index) => {
+        const isDone = step.terminal
+          ? terminalRun && status === 'completed'
+          : TIMELINE_STEPS.slice(index + 1).some((nextStep) => nextStep.stages?.includes(activeStage)) || status === 'completed';
+        const isActive = step.terminal
+          ? terminalRun
+          : step.stages?.includes(activeStage);
+        return (
+          <div key={step.key} className={`question-studio-timeline-step${isDone ? ' is-done' : ''}${isActive ? ' is-active' : ''}`}>
+            <span>{isDone ? 'OK' : index + 1}</span>
+            <div>
+              <strong>{t(`questionStudio.timeline.${step.key}.title`)}</strong>
+              <p>{t(`questionStudio.timeline.${step.key}.body`)}</p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function buildImportResult(result, selectedDrafts) {
+  const importedCount = Number(result?.importedCount || 0);
+  const skippedCount = Number(result?.skippedCount || 0);
+  const importedDrafts = selectedDrafts.slice(0, importedCount || selectedDrafts.length);
+  const byType = countBy(importedDrafts, (draft) => draft.questionType || 'Unknown');
+  const byDifficulty = countBy(importedDrafts, (draft) => draft.difficulty || 'Unknown');
+
+  return {
+    importedCount,
+    skippedCount,
+    byType,
+    byDifficulty,
+  };
+}
+
+function countBy(items, selector) {
+  return items.reduce((accumulator, item) => {
+    const key = selector(item);
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function ImportSuccessSheet({ result, t, onQuiz, onFlashcards }) {
+  return (
+    <section className="question-studio-import-sheet">
+      <div>
+        <span className="question-studio-quality-badge excellent">{t('questionStudio.importSuccess.badge')}</span>
+        <h2>{t('questionStudio.importSuccess.title', { count: result.importedCount })}</h2>
+        <p>{t('questionStudio.importSuccess.body', { skipped: result.skippedCount })}</p>
+      </div>
+      <div className="question-studio-import-breakdown">
+        <Breakdown title={t('questionStudio.importSuccess.byType')} data={result.byType} />
+        <Breakdown title={t('questionStudio.importSuccess.byDifficulty')} data={result.byDifficulty} />
+      </div>
+      <div className="question-studio-import-actions">
+        <button type="button" className="button" onClick={onQuiz}>{t('questionStudio.importSuccess.quizCta')}</button>
+        <button type="button" className="button button-secondary" onClick={onFlashcards}>{t('questionStudio.importSuccess.flashcardsCta')}</button>
+      </div>
+    </section>
+  );
+}
+
+function Breakdown({ title, data }) {
+  const entries = Object.entries(data || {});
+  return (
+    <div>
+      <strong>{title}</strong>
+      {entries.length === 0 ? <p>-</p> : (
+        <div className="question-studio-breakdown-chips">
+          {entries.map(([key, value]) => <span key={key}>{key}: {value}</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getQualityBadge(score) {
+  const normalized = Math.round(Number(score || 0) * 100);
+  if (normalized >= 90) {
+    return { tone: 'excellent', labelKey: 'questionStudio.quality.excellent' };
+  }
+  if (normalized >= 75) {
+    return { tone: 'good', labelKey: 'questionStudio.quality.good' };
+  }
+  if (normalized >= 60) {
+    return { tone: 'review', labelKey: 'questionStudio.quality.review' };
+  }
+  return { tone: 'risk', labelKey: 'questionStudio.quality.risk' };
+}
+
 function DraftCard({ draft, selected, onSelect, onEdit, onAction, t }) {
+  const qualityBadge = getQualityBadge(draft.overallScore);
+
   return (
     <article className={`question-studio-card status-${String(draft.status || '').toLowerCase()}`}>
       <div className="question-studio-card-select">
@@ -455,7 +672,9 @@ function DraftCard({ draft, selected, onSelect, onEdit, onAction, t }) {
           <span>{draft.status}</span>
           <span>{draft.questionType}</span>
           <span>{draft.difficulty}</span>
-          <strong>{Math.round(Number(draft.overallScore || 0) * 100)}%</strong>
+          <strong className={`question-studio-quality-badge ${qualityBadge.tone}`}>
+            {t(qualityBadge.labelKey)} {Math.round(Number(draft.overallScore || 0) * 100)}%
+          </strong>
         </div>
         <h3>{draft.questionText}</h3>
         <p>{draft.explanation}</p>

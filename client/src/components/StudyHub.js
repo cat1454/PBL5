@@ -16,6 +16,7 @@ import {
   getReadinessMessage,
   normalizeGenerationReadiness,
 } from '../services/generationReadiness';
+import { trackEvent } from '../services/analytics';
 
 const STUDY_MODES = ['quiz', 'flashcards', 'test', 'streak'];
 const DEFAULT_QUESTION_COUNT = 10;
@@ -31,6 +32,7 @@ const LEARNING_TEST_TYPE_VALUES = {
   retention: 3,
   practiceTest: 4,
 };
+const FLASHCARD_QUEUE_KEYS = ['due', 'weak', 'new', 'mastered'];
 
 function getQuestionCountFromCollection(payload) {
   if (Array.isArray(payload)) {
@@ -174,6 +176,22 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         loadErrorTitleFlashcards: 'Không tải được bộ flashcards',
         loadErrorBody: 'Bạn vẫn đang ở trong luồng học hiện tại. Hãy thử tải lại hoặc quay lại Workspace để kiểm tra question bank.',
         progressAria: (percent) => `Tiến độ streak ${percent} phần trăm`,
+        sessionBriefTitle: 'Mục tiêu phiên học',
+        sessionBriefBody: 'Hoàn thành {{count}} câu trong khoảng {{minutes}} phút, xem phản hồi ngắn sau mỗi câu.',
+        correctMicrocopy: 'Chính xác. Bạn đang giữ nhịp rất tốt.',
+        incorrectMicrocopy: 'Chưa đúng. Xem giải thích ngắn rồi thử câu tiếp theo.',
+        flashQueues: {
+          due: 'Đến hạn',
+          weak: 'Cần ôn',
+          new: 'Thẻ mới',
+          mastered: 'Đã vững',
+        },
+        flashAssessForgot: 'Quên rồi',
+        flashAssessUnsure: 'Lưỡng lự',
+        flashAssessKnown: 'Nhớ chắc',
+        flashAssessing: 'Đang ghi nhận...',
+        streakRecovery: 'Không sao, phiên này vẫn còn nhịp hồi phục. Xem giải thích rồi tiếp tục chuỗi hôm nay.',
+        streakTier: 'Combo {{tier}}',
       };
     }
 
@@ -261,6 +279,22 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       loadErrorTitleFlashcards: 'Could not load the flashcards set',
       loadErrorBody: 'You can retry here or go back to the workspace to inspect the current question bank.',
       progressAria: (percent) => `Streak progress ${percent} percent`,
+      sessionBriefTitle: 'Session goal',
+      sessionBriefBody: 'Finish {{count}} questions in about {{minutes}} minutes and review short feedback after each answer.',
+      correctMicrocopy: 'Correct. You are keeping a strong rhythm.',
+      incorrectMicrocopy: 'Not yet. Read the short explanation, then try the next one.',
+      flashQueues: {
+        due: 'Due now',
+        weak: 'Weak cards',
+        new: 'New cards',
+        mastered: 'Mastered',
+      },
+      flashAssessForgot: 'Forgot it',
+      flashAssessUnsure: 'Unsure',
+      flashAssessKnown: 'Know it',
+      flashAssessing: 'Recording...',
+      streakRecovery: 'No worries, this session still has a recovery rhythm. Review the explanation and continue today.',
+      streakTier: 'Combo {{tier}}',
     };
   }, [language]);
 
@@ -406,6 +440,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
 
   const handleModeChange = (nextMode) => {
     setActiveMode(nextMode);
+    trackEvent('study_mode_selected', { documentId, mode: nextMode });
     if (shouldShowShell) {
       navigate(`/study/${documentId}/${nextMode}`, { replace: location.pathname.startsWith('/study/') });
     }
@@ -990,6 +1025,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     const loadQuiz = async () => {
       setLoading(true);
       setLoadError('');
+      trackEvent('study_session_started', { documentId, mode });
       try {
         if (isTestMode) {
           setAllQuestions([]);
@@ -1007,7 +1043,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     };
 
     loadQuiz();
-  }, [documentId, isTestMode, refreshToken, reloadKey, t]);
+  }, [documentId, isTestMode, mode, refreshToken, reloadKey, t]);
 
   useEffect(() => () => {
     if (bumpTimerRef.current) {
@@ -1126,6 +1162,12 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       if (onAttemptRecorded) {
         onAttemptRecorded();
       }
+      trackEvent('study_question_answered', {
+        documentId,
+        mode: submissionMode,
+        questionId: currentQuestion.id,
+        isCorrect,
+      });
     } catch (error) {
       console.warn('Could not record learning attempt.', error);
     }
@@ -1139,6 +1181,13 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     const totalCorrect = nextAnswers.filter((answer) => answer.isCorrect).length;
     const score = questions.length > 0 ? Math.round((totalCorrect / questions.length) * 100) : 0;
     setFinalScore(score);
+    trackEvent('study_session_completed', {
+      documentId,
+      mode,
+      score,
+      totalQuestions: questions.length,
+      correctCount: totalCorrect,
+    });
   };
 
   const submitTestWithAnswers = async (nextAnswers) => {
@@ -1173,6 +1222,13 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
       }
       setFinalScore(Math.round(Number(submittedResult?.score || 0)));
       setTestState('completed');
+      trackEvent('study_session_completed', {
+        documentId,
+        mode: 'test',
+        score: Math.round(Number(submittedResult?.score || 0)),
+        totalQuestions: submittedResult?.totalQuestions || nextAnswers.length,
+        correctCount: submittedResult?.correctCount || 0,
+      });
       if (onAttemptRecorded) {
         onAttemptRecorded();
       }
@@ -1262,6 +1318,11 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         bumpTimerRef.current = window.setTimeout(() => setStreakBump(false), 420);
       } else {
         setStreakBump(false);
+        trackEvent('streak_recovery_used', {
+          documentId,
+          questionId: currentQuestion.id,
+          bestStreak: nextBestStreak,
+        });
       }
     }
 
@@ -1482,6 +1543,11 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
               </div>
             )}
           </div>
+          <div className="study-test-result-metrics">
+            <ProgressSummaryItem label={copy.totalQuestions} value={resultTotal} />
+            <ProgressSummaryItem label={t('quiz.correct')} value={resultCorrect} />
+            <ProgressSummaryItem label={t('quiz.incorrect')} value={Math.max(0, resultTotal - resultCorrect)} />
+          </div>
           {testResult && (
             <WeakQuestionsPanel
               copy={copy}
@@ -1505,6 +1571,16 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   return (
     <div className={`study-panel study-panel-${mode}`}>
       <div className={`card study-card${isStreakMode ? ' streak-card' : ''}`}>
+        {answers.length === 0 && !showResult && (
+          <div className="study-session-brief">
+            <div>
+              <span>{copy.sessionBriefTitle}</span>
+              <strong>{getModeTabLabel(mode, copy)}</strong>
+              <p>{formatTemplate(copy.sessionBriefBody, { count: questions.length, minutes: Math.max(2, Math.ceil(questions.length * 0.75)) })}</p>
+            </div>
+            {isStreakMode && <span className="study-session-pill">{formatTemplate(copy.streakTier, { tier: Math.max(1, Math.floor(currentStreak / 3) + 1) })}</span>}
+          </div>
+        )}
         <div className="study-card-toolbar">
           <div>
             <h3>{t('quiz.questionProgress', { current: activeQuestionIndex + 1, total: questions.length })}</h3>
@@ -1550,6 +1626,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
           isCurrentAnswerCorrect={isCurrentAnswerCorrect()}
           isStreakMode={isStreakMode}
           currentStreak={currentStreak}
+          copy={copy}
         />
 
         <div className="study-action-row">
@@ -1585,6 +1662,8 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
   const [loadError, setLoadError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [allFlashcards, setAllFlashcards] = useState([]);
+  const [progressByQuestionId, setProgressByQuestionId] = useState({});
+  const [activeQueue, setActiveQueue] = useState('due');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [hideLowConfidence, setHideLowConfidence] = useState(false);
@@ -1595,9 +1674,14 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     const loadFlashcards = async () => {
       setLoading(true);
       setLoadError('');
+      trackEvent('study_session_started', { documentId, mode: 'flashcards' });
       try {
-        const data = await gameService.getFlashcards(documentId);
+        const [data, progress] = await Promise.all([
+          gameService.getFlashcards(documentId),
+          learningService.getDocumentProgress(documentId).catch(() => []),
+        ]);
         setAllFlashcards(Array.isArray(data?.flashcards) ? data.flashcards : []);
+        setProgressByQuestionId(Object.fromEntries((Array.isArray(progress) ? progress : []).map((item) => [item.questionId, item])));
       } catch (error) {
         console.error(error);
         setLoadError(getApiErrorMessage(error, t('flashcards.loadError')));
@@ -1613,15 +1697,16 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     setCurrentIndex(0);
     setFlipped(false);
     cardStartTimeRef.current = Date.now();
-  }, [allFlashcards, hideLowConfidence]);
+  }, [activeQueue, allFlashcards, hideLowConfidence]);
 
   useEffect(() => {
     cardStartTimeRef.current = Date.now();
   }, [currentIndex]);
 
-  const flashcards = hideLowConfidence
-    ? allFlashcards.filter((card) => !card.quality?.isLowConfidence)
-    : allFlashcards;
+  const queueViewModel = buildFlashcardQueues(allFlashcards, progressByQuestionId);
+  const flashcards = (hideLowConfidence
+    ? queueViewModel[activeQueue].cards.filter((card) => !card.quality?.isLowConfidence)
+    : queueViewModel[activeQueue].cards);
 
   if (loading) {
     return (
@@ -1674,20 +1759,26 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     setFlipped(false);
   };
 
-  const recordFlashcardAssessment = async (remembered) => {
+  const recordFlashcardAssessment = async (assessment) => {
     if (!currentCard || assessing) {
       return;
     }
 
+    const remembered = assessment === 'known';
     setAssessing(true);
     try {
       await learningService.recordAttempt({
         documentId: Number(documentId),
         questionId: currentCard.id,
         mode: LEARNING_MODE_VALUES.flashcards,
-        selectedAnswer: remembered ? 'self:remembered' : 'self:review',
+        selectedAnswer: `self:${assessment}`,
         isCorrect: remembered,
         responseTimeMs: Math.max(0, Date.now() - cardStartTimeRef.current),
+      });
+      trackEvent('flashcard_assessed', {
+        documentId,
+        questionId: currentCard.id,
+        assessment,
       });
       if (onAttemptRecorded) {
         onAttemptRecorded();
@@ -1718,6 +1809,20 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
               </span>
             )}
           </div>
+        </div>
+
+        <div className="flashcard-queue-tabs" role="tablist" aria-label={copy.modeSwitcher}>
+          {FLASHCARD_QUEUE_KEYS.map((queueKey) => (
+            <button
+              key={queueKey}
+              type="button"
+              className={activeQueue === queueKey ? 'active' : ''}
+              onClick={() => setActiveQueue(queueKey)}
+            >
+              <span>{copy.flashQueues[queueKey]}</span>
+              <strong>{queueViewModel[queueKey].cards.length}</strong>
+            </button>
+          ))}
         </div>
 
         <div className="study-progress-track">
@@ -1761,22 +1866,33 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
                     className="button button-secondary"
                     onClick={(event) => {
                       event.stopPropagation();
-                      recordFlashcardAssessment(false);
+                      recordFlashcardAssessment('forgot');
                     }}
                     disabled={assessing}
                   >
-                    {t('flashcards.markForReview')}
+                    {assessing ? copy.flashAssessing : copy.flashAssessForgot}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      recordFlashcardAssessment('unsure');
+                    }}
+                    disabled={assessing}
+                  >
+                    {assessing ? copy.flashAssessing : copy.flashAssessUnsure}
                   </button>
                   <button
                     type="button"
                     className="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      recordFlashcardAssessment(true);
+                      recordFlashcardAssessment('known');
                     }}
                     disabled={assessing}
                   >
-                    {assessing ? t('flashcards.recording') : t('flashcards.remembered')}
+                    {assessing ? copy.flashAssessing : copy.flashAssessKnown}
                   </button>
                 </div>
                 <p className="study-flashcard-hint">{t('flashcards.tapToReturn')}</p>
@@ -1846,7 +1962,10 @@ function QuestionCard({
   isCurrentAnswerCorrect,
   isStreakMode,
   currentStreak,
+  copy,
 }) {
+  const correct = isCurrentAnswerCorrect;
+
   return (
     <div className={`question-card study-question-card${isStreakMode ? ' streak-question-card' : ''}`}>
       <StudyTopicChips topicDisplay={topicDisplay} />
@@ -1877,11 +1996,12 @@ function QuestionCard({
       </div>
 
       {showResult && (
-        <div className={`alert study-answer-alert ${isCurrentAnswerCorrect ? 'alert-success' : 'alert-error'}`}>
-          <strong>{isCurrentAnswerCorrect ? t(isStreakMode ? 'streak.correctTitle' : 'quiz.correct') : t(isStreakMode ? 'streak.incorrectTitle' : 'quiz.incorrect')}</strong>
+        <div className={`alert study-answer-alert ${correct ? 'alert-success' : 'alert-error'}`}>
+          <strong>{correct ? t(isStreakMode ? 'streak.correctTitle' : 'quiz.correct') : t(isStreakMode ? 'streak.incorrectTitle' : 'quiz.incorrect')}</strong>
+          <p>{correct ? copy.correctMicrocopy : (isStreakMode ? copy.streakRecovery : copy.incorrectMicrocopy)}</p>
           {isStreakMode && (
             <p>
-              {isCurrentAnswerCorrect
+              {correct
                 ? t('streak.correctBody', { count: currentStreak })
                 : t('streak.incorrectBody')}
             </p>
@@ -1940,6 +2060,50 @@ function StudyTopicChips({ topicDisplay }) {
   );
 }
 
+function buildFlashcardQueues(cards, progressByQuestionId) {
+  const queues = {
+    due: [],
+    weak: [],
+    new: [],
+    mastered: [],
+  };
+  const now = Date.now();
+
+  (cards || []).forEach((card) => {
+    const progress = progressByQuestionId?.[card.id];
+    if (!progress || Number(progress.attemptCount || 0) === 0) {
+      queues.new.push(card);
+      queues.due.push(card);
+      return;
+    }
+
+    const mastery = Number(progress.masteryScore || 0);
+    const memory = Number(progress.memoryScore || 0);
+    const lastReviewedAt = progress.lastReviewedAt ? new Date(progress.lastReviewedAt).getTime() : 0;
+    const daysSinceReview = lastReviewedAt ? (now - lastReviewedAt) / 86_400_000 : 999;
+
+    if (mastery >= 86 && memory >= 70) {
+      queues.mastered.push(card);
+    }
+
+    if (mastery < 60 || Number(progress.wrongCount || 0) > Number(progress.correctCount || 0)) {
+      queues.weak.push(card);
+    }
+
+    if (memory < 70 || daysSinceReview >= 1) {
+      queues.due.push(card);
+    }
+  });
+
+  if (queues.due.length === 0) {
+    queues.due = [...queues.weak, ...queues.new].filter((card, index, list) => (
+      list.findIndex((candidate) => candidate.id === card.id) === index
+    ));
+  }
+
+  return Object.fromEntries(Object.entries(queues).map(([key, value]) => [key, { cards: value }]));
+}
+
 function StudyEmptyState({ title, body, resetLabel, onReset, onBack, backLabel }) {
   return (
     <div className="study-panel">
@@ -1994,6 +2158,12 @@ function getModeHint(mode, copy) {
     return copy.streakHint;
   }
   return copy.quizHint;
+}
+
+function formatTemplate(template, values = {}) {
+  return String(template || '').replace(/\{\{(\w+)\}\}/g, (_, key) => (
+    values[key] === undefined || values[key] === null ? '' : String(values[key])
+  ));
 }
 
 function getModeTabLabel(mode, copy) {

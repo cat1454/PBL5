@@ -2437,6 +2437,164 @@ translations.en.questionStudio = {
   },
 };
 
+Object.assign(translations.vi.questionStudio, {
+  advancedTitle: 'Tùy chỉnh nâng cao',
+  presets: {
+    kicker: 'Luồng tạo nhanh',
+    title: 'Chọn mục tiêu trước',
+    subtitle: 'Preset sẽ tự chọn số lượng, độ khó, loại câu hỏi và mode sinh phù hợp.',
+    meta: '{{count}} draft · {{mode}}',
+    items: {
+      quick_review: {
+        title: 'Ôn nhanh',
+        body: 'Ít câu, dễ bắt đầu, phù hợp kiểm tra hiểu ý chính.',
+      },
+      deep_practice: {
+        title: 'Luyện chắc',
+        body: 'Cân bằng câu hỏi vận dụng và giải thích để học sâu hơn.',
+      },
+      mock_exam: {
+        title: 'Thi thử',
+        body: 'Ưu tiên câu trung bình/khó để mô phỏng bài kiểm tra.',
+      },
+      flashcard_first: {
+        title: 'Flashcard-first',
+        body: 'Tạo thẻ ghi nhớ và câu ngắn để ôn lại nhanh.',
+      },
+      review_bank: {
+        title: 'Tạo nhiều để duyệt',
+        body: 'Sinh nhiều draft để lọc, duyệt và import thủ công.',
+      },
+    },
+  },
+  timeline: {
+    source: {
+      title: 'Đọc tài liệu',
+      body: 'Tách source unit và chọn phần nội dung có thể hỏi.',
+    },
+    generate: {
+      title: 'Sinh câu hỏi',
+      body: 'Tạo draft gốc và biến thể theo preset đã chọn.',
+    },
+    verify: {
+      title: 'Kiểm tra chất lượng',
+      body: 'Chấm grounding, đáp án và độ rõ của từng draft.',
+    },
+    dedupe: {
+      title: 'Loại trùng lặp',
+      body: 'Đánh dấu draft giống nhau hoặc quá gần nhau.',
+    },
+    ready: {
+      title: 'Sẵn sàng import',
+      body: 'Chọn draft tốt để đưa vào question bank thật.',
+    },
+  },
+  quality: {
+    excellent: 'Excellent',
+    good: 'Good',
+    review: 'Review',
+    risk: 'Risk',
+  },
+  importSuccess: {
+    badge: 'Đã import',
+    title: 'Đã import {{count}} câu hỏi',
+    body: 'Bỏ qua {{skipped}} draft không đủ điều kiện hoặc đã import trước đó.',
+    byType: 'Theo loại',
+    byDifficulty: 'Theo độ khó',
+    quizCta: 'Bắt đầu Quiz',
+    flashcardsCta: 'Mở Flashcards',
+  },
+});
+
+Object.assign(translations.en.questionStudio, {
+  advancedTitle: 'Advanced controls',
+  presets: {
+    kicker: 'Fast create flow',
+    title: 'Choose the goal first',
+    subtitle: 'Each preset maps the count, difficulty, question types, and generation mode for you.',
+    meta: '{{count}} drafts · {{mode}}',
+    items: {
+      quick_review: {
+        title: 'Quick review',
+        body: 'Fewer questions, easy to start, best for checking the main ideas.',
+      },
+      deep_practice: {
+        title: 'Deep practice',
+        body: 'Balanced applied questions and explanations for stronger learning.',
+      },
+      mock_exam: {
+        title: 'Mock exam',
+        body: 'Prioritizes medium and hard questions to simulate a test.',
+      },
+      flashcard_first: {
+        title: 'Flashcard-first',
+        body: 'Creates recall cards and short prompts for fast review.',
+      },
+      review_bank: {
+        title: 'Create many to review',
+        body: 'Generates more drafts so you can filter, review, and import manually.',
+      },
+    },
+  },
+  timeline: {
+    source: {
+      title: 'Read document',
+      body: 'Extract source units and choose askable content.',
+    },
+    generate: {
+      title: 'Generate questions',
+      body: 'Create canonical drafts and variants from the selected preset.',
+    },
+    verify: {
+      title: 'Quality check',
+      body: 'Score grounding, answer quality, and clarity for each draft.',
+    },
+    dedupe: {
+      title: 'Remove duplicates',
+      body: 'Mark exact or near-duplicate drafts before import.',
+    },
+    ready: {
+      title: 'Ready to import',
+      body: 'Select the best drafts and import them into the real question bank.',
+    },
+  },
+  quality: {
+    excellent: 'Excellent',
+    good: 'Good',
+    review: 'Review',
+    risk: 'Risk',
+  },
+  importSuccess: {
+    badge: 'Imported',
+    title: 'Imported {{count}} questions',
+    body: 'Skipped {{skipped}} drafts that were ineligible or already imported.',
+    byType: 'By type',
+    byDifficulty: 'By difficulty',
+    quizCta: 'Start Quiz',
+    flashcardsCta: 'Open Flashcards',
+  },
+});
+
+Object.assign(translations.vi.app.dashboard.sourceActions, {
+  studyNow: 'Học ngay',
+  openFlashcards: 'Mở Flashcards',
+  createSlide: 'Tạo slide',
+});
+
+Object.assign(translations.en.app.dashboard.sourceActions, {
+  studyNow: 'Study now',
+  openFlashcards: 'Open Flashcards',
+  createSlide: 'Create slide',
+});
+
+Object.assign(translations.vi.app.dashboard.sourceHelpers, {
+  failed: 'Tài liệu xử lý thất bại. Mở Workspace để xem trạng thái và thử lại với file rõ hơn.',
+});
+
+Object.assign(translations.en.app.dashboard.sourceHelpers, {
+  failed: 'Processing failed. Open the workspace to inspect the status and retry with a clearer file.',
+});
+
 translations.vi.documentUnderstanding = {
   title: 'Chất lượng xử lý tài liệu',
   summaryTitle: 'Chất lượng trích xuất',

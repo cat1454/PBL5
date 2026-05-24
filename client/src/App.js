@@ -19,6 +19,7 @@ import { ToastProvider } from './components/common/ToastProvider';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import { getApiErrorMessage, workspaceService } from './services/api';
+import { trackEvent } from './services/analytics';
 
 const MAX_RECENT_SOURCES = 4;
 const GUIDE_CHIPS = ['howToUse', 'createQuestions', 'createSlides', 'whatNext'];
@@ -365,6 +366,11 @@ function DashboardPage() {
       return;
     }
 
+    trackEvent('dashboard_next_action_clicked', {
+      actionType: action.type,
+      documentId: action.documentId || null,
+    });
+
     switch (action.type) {
       case 'upload':
         document.getElementById('dashboard-upload-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -380,10 +386,22 @@ function DashboardPage() {
       case 'streak':
         openStudyRoute(action.type, action.documentId);
         break;
+      case 'questionStudio':
+        if (action.documentId) {
+          navigate(`/question-studio/${action.documentId}`);
+        }
+        break;
+      case 'slides':
+        if (action.documentId) {
+          navigate(`/slides/${action.documentId}`);
+        } else {
+          openWorkspaceStudio();
+        }
+        break;
       default:
         break;
     }
-  }, [openStudyRoute, openWorkspaceStudio, openWorkspaces]);
+  }, [navigate, openStudyRoute, openWorkspaceStudio, openWorkspaces]);
 
   const guideState = useMemo(() => getGuideState(dashboardVm, t), [dashboardVm, t]);
   const guideAnswer = useMemo(
@@ -614,10 +632,10 @@ function DashboardPage() {
           {recentSources.length > 0 && (
             <div className="workspace-dashboard-source-list">
               {recentSources.map((source) => {
-                const sourceAction = getSourcePrimaryAction(source, dashboardVm, t);
+                const sourceAction = getSourceActionViewModel(source, dashboardVm, t);
                 const deckHint = getWorkspaceDeckHint(dashboardVm, t);
                 return (
-                  <article key={source.id} className="workspace-dashboard-source-card">
+                  <article key={source.id} className={`workspace-dashboard-source-card source-intent-${sourceAction.intent}`}>
                     <div className="workspace-dashboard-source-main">
                       <div className="workspace-dashboard-source-top">
                         <h4>{source.fileName}</h4>
@@ -633,14 +651,19 @@ function DashboardPage() {
                       <p className="workspace-dashboard-source-note">{sourceAction.helper}</p>
                     </div>
 
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      onClick={() => executeDashboardAction(sourceAction.action)}
-                      disabled={sourceAction.action.disabled}
-                    >
-                      {sourceAction.action.label}
-                    </button>
+                    <div className="workspace-dashboard-source-actions">
+                      {sourceAction.actions.map((action, actionIndex) => (
+                        <button
+                          key={`${source.id}-${action.type}-${actionIndex}`}
+                          type="button"
+                          className={`button${action.secondary ? ' button-secondary' : ''}`}
+                          onClick={() => executeDashboardAction(action)}
+                          disabled={action.disabled}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
                   </article>
                 );
               })}
@@ -1165,24 +1188,48 @@ function getChecklistState(key, vm) {
   }
 }
 
-function getSourcePrimaryAction(source, vm, t) {
+function getSourceActionViewModel(source, vm, t) {
+  const documentId = source?.documentId ?? source?.DocumentId ?? source?.id;
+
+  if (normalizeSourceStatus(source?.status) === 'failed') {
+    return {
+      intent: 'failed',
+      helper: t('app.dashboard.sourceHelpers.failed'),
+      actions: [
+        { type: 'workspaceStudio', label: t('app.dashboard.sourceActions.viewProgress'), disabled: !vm.defaultWorkspace?.id },
+      ],
+    };
+  }
+
   if (isStudyReadySource(source)) {
     return {
-      action: { type: 'quiz', documentId: source.id, label: t('app.dashboard.sourceActions.continueLearning') },
+      intent: 'study',
       helper: t('app.dashboard.sourceHelpers.studyReady'),
+      actions: [
+        { type: 'quiz', documentId, label: t('app.dashboard.sourceActions.studyNow') },
+        { type: 'flashcards', documentId, label: t('app.dashboard.sourceActions.openFlashcards'), secondary: true },
+        { type: 'slides', documentId, label: t('app.dashboard.sourceActions.createSlide'), secondary: true },
+      ],
     };
   }
 
   if (isCompletedSource(source)) {
     return {
-      action: { type: 'workspaceStudio', label: t('app.dashboard.sourceActions.generateQuestions'), disabled: !vm.defaultWorkspace?.id },
+      intent: 'create',
       helper: t('app.dashboard.sourceHelpers.needsQuestions'),
+      actions: [
+        { type: 'questionStudio', documentId, label: t('app.dashboard.sourceActions.generateQuestions') },
+        { type: 'slides', documentId, label: t('app.dashboard.sourceActions.createSlide'), secondary: true },
+      ],
     };
   }
 
   return {
-    action: { type: 'workspaceStudio', label: t('app.dashboard.sourceActions.viewProgress'), disabled: !vm.defaultWorkspace?.id },
+    intent: 'processing',
     helper: t('app.dashboard.sourceHelpers.processing'),
+    actions: [
+      { type: 'workspaceStudio', label: t('app.dashboard.sourceActions.viewProgress'), disabled: !vm.defaultWorkspace?.id },
+    ],
   };
 }
 
