@@ -1,0 +1,151 @@
+﻿.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+  background:
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 36%),
+    linear-gradient(135deg, #f8fafc 0%, #e0f2fe 48%, #fefce8 100%);
+}
+
+.auth-card {
+  width: min(100%, 460px);
+  padding: 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.auth-kicker {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+
+.auth-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-form input,
+.auth-form select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: #ffffff;
+}
+
+.auth-submit {
+  width: 100%;
+  justify-content: center;
+}
+
+.auth-switch {
+  margin-top: 18px;
+  color: #475569;
+  text-align: center;
+}
+
+.auth-loading-card {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+}
+
+.admin-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.admin-card {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-card strong {
+  font-size: 2rem;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.app-shell-documents .app-shell-user-avatar {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.app-shell-documents .language-toggle {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.app-shell-documents .language-toggle-button.active {
+  color: #0f172a;
+}
+
+.app-shell-documents .app-shell-body,
+.app-shell-documents .app-shell-content {
+  background: #edf2f7;
+}
+
+.app-shell-documents .app-shell-content-inner {
+  width: 100%;
+  max-width: none;
+  padding: 16px 20px 24px;
+}
+
+.app-shell-documents .app-sidebar {
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.app-shell-documents .app-sidebar-link {
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.app-shell-documents .app-sidebar-link:hover {
+  background: rgba(148, 163, 184, 0.12);
+  box-shadow: none;
+}
+
+.app-shell-documents .app-sidebar-link.active {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.18) 0%, rgba(59, 130, 246, 0.05) 100%);
+  color: #f8fafc;
+  border-left: 4px solid #60a5fa;
+}
+
+.app-shell-documents .app-sidebar-link.active:hover {
+  transform: none;
+  filter: none;
+}

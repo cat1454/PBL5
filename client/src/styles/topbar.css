@@ -1,0 +1,174 @@
+﻿.app-shell-brand {
+  text-decoration: none;
+}
+
+.app-shell-header-start {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.app-topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+}
+
+.app-topbar-link {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.76);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.app-topbar-link:hover,
+.app-topbar-link.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.app-topbar-link-placeholder span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-shell-account {
+  position: relative;
+}
+
+.app-shell-account-trigger {
+  min-height: 48px;
+  padding: 6px 10px 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.app-shell-account-trigger:hover,
+.app-shell-account.is-open .app-shell-account-trigger {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.app-shell-account-chevron {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 0.86rem;
+}
+
+.app-account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(300px, calc(100vw - 24px));
+  padding: 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(17, 24, 39, 0.98) 100%);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.36);
+  display: grid;
+  gap: 8px;
+  z-index: 60;
+}
+
+.app-account-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.app-account-summary strong {
+  display: block;
+  color: #f8fafc;
+}
+
+.app-account-summary p {
+  margin: 4px 0 0;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 0.84rem;
+}
+
+.app-account-item {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.app-account-item:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.app-account-item span {
+  font-weight: 700;
+}
+
+.app-account-item small {
+  color: rgba(226, 232, 240, 0.64);
+  font-size: 0.75rem;
+}
+
+.app-account-item-danger {
+  margin-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0 0 14px 14px;
+  padding-top: 14px;
+}
+
+.app-account-item-danger span,
+.app-account-item-danger small {
+  color: #fca5a5;
+}
+
+.app-menu-placeholder {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #cbd5e1;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-menu-placeholder:hover {
+  background: rgba(124, 110, 230, 0.18);
+  color: #ffffff;
+}
+

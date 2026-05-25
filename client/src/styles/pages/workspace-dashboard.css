@@ -1,0 +1,509 @@
+﻿.workspace-dashboard {
+  display: grid;
+  gap: 18px;
+  padding: 24px 0 36px;
+}
+
+.workspace-dashboard-header,
+.workspace-dashboard-welcome,
+.workspace-guide-card,
+.workspace-dashboard-recent,
+.workspace-dashboard-pipeline,
+.workspace-dashboard-next-action,
+.workspace-dashboard-checklist,
+.workspace-shortcut-card {
+  margin-bottom: 0;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 250, 255, 0.98) 100%);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.07);
+}
+
+.workspace-dashboard-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  align-items: end;
+}
+
+.workspace-dashboard-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #e7eefc;
+  color: #3450a3;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-dashboard-header-copy h2 {
+  margin: 14px 0 10px;
+  color: #0f172a;
+  font-size: clamp(1.9rem, 3vw, 2.8rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.workspace-dashboard-header-copy p,
+.workspace-dashboard-section-head p,
+.workspace-guide-message p,
+.workspace-guide-answer p,
+.workspace-shortcut-card p,
+.workspace-dashboard-source-note,
+.workspace-next-action-card p,
+.workspace-checklist-item p,
+.workspace-pipeline-copy p {
+  color: #52607a;
+  line-height: 1.6;
+}
+
+.workspace-dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workspace-dashboard-stat,
+.workspace-dashboard-mini-card {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.workspace-dashboard-stat span,
+.workspace-dashboard-mini-card span {
+  display: block;
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.workspace-dashboard-stat strong,
+.workspace-dashboard-mini-card strong,
+.workspace-guide-message strong,
+.workspace-guide-answer strong,
+.workspace-next-action-card strong,
+.workspace-pipeline-copy strong,
+.workspace-checklist-item strong,
+.workspace-shortcut-card h4,
+.workspace-dashboard-source-top h4 {
+  color: #0f172a;
+}
+
+.workspace-dashboard-stat strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}
+
+.workspace-dashboard-top-grid,
+.workspace-dashboard-main-grid,
+.workspace-dashboard-support-grid {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+
+.workspace-dashboard-top-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+}
+
+.workspace-dashboard-main-grid {
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+}
+
+.workspace-dashboard-support-grid {
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+}
+
+.workspace-dashboard-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.workspace-dashboard-section-head h3 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.workspace-dashboard-action-row,
+.workspace-guide-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workspace-dashboard-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.workspace-dashboard-upload-wrap {
+  margin-top: 10px;
+  padding: 18px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(241, 245, 249, 0.85) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.workspace-dashboard-upload-wrap .document-upload-card {
+  margin-bottom: 0;
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+.workspace-guide-card {
+  position: sticky;
+  top: 92px;
+}
+
+.workspace-guide-status,
+.workspace-shortcut-pill,
+.workspace-pipeline-state,
+.workspace-next-action-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.workspace-guide-status-neutral,
+.workspace-pipeline-state.state-pending {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.workspace-guide-status-processing,
+.workspace-pipeline-state.state-active {
+  background: #fff4db;
+  color: #b45309;
+}
+
+.workspace-guide-status-ready,
+.workspace-guide-status-highlight {
+  background: #eef6ff;
+  color: #1d4ed8;
+}
+
+.workspace-guide-status-success,
+.workspace-pipeline-state.state-complete {
+  background: #e8fff2;
+  color: #157347;
+}
+
+.workspace-guide-message,
+.workspace-guide-answer {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.workspace-guide-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.workspace-guide-chip {
+  border: 1px solid rgba(59, 130, 246, 0.16);
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #3351a7;
+  padding: 9px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.workspace-guide-chip:hover,
+.workspace-guide-chip.active {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
+}
+
+.workspace-dashboard-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.workspace-shortcut-card {
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-shortcut-card.is-disabled {
+  opacity: 0.7;
+}
+
+.workspace-shortcut-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.workspace-shortcut-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-shortcut-link:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.workspace-shortcut-pill {
+  width: fit-content;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.workspace-dashboard-source-list,
+.workspace-pipeline-list,
+.workspace-checklist-list {
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-dashboard-source-card,
+.workspace-pipeline-step,
+.workspace-checklist-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+}
+
+.workspace-dashboard-source-card.source-intent-study {
+  border-color: rgba(2, 122, 72, 0.28);
+}
+
+.workspace-dashboard-source-card.source-intent-create {
+  border-color: rgba(37, 99, 235, 0.28);
+}
+
+.workspace-dashboard-source-card.source-intent-failed {
+  border-color: rgba(180, 35, 24, 0.28);
+}
+
+.workspace-dashboard-source-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-dashboard-source-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workspace-dashboard-source-note {
+  margin: 8px 0 0;
+  font-size: 0.92rem;
+}
+
+.workspace-dashboard-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.workspace-dashboard-source-actions .button {
+  min-width: 132px;
+}
+
+.workspace-pipeline-step {
+  align-items: center;
+}
+
+.workspace-pipeline-marker,
+.workspace-checklist-bullet {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.workspace-pipeline-step.is-complete .workspace-pipeline-marker,
+.workspace-checklist-item.is-complete .workspace-checklist-bullet {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.workspace-pipeline-step.is-active .workspace-pipeline-marker,
+.workspace-checklist-item.is-active .workspace-checklist-bullet {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.workspace-pipeline-copy,
+.workspace-checklist-item div:last-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-next-action-card {
+  padding: 18px 20px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.9) 0%, rgba(255, 255, 255, 1) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-next-action-eyebrow {
+  width: fit-content;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.workspace-checklist-item {
+  justify-content: flex-start;
+}
+
+.workspace-checklist-item.is-pending {
+  opacity: 0.85;
+}
+
+.app-topbar-link-placeholder {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+.app-topbar-link-placeholder:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.folder-studio-action-placeholder {
+  display: none;
+}
+
+.folder-studio-action-section:has(.folder-studio-action-placeholder):not(:has(.folder-studio-action:not(.folder-studio-action-placeholder))) {
+  display: none;
+}
+
+.document-upload-card .alert-info {
+  margin-top: 16px;
+}
+
+.study-mode-switcher,
+.study-sidebar-actions,
+.studio-header-actions,
+.studio-toolbar-actions,
+.folder-card-actions,
+.workspace-dashboard-action-row {
+  flex-wrap: wrap;
+}
+
+.study-mode-switcher-button,
+.studio-header-actions .button,
+.folder-card-actions .button,
+.workspace-dashboard-action-row .button {
+  min-width: 0;
+}
+
+@media (max-width: 1240px) {
+  .workspace-dashboard-shortcuts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1120px) {
+  .app-topbar-nav {
+    display: none;
+  }
+
+  .workspace-dashboard-header,
+  .workspace-dashboard-top-grid,
+  .workspace-dashboard-main-grid,
+  .workspace-dashboard-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-guide-card {
+    position: static;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-shell-header-inner {
+    gap: 12px;
+  }
+
+  .app-shell-account-trigger {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .workspace-dashboard-stats,
+  .workspace-dashboard-mini-grid,
+  .workspace-dashboard-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-dashboard-source-card,
+  .workspace-pipeline-step {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .workspace-dashboard-action-row,
+  .workspace-guide-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .study-compact-header-main,
+  .studio-header-main,
+  .studio-header-actions,
+  .folder-card-actions {
+    align-items: stretch;
+  }
+
+  .study-mode-switcher-button,
+  .studio-header-actions .button,
+  .folder-card-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+

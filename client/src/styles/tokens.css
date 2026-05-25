@@ -1,0 +1,18 @@
+﻿/* Core UX refresh: shared tokens, accessible controls, compact learning workflows */
+:root {
+  --ux-surface: #ffffff;
+  --ux-surface-muted: #f8fafc;
+  --ux-border: #d9e2ef;
+  --ux-border-strong: #b8c6d9;
+  --ux-text: #111827;
+  --ux-muted: #526070;
+  --ux-primary: #2563eb;
+  --ux-primary-strong: #1d4ed8;
+  --ux-danger: #b42318;
+  --ux-success: #027a48;
+  --ux-warning: #b45309;
+  --ux-radius: 8px;
+  --ux-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  --ux-focus: 0 0 0 4px rgba(37, 99, 235, 0.18);
+}
+
