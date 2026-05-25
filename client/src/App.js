@@ -16,10 +16,12 @@ import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RegisterPage from './components/auth/RegisterPage';
 import { ToastProvider } from './components/common/ToastProvider';
+import PersonalAnalyticsDashboard from './components/PersonalAnalyticsDashboard';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useLanguage } from './context/LanguageContext';
 import { getApiErrorMessage, workspaceService } from './services/api';
 import { trackEvent } from './services/analytics';
+import { getNextBestAction } from './services/dashboardActions';
 
 const MAX_RECENT_SOURCES = 4;
 const GUIDE_CHIPS = ['howToUse', 'createQuestions', 'createSlides', 'whatNext'];
@@ -146,6 +148,9 @@ function AppShell({ user, onLogout }) {
               <NavLink to="/workspaces" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
                 {t('app.nav.workspaces')}
               </NavLink>
+              <NavLink to="/analytics" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                {t('app.nav.analytics')}
+              </NavLink>
               {currentUser?.role === 'ADMIN' && (
                 <NavLink to="/admin" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
                   {t('app.nav.admin')}
@@ -250,6 +255,9 @@ function AppShell({ user, onLogout }) {
               <NavLink to="/workspaces" className={({ isActive }) => (isActive ? 'active' : '')}>
                 {t('app.nav.workspaces')}
               </NavLink>
+              <NavLink to="/analytics" className={({ isActive }) => (isActive ? 'active' : '')}>
+                {t('app.nav.analytics')}
+              </NavLink>
               {currentUser?.role === 'ADMIN' && (
                 <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
                   {t('app.nav.admin')}
@@ -279,6 +287,7 @@ function AppShell({ user, onLogout }) {
               <Route path="/folders/:folderId/studio" element={<LegacyWorkspaceRedirect />} />
               <Route path="/workspaces" element={<FolderProjects />} />
               <Route path="/workspaces/:workspaceId" element={<FolderStudio />} />
+              <Route path="/analytics" element={<PersonalAnalyticsDashboard />} />
               <Route path="/documents-legacy" element={<Navigate to="/workspaces" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
@@ -835,6 +844,10 @@ function getPageTitle(pathname, t) {
     return t('app.pageTitle.settings');
   }
 
+  if (pathname.startsWith('/analytics')) {
+    return t('app.pageTitle.analytics');
+  }
+
   if (pathname.startsWith('/quiz/')) {
     return t('app.pageTitle.quiz');
   }
@@ -1098,63 +1111,6 @@ function getPipelineStepVm(key, vm, t) {
           ? { title: t('app.dashboard.pipeline.steps.slides.title'), body: t('app.dashboard.pipeline.steps.slides.active'), label: t('app.dashboard.pipeline.labels.active'), state: 'active' }
           : { title: t('app.dashboard.pipeline.steps.slides.title'), body: t('app.dashboard.pipeline.steps.slides.pending'), label: t('app.dashboard.pipeline.labels.pending'), state: 'pending' };
   }
-}
-
-function getNextBestAction(vm, t) {
-  if (!vm.hasSource) {
-    return {
-      eyebrow: t('app.dashboard.nextAction.eyebrow'),
-      title: t('app.dashboard.nextAction.states.noSource.title'),
-      body: t('app.dashboard.nextAction.states.noSource.body'),
-      action: { type: 'upload', label: t('app.dashboard.actions.upload') },
-      secondaryAction: { type: 'workspaces', label: t('app.dashboard.actions.openWorkspace'), secondary: true },
-    };
-  }
-
-  if (vm.processingSource && !vm.hasCompletedSource) {
-    return {
-      eyebrow: t('app.dashboard.nextAction.eyebrow'),
-      title: t('app.dashboard.nextAction.states.processing.title'),
-      body: t('app.dashboard.nextAction.states.processing.body'),
-      action: { type: 'workspaceStudio', label: t('app.dashboard.guide.actions.viewProgress'), disabled: !vm.defaultWorkspace?.id },
-    };
-  }
-
-  if (vm.latestCompletedSource && Number(vm.latestCompletedSource.questionsCount || 0) === 0) {
-    return {
-      eyebrow: t('app.dashboard.nextAction.eyebrow'),
-      title: t('app.dashboard.nextAction.states.noQuestions.title'),
-      body: t('app.dashboard.nextAction.states.noQuestions.body'),
-      action: { type: 'workspaceStudio', label: t('app.dashboard.guide.actions.createQuestions'), disabled: !vm.defaultWorkspace?.id },
-    };
-  }
-
-  if (vm.studyReadySource && !vm.workspaceHasDeck) {
-    return {
-      eyebrow: t('app.dashboard.nextAction.eyebrow'),
-      title: t('app.dashboard.nextAction.states.noDeck.title'),
-      body: t('app.dashboard.nextAction.states.noDeck.body'),
-      action: { type: 'workspaceStudio', label: t('app.dashboard.guide.actions.createDeck'), disabled: !vm.defaultWorkspace?.id },
-      secondaryAction: { type: 'quiz', documentId: vm.studyReadySource.id, label: t('app.dashboard.guide.actions.openQuiz') },
-    };
-  }
-
-  if (vm.studyReadySource) {
-    return {
-      eyebrow: t('app.dashboard.nextAction.eyebrow'),
-      title: t('app.dashboard.nextAction.states.studyReady.title'),
-      body: t('app.dashboard.nextAction.states.studyReady.body'),
-      action: { type: 'quiz', documentId: vm.studyReadySource.id, label: t('app.dashboard.guide.actions.openQuiz') },
-      secondaryAction: { type: 'flashcards', documentId: vm.studyReadySource.id, label: t('app.dashboard.guide.actions.openFlashcards'), secondary: true },
-    };
-  }
-
-  return {
-    eyebrow: t('app.dashboard.nextAction.eyebrow'),
-    title: t('app.dashboard.nextAction.states.workspace.title'),
-    body: t('app.dashboard.nextAction.states.workspace.body'),
-    action: { type: 'workspaceStudio', label: t('app.dashboard.guide.actions.openStudio'), disabled: !vm.defaultWorkspace?.id },
-  };
 }
 
 function buildChecklistItems(vm, t) {
