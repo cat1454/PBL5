@@ -25,6 +25,7 @@ public class LearningProgressService : ILearningProgressService
         LearningMode mode,
         string? selectedAnswer,
         bool isCorrect,
+        string? confidence,
         int? responseTimeMs,
         int? testResultId = null,
         CancellationToken cancellationToken = default)
@@ -40,6 +41,7 @@ public class LearningProgressService : ILearningProgressService
                     mode,
                     selectedAnswer,
                     isCorrect,
+                    confidence,
                     responseTimeMs,
                     testResultId,
                     cancellationToken);
@@ -57,6 +59,7 @@ public class LearningProgressService : ILearningProgressService
             mode,
             selectedAnswer,
             isCorrect,
+            confidence,
             responseTimeMs,
             testResultId,
             cancellationToken);
@@ -69,6 +72,7 @@ public class LearningProgressService : ILearningProgressService
         LearningMode mode,
         string? selectedAnswer,
         bool isCorrect,
+        string? confidence,
         int? responseTimeMs,
         int? testResultId,
         CancellationToken cancellationToken)
@@ -77,7 +81,7 @@ public class LearningProgressService : ILearningProgressService
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        AddAttempt(userId, documentId, questionId, mode, selectedAnswer, isCorrect, responseTimeMs, now, testResultId);
+        AddAttempt(userId, documentId, questionId, mode, selectedAnswer, isCorrect, confidence, responseTimeMs, now, testResultId);
         var progress = await ApplyProgressAsync(userId, documentId, questionId, isCorrect, responseTimeMs, now, cancellationToken);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -185,6 +189,7 @@ public class LearningProgressService : ILearningProgressService
                 LearningMode.Test,
                 answer.SelectedAnswer,
                 answer.IsCorrect,
+                confidence: null,
                 answer.ResponseTimeMs,
                 submittedAt,
                 testResult);
@@ -270,6 +275,79 @@ public class LearningProgressService : ILearningProgressService
         return progresses.Select(progress => ToSnapshot(progress, now)).ToList();
     }
 
+    public async Task<LearningReviewQueueSnapshot> GetReviewQueueAsync(
+        string userId,
+        int documentId,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var questionIds = await _dbContext.Questions
+            .Where(question => question.DocumentId == documentId && !question.IsArchived)
+            .OrderBy(question => question.Id)
+            .Select(question => question.Id)
+            .ToListAsync(cancellationToken);
+
+        if (questionIds.Count == 0)
+        {
+            return new LearningReviewQueueSnapshot();
+        }
+
+        var progressByQuestionId = await _dbContext.LearningProgresses
+            .Where(progress => progress.UserId == userId && progress.DocumentId == documentId)
+            .ToDictionaryAsync(progress => progress.QuestionId, cancellationToken);
+
+        var queue = new LearningReviewQueueSnapshot();
+        foreach (var questionId in questionIds)
+        {
+            progressByQuestionId.TryGetValue(questionId, out var progress);
+            var snapshot = progress != null ? ToSnapshot(progress, now) : null;
+            var attemptCount = snapshot?.AttemptCount ?? 0;
+
+            if (attemptCount == 0)
+            {
+                var item = CreateReviewQueueItem(questionId, "new", "new", 100, null, snapshot);
+                queue.New.Add(item);
+                queue.Due.Add(CreateReviewQueueItem(questionId, "due", "new", 100, null, snapshot));
+                continue;
+            }
+
+            var mastery = snapshot?.MasteryScore ?? 0d;
+            var memory = snapshot?.MemoryScore ?? 0d;
+            var isWeak = mastery < 60d || (snapshot?.WrongCount ?? 0) > (snapshot?.CorrectCount ?? 0);
+            var isMastered = mastery >= 86d && memory >= 70d;
+            var nextReviewAt = CalculateNextReviewAt(progress!.Level, progress.LastReviewedAt);
+
+            if (isWeak)
+            {
+                queue.Weak.Add(CreateReviewQueueItem(questionId, "weak", "weak", 90, nextReviewAt, snapshot));
+            }
+
+            if (isMastered)
+            {
+                queue.Mastered.Add(CreateReviewQueueItem(questionId, "mastered", "mastered", 10, nextReviewAt, snapshot));
+            }
+
+            var dueReason = ResolveDueReason(isWeak, memory, nextReviewAt, now);
+            if (dueReason != null)
+            {
+                queue.Due.Add(CreateReviewQueueItem(
+                    questionId,
+                    "due",
+                    dueReason,
+                    CalculateDuePriority(isWeak, memory, nextReviewAt, now),
+                    nextReviewAt,
+                    snapshot));
+            }
+        }
+
+        queue.Due = queue.Due.OrderByDescending(item => item.Priority).ThenBy(item => item.QuestionId).ToList();
+        queue.Weak = queue.Weak.OrderByDescending(item => item.Priority).ThenBy(item => item.QuestionId).ToList();
+        queue.New = queue.New.OrderBy(item => item.QuestionId).ToList();
+        queue.Mastered = queue.Mastered.OrderBy(item => item.QuestionId).ToList();
+
+        return queue;
+    }
+
     public async Task<LearningProgressSummarySnapshot> GetDocumentSummaryAsync(
         string userId,
         int documentId,
@@ -294,6 +372,82 @@ public class LearningProgressService : ILearningProgressService
         };
     }
 
+    private static LearningReviewQueueItemSnapshot CreateReviewQueueItem(
+        int questionId,
+        string queue,
+        string dueReason,
+        int priority,
+        DateTime? nextReviewAt,
+        LearningProgressSnapshot? progress)
+        => new()
+        {
+            QuestionId = questionId,
+            Queue = queue,
+            DueReason = dueReason,
+            Priority = priority,
+            NextReviewAt = nextReviewAt,
+            Progress = progress
+        };
+
+    private static string? ResolveDueReason(bool isWeak, double memory, DateTime? nextReviewAt, DateTime nowUtc)
+    {
+        if (isWeak)
+        {
+            return "weak";
+        }
+
+        if (memory < 70d)
+        {
+            return "memory";
+        }
+
+        if (!nextReviewAt.HasValue || nextReviewAt.Value <= nowUtc)
+        {
+            return "interval";
+        }
+
+        return null;
+    }
+
+    private static int CalculateDuePriority(bool isWeak, double memory, DateTime? nextReviewAt, DateTime nowUtc)
+    {
+        if (isWeak)
+        {
+            return 90;
+        }
+
+        if (memory < 70d)
+        {
+            return Math.Clamp(80 + (int)Math.Round(70d - memory), 80, 100);
+        }
+
+        if (!nextReviewAt.HasValue)
+        {
+            return 70;
+        }
+
+        return nextReviewAt.Value <= nowUtc ? 60 : 0;
+    }
+
+    private static DateTime? CalculateNextReviewAt(LearningLevel level, DateTime? lastReviewedAt)
+    {
+        if (!lastReviewedAt.HasValue)
+        {
+            return null;
+        }
+
+        var days = level switch
+        {
+            LearningLevel.Weak => 0,
+            LearningLevel.Learning => 1,
+            LearningLevel.Good => 3,
+            LearningLevel.Mastered => 7,
+            _ => 1
+        };
+
+        return lastReviewedAt.Value.AddDays(days);
+    }
+
     private void AddAttempt(
         string userId,
         int documentId,
@@ -301,6 +455,7 @@ public class LearningProgressService : ILearningProgressService
         LearningMode mode,
         string? selectedAnswer,
         bool isCorrect,
+        string? confidence,
         int? responseTimeMs,
         DateTime createdAt,
         int? testResultId = null)
@@ -313,6 +468,7 @@ public class LearningProgressService : ILearningProgressService
             Mode = mode,
             SelectedAnswer = selectedAnswer,
             IsCorrect = isCorrect,
+            Confidence = NormalizeConfidence(confidence),
             ResponseTimeMs = responseTimeMs,
             TestResultId = testResultId,
             CreatedAt = createdAt
@@ -326,6 +482,7 @@ public class LearningProgressService : ILearningProgressService
         LearningMode mode,
         string? selectedAnswer,
         bool isCorrect,
+        string? confidence,
         int? responseTimeMs,
         DateTime createdAt,
         LearningTestResult testResult)
@@ -338,10 +495,22 @@ public class LearningProgressService : ILearningProgressService
             Mode = mode,
             SelectedAnswer = selectedAnswer,
             IsCorrect = isCorrect,
+            Confidence = NormalizeConfidence(confidence),
             ResponseTimeMs = responseTimeMs,
             TestResult = testResult,
             CreatedAt = createdAt
         });
+    }
+
+    private static string? NormalizeConfidence(string? confidence)
+    {
+        if (string.IsNullOrWhiteSpace(confidence))
+        {
+            return null;
+        }
+
+        var normalized = confidence.Trim().ToLowerInvariant();
+        return normalized is "forgot" or "unsure" or "remembered" ? normalized : null;
     }
 
     private async Task<LearningProgress> ApplyProgressAsync(

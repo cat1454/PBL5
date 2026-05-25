@@ -439,13 +439,14 @@ export const questionStudioService = {
 };
 
 export const learningService = {
-  recordAttempt: async ({ documentId, questionId, mode, selectedAnswer, isCorrect, responseTimeMs }) => {
+  recordAttempt: async ({ documentId, questionId, mode, selectedAnswer, isCorrect, confidence, responseTimeMs }) => {
     const response = await apiClient.post('/learning/attempts', {
       documentId,
       questionId,
       mode,
       selectedAnswer,
       isCorrect,
+      confidence,
       responseTimeMs,
     });
     return response.data;
@@ -486,6 +487,11 @@ export const learningService = {
     return response.data;
   },
 
+  getReviewQueue: async (documentId) => {
+    const response = await apiClient.get(`/learning/review-queue/${documentId}`);
+    return response.data;
+  },
+
   getDocumentSummary: async (documentId) => {
     const response = await apiClient.get(`/learning/progress/summary/${documentId}`);
     return response.data;
@@ -511,6 +517,15 @@ export const learningService = {
     const response = await apiClient.get('/learning/export/test-results.csv', {
       params: filters,
       responseType: 'blob',
+    });
+    return response.data;
+  },
+};
+
+export const analyticsService = {
+  recordEvents: async (events) => {
+    const response = await apiClient.post('/analytics/events', {
+      events,
     });
     return response.data;
   },

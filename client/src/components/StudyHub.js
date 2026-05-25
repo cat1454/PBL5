@@ -17,6 +17,10 @@ import {
   normalizeGenerationReadiness,
 } from '../services/generationReadiness';
 import { trackEvent } from '../services/analytics';
+import FlashcardQueueTabs from './study/FlashcardQueueTabs';
+import StreakSummary from './study/StreakSummary';
+import StudySessionBrief from './study/StudySessionBrief';
+import StudySessionRecap from './study/StudySessionRecap';
 
 const STUDY_MODES = ['quiz', 'flashcards', 'test', 'streak'];
 const DEFAULT_QUESTION_COUNT = 10;
@@ -1523,46 +1527,45 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     return (
       <div className={`study-panel study-panel-${mode}`}>
         <div className="card study-card study-summary-card">
-          <h2>{completedTitle}</h2>
-          <p className="section-subtitle">
-            {completedHint}
-          </p>
-          <div className="score-display">
-            <h1 style={{ fontSize: '4em', color: resultScore >= 70 ? '#28a745' : '#dc3545' }}>
-              {resultScore}%
-            </h1>
-            <p style={{ fontSize: '1.1em' }}>
-              {t(isStreakMode ? 'streak.scoreLine' : 'quiz.scoreLine', { correct: resultCorrect, total: resultTotal })}
-            </p>
-            {isStreakMode && <p className="study-summary-inline-meta">{t('streak.bestStreakLine', { count: bestStreak })}</p>}
-            {testResult && (
+          <StudySessionRecap
+            title={completedTitle}
+            subtitle={completedHint}
+            scorePercent={resultScore}
+            scoreTone={resultScore >= 70 ? '#28a745' : '#dc3545'}
+            scoreLine={t(isStreakMode ? 'streak.scoreLine' : 'quiz.scoreLine', { correct: resultCorrect, total: resultTotal })}
+            inlineMeta={isStreakMode ? t('streak.bestStreakLine', { count: bestStreak }) : null}
+            testMetrics={testResult && (
               <div className="study-test-result-metrics">
                 <ProgressSummaryItem label={copy.duration} value={formatDurationMs(testResult.durationMs)} />
                 <ProgressSummaryItem label={copy.masteryAfterTest} value={`${Math.round(Number(testResult.masteryScoreAfterTest || 0))}%`} />
                 <ProgressSummaryItem label={copy.averageMemory} value={`${Math.round(Number(testResult.memoryScoreAfterTest || 0))}%`} />
               </div>
             )}
-          </div>
-          <div className="study-test-result-metrics">
-            <ProgressSummaryItem label={copy.totalQuestions} value={resultTotal} />
-            <ProgressSummaryItem label={t('quiz.correct')} value={resultCorrect} />
-            <ProgressSummaryItem label={t('quiz.incorrect')} value={Math.max(0, resultTotal - resultCorrect)} />
-          </div>
-          {testResult && (
-            <WeakQuestionsPanel
-              copy={copy}
-              weakQuestions={weakQuestions}
-              onReviewWeakQuestions={startWeakQuestionReview}
-            />
-          )}
-          <div className="study-action-row">
-            <button className="button" onClick={resetSession}>
-              {t(isStreakMode ? 'streak.retry' : 'quiz.retry')}
-            </button>
-            <button className="button button-secondary" onClick={onBack}>
-              {copy.backToWorkspace}
-            </button>
-          </div>
+            metrics={(
+              <>
+                <ProgressSummaryItem label={copy.totalQuestions} value={resultTotal} />
+                <ProgressSummaryItem label={t('quiz.correct')} value={resultCorrect} />
+                <ProgressSummaryItem label={t('quiz.incorrect')} value={Math.max(0, resultTotal - resultCorrect)} />
+              </>
+            )}
+            weakQuestions={testResult && (
+              <WeakQuestionsPanel
+                copy={copy}
+                weakQuestions={weakQuestions}
+                onReviewWeakQuestions={startWeakQuestionReview}
+              />
+            )}
+            actions={(
+              <>
+                <button className="button" onClick={resetSession}>
+                  {t(isStreakMode ? 'streak.retry' : 'quiz.retry')}
+                </button>
+                <button className="button button-secondary" onClick={onBack}>
+                  {copy.backToWorkspace}
+                </button>
+              </>
+            )}
+          />
         </div>
       </div>
     );
@@ -1663,6 +1666,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
   const [reloadKey, setReloadKey] = useState(0);
   const [allFlashcards, setAllFlashcards] = useState([]);
   const [progressByQuestionId, setProgressByQuestionId] = useState({});
+  const [reviewQueue, setReviewQueue] = useState(null);
   const [activeQueue, setActiveQueue] = useState('due');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -1682,6 +1686,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
         ]);
         setAllFlashcards(Array.isArray(data?.flashcards) ? data.flashcards : []);
         setProgressByQuestionId(Object.fromEntries((Array.isArray(progress) ? progress : []).map((item) => [item.questionId, item])));
+        setReviewQueue(await learningService.getReviewQueue(documentId).catch(() => null));
       } catch (error) {
         console.error(error);
         setLoadError(getApiErrorMessage(error, t('flashcards.loadError')));
@@ -1703,7 +1708,9 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     cardStartTimeRef.current = Date.now();
   }, [currentIndex]);
 
-  const queueViewModel = buildFlashcardQueues(allFlashcards, progressByQuestionId);
+  const queueViewModel = reviewQueue
+    ? buildFlashcardQueuesFromReviewQueue(allFlashcards, reviewQueue)
+    : buildFlashcardQueues(allFlashcards, progressByQuestionId);
   const flashcards = (hideLowConfidence
     ? queueViewModel[activeQueue].cards.filter((card) => !card.quality?.isLowConfidence)
     : queueViewModel[activeQueue].cards);
@@ -1765,6 +1772,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     }
 
     const remembered = assessment === 'known';
+    const confidence = assessment === 'known' ? 'remembered' : assessment;
     setAssessing(true);
     try {
       await learningService.recordAttempt({
@@ -1773,6 +1781,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
         mode: LEARNING_MODE_VALUES.flashcards,
         selectedAnswer: `self:${assessment}`,
         isCorrect: remembered,
+        confidence,
         responseTimeMs: Math.max(0, Date.now() - cardStartTimeRef.current),
       });
       trackEvent('flashcard_assessed', {
@@ -1794,12 +1803,11 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
   return (
     <div className="study-panel study-panel-flashcards">
       <div className="card study-card">
-        <div className="study-card-toolbar">
-          <div>
-            <h3>{t('flashcards.cardProgress', { current: currentIndex + 1, total: flashcards.length })}</h3>
-            <p className="study-card-caption">{copy.flashHint}</p>
-          </div>
-          <div className="study-card-tools">
+        <StudySessionBrief
+          title={t('flashcards.cardProgress', { current: currentIndex + 1, total: flashcards.length })}
+          caption={copy.flashHint}
+          actions={(
+            <>
             <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
               {hideLowConfidence ? t('flashcards.showAllCards') : t('flashcards.hideLowConfidence')}
             </button>
@@ -1808,22 +1816,18 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
                 Verifier {quality.score}/100
               </span>
             )}
-          </div>
-        </div>
+            </>
+          )}
+        />
 
-        <div className="flashcard-queue-tabs" role="tablist" aria-label={copy.modeSwitcher}>
-          {FLASHCARD_QUEUE_KEYS.map((queueKey) => (
-            <button
-              key={queueKey}
-              type="button"
-              className={activeQueue === queueKey ? 'active' : ''}
-              onClick={() => setActiveQueue(queueKey)}
-            >
-              <span>{copy.flashQueues[queueKey]}</span>
-              <strong>{queueViewModel[queueKey].cards.length}</strong>
-            </button>
-          ))}
-        </div>
+        <FlashcardQueueTabs
+          queueKeys={FLASHCARD_QUEUE_KEYS}
+          queueViewModel={queueViewModel}
+          activeQueue={activeQueue}
+          onSelectQueue={setActiveQueue}
+          ariaLabel={copy.modeSwitcher}
+          labels={copy.flashQueues}
+        />
 
         <div className="study-progress-track">
           <div className="study-progress-fill" style={{ width: `${progress}%` }} />
@@ -2013,31 +2017,6 @@ function QuestionCard({
   );
 }
 
-function StreakSummary({ currentStreak, bestStreak, currentQuestionIndex, total, progress, streakBump, t, copy }) {
-  return (
-    <div className="streak-summary-wrap">
-      <div className="streak-stats-row">
-        <div className={`streak-stat-card streak-stat-primary${streakBump ? ' is-bumping' : ''}`}>
-          <span>{t('streak.currentStreak')}</span>
-          <strong>{currentStreak}</strong>
-        </div>
-        <div className="streak-stat-card">
-          <span>{t('streak.bestStreak')}</span>
-          <strong>{bestStreak}</strong>
-        </div>
-        <div className="streak-stat-card">
-          <span>{t('streak.questionCounter')}</span>
-          <strong>{currentQuestionIndex + 1}/{total}</strong>
-        </div>
-      </div>
-
-      <div className="streak-progress" aria-label={copy.progressAria(Math.round(progress))}>
-        <div className="streak-progress-fill" style={{ width: `${progress}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function StudyTopicChips({ topicDisplay }) {
   if (!topicDisplay) {
     return null;
@@ -2058,6 +2037,28 @@ function StudyTopicChips({ topicDisplay }) {
       ))}
     </div>
   );
+}
+
+function buildFlashcardQueuesFromReviewQueue(cards, reviewQueue) {
+  const cardById = new Map((cards || []).map((card) => [card.id, card]));
+  const mapItems = (items) => (Array.isArray(items) ? items : [])
+    .map((item) => cardById.get(item.questionId))
+    .filter(Boolean);
+
+  const queues = {
+    due: mapItems(reviewQueue.due),
+    weak: mapItems(reviewQueue.weak),
+    new: mapItems(reviewQueue.new),
+    mastered: mapItems(reviewQueue.mastered),
+  };
+
+  if (queues.due.length === 0) {
+    queues.due = [...queues.weak, ...queues.new].filter((card, index, list) => (
+      list.findIndex((candidate) => candidate.id === card.id) === index
+    ));
+  }
+
+  return Object.fromEntries(FLASHCARD_QUEUE_KEYS.map((key) => [key, { cards: queues[key] || [] }]));
 }
 
 function buildFlashcardQueues(cards, progressByQuestionId) {

@@ -33,6 +33,10 @@ public class LearningAttempt
     [Column("is_correct")]
     public bool IsCorrect { get; set; }
 
+    [MaxLength(40)]
+    [Column("confidence")]
+    public string? Confidence { get; set; }
+
     [Column("response_time_ms")]
     public int? ResponseTimeMs { get; set; }
 

@@ -17,6 +17,8 @@ jest.mock('../services/api', () => ({
   isApiJobNotFound: jest.fn(() => false),
   learningService: {
     getDocumentSummary: jest.fn(),
+    getDocumentProgress: jest.fn(),
+    getReviewQueue: jest.fn(),
     recordAttempt: jest.fn(),
     startTest: jest.fn(),
     submitTestResult: jest.fn(),
@@ -70,6 +72,24 @@ jest.mock('../context/LanguageContext', () => ({
         'streak.scoreLine': `${params.correct}/${params.total} correct`,
         'streak.retry': 'Retry streak',
         'streak.bestStreakLine': `Best streak ${params.count}`,
+        'flashcards.loading': 'Loading flashcards',
+        'flashcards.emptyTitle': 'No flashcards',
+        'flashcards.emptyBody': 'No flashcards body',
+        'flashcards.allHiddenTitle': 'All hidden flashcards',
+        'flashcards.allHiddenBody': 'All hidden flashcards body',
+        'flashcards.showLowConfidence': 'Show low confidence',
+        'flashcards.showAllCards': 'Show all cards',
+        'flashcards.hideLowConfidence': 'Hide low confidence',
+        'flashcards.cardProgress': `Card ${params.current} of ${params.total}`,
+        'flashcards.question': 'Question',
+        'flashcards.answer': 'Answer',
+        'flashcards.tapToShow': 'Tap to show',
+        'flashcards.explanation': 'Explanation',
+        'flashcards.reviewNeeded': 'Review needed',
+        'flashcards.noVerifier': 'No verifier',
+        'flashcards.lowConfidenceBody': 'Low confidence',
+        'flashcards.noVerifierBody': 'No verifier body',
+        'flashcards.loadError': 'Could not load flashcards',
       };
 
       return labels[key] || key;
@@ -220,6 +240,8 @@ describe('StudyHub question modes', () => {
     jest.clearAllMocks();
     window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
     learningService.getDocumentSummary.mockResolvedValue({ totalQuestions: 3 });
+    learningService.getDocumentProgress.mockResolvedValue([]);
+    learningService.getReviewQueue.mockResolvedValue(null);
     learningService.recordAttempt.mockResolvedValue({});
   });
 
@@ -386,6 +408,60 @@ describe('StudyHub question modes', () => {
         ],
       }));
       await waitFor(() => expect(view.container.textContent).toContain('Test complete'));
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it('records flashcard confidence while preserving boolean correctness', async () => {
+    const flashcards = [
+      { id: 101, front: 'First front', back: 'First back', quality: {} },
+      { id: 102, front: 'Second front', back: 'Second back', quality: {} },
+      { id: 103, front: 'Third front', back: 'Third back', quality: {} },
+    ];
+    gameService.getFlashcards.mockResolvedValue({ flashcards });
+    learningService.getReviewQueue.mockResolvedValue({
+      due: flashcards.map((card) => ({ questionId: card.id })),
+      weak: [],
+      new: flashcards.map((card) => ({ questionId: card.id })),
+      mastered: [],
+    });
+
+    const view = await renderStudyHub('flashcards');
+
+    try {
+      await waitFor(() => expect(view.container.textContent).toContain('Card 1 of 3'));
+
+      await click(view.container.querySelector('.study-flashcard'));
+      await click(buttonByText(view.container, 'Forgot it'));
+      await waitFor(() => expect(learningService.recordAttempt).toHaveBeenCalledTimes(1));
+
+      await click(view.container.querySelector('.study-flashcard'));
+      await click(buttonByText(view.container, 'Unsure'));
+      await waitFor(() => expect(learningService.recordAttempt).toHaveBeenCalledTimes(2));
+
+      await click(view.container.querySelector('.study-flashcard'));
+      await click(buttonByText(view.container, 'Know it'));
+      await waitFor(() => expect(learningService.recordAttempt).toHaveBeenCalledTimes(3));
+
+      expect(learningService.recordAttempt).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        questionId: 101,
+        selectedAnswer: 'self:forgot',
+        isCorrect: false,
+        confidence: 'forgot',
+      }));
+      expect(learningService.recordAttempt).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        questionId: 102,
+        selectedAnswer: 'self:unsure',
+        isCorrect: false,
+        confidence: 'unsure',
+      }));
+      expect(learningService.recordAttempt).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        questionId: 103,
+        selectedAnswer: 'self:known',
+        isCorrect: true,
+        confidence: 'remembered',
+      }));
     } finally {
       view.unmount();
     }

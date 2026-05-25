@@ -76,6 +76,7 @@ public class LearningController : AuthenticatedControllerBase
             request.Mode,
             request.SelectedAnswer,
             isCorrect.Value,
+            request.Confidence,
             request.ResponseTimeMs,
             cancellationToken: cancellationToken);
 
@@ -288,6 +289,7 @@ public class LearningController : AuthenticatedControllerBase
                 "mode",
                 "selectedAnswer",
                 "isCorrect",
+                "confidence",
                 "responseTimeMs",
                 "createdAt",
                 "testResultId"
@@ -301,6 +303,7 @@ public class LearningController : AuthenticatedControllerBase
                 attempt.Mode.ToString(),
                 attempt.SelectedAnswer,
                 attempt.IsCorrect,
+                attempt.Confidence,
                 attempt.ResponseTimeMs,
                 attempt.CreatedAt,
                 attempt.TestResultId
@@ -556,6 +559,34 @@ public class LearningController : AuthenticatedControllerBase
         return Ok(progress);
     }
 
+    [HttpGet("review-queue/{documentId:int}")]
+    public async Task<IActionResult> GetReviewQueue(int documentId, CancellationToken cancellationToken)
+    {
+        if (CurrentUserId == null || string.IsNullOrWhiteSpace(CurrentUserIdAsString))
+        {
+            return Unauthorized();
+        }
+
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return NotFound("Document not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var queue = await _learningProgressService.GetReviewQueueAsync(
+            CurrentUserIdAsString,
+            documentId,
+            cancellationToken);
+
+        return Ok(queue);
+    }
+
     [HttpGet("progress/summary/{documentId:int}")]
     public async Task<IActionResult> GetDocumentSummary(int documentId, CancellationToken cancellationToken)
     {
@@ -771,6 +802,7 @@ public class RecordLearningAttemptRequest
     public LearningMode Mode { get; set; }
     public string? SelectedAnswer { get; set; }
     public bool? IsCorrect { get; set; }
+    public string? Confidence { get; set; }
     public int? ResponseTimeMs { get; set; }
 }
 

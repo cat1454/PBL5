@@ -22,6 +22,57 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.AnalyticsEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("PropertiesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("properties_json");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "ReceivedAt");
+
+                    b.ToTable("analytics_events");
+                });
+
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.AppUser", b =>
                 {
                     b.Property<int>("Id")
@@ -357,6 +408,11 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Property<int>("DocumentId")
                         .HasColumnType("integer")
                         .HasColumnName("document_id");
+
+                    b.Property<string>("Confidence")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("confidence");
 
                     b.Property<bool>("IsCorrect")
                         .HasColumnType("boolean")

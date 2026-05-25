@@ -11,6 +11,7 @@ public interface ILearningProgressService
         LearningMode mode,
         string? selectedAnswer,
         bool isCorrect,
+        string? confidence,
         int? responseTimeMs,
         int? testResultId = null,
         CancellationToken cancellationToken = default);
@@ -40,6 +41,11 @@ public interface ILearningProgressService
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LearningProgressSnapshot>> GetDocumentProgressAsync(
+        string userId,
+        int documentId,
+        CancellationToken cancellationToken = default);
+
+    Task<LearningReviewQueueSnapshot> GetReviewQueueAsync(
         string userId,
         int documentId,
         CancellationToken cancellationToken = default);
@@ -77,6 +83,24 @@ public class LearningProgressSummarySnapshot
     public double AverageMemoryScore { get; set; }
     public int WeakCount { get; set; }
     public int MasteredCount { get; set; }
+}
+
+public class LearningReviewQueueSnapshot
+{
+    public List<LearningReviewQueueItemSnapshot> Due { get; set; } = new();
+    public List<LearningReviewQueueItemSnapshot> Weak { get; set; } = new();
+    public List<LearningReviewQueueItemSnapshot> New { get; set; } = new();
+    public List<LearningReviewQueueItemSnapshot> Mastered { get; set; } = new();
+}
+
+public class LearningReviewQueueItemSnapshot
+{
+    public int QuestionId { get; set; }
+    public string Queue { get; set; } = string.Empty;
+    public string DueReason { get; set; } = string.Empty;
+    public int Priority { get; set; }
+    public DateTime? NextReviewAt { get; set; }
+    public LearningProgressSnapshot? Progress { get; set; }
 }
 
 public class LearningTestAnswerSubmission
