@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { LuX } from 'react-icons/lu';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -841,7 +842,9 @@ function DocumentListScreen() {
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Phan tich noi dung: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={() => setShowAnalysis(null)}>x</button>
+              <button className="close-btn" onClick={() => setShowAnalysis(null)}>
+                <LuX aria-hidden="true" />
+              </button>
             </div>
             <div className="modal-body">
               {showAnalysis.mainTopics && showAnalysis.mainTopics.length > 0 && (

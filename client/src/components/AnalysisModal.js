@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { LuX } from 'react-icons/lu';
 import { useLanguage } from '../context/LanguageContext';
 import { documentService, getApiErrorMessage } from '../services/api';
 
@@ -97,7 +98,9 @@ function AnalysisModal({ document, onClose }) {
       <div className="modal-content analysis-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{t('analysis.modalTitle', { fileName: document.fileName })}</h2>
-          <button className="close-btn" onClick={onClose} aria-label={t('analysis.close')}>x</button>
+          <button className="close-btn" onClick={onClose} aria-label={t('analysis.close')}>
+            <LuX aria-hidden="true" />
+          </button>
         </div>
 
         <div className="analysis-modal-tabs" role="tablist" aria-label={t('analysis.tabsLabel')}>

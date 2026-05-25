@@ -978,8 +978,13 @@
 }
 
 .studio-inline-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
   margin: 0 8px;
-  color: var(--gamma-soft);
+  border-radius: 999px;
+  background: var(--gamma-soft);
+  vertical-align: middle;
 }
 
 .studio-header-actions {

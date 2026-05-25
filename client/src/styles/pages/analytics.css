@@ -4,7 +4,6 @@
   color: #e5edf8;
 }
 
-.analytics-hero-card,
 .analytics-panel,
 .analytics-state-card,
 .analytics-metric-card {
@@ -17,10 +16,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 28px;
-  min-height: 260px;
-  padding: 30px;
-  border-radius: 26px;
+  gap: 16px;
+  min-height: 0;
+  padding: 18px 22px;
+  border-radius: 22px;
   background:
     radial-gradient(circle at 8% 14%, rgba(45, 212, 191, 0.28), transparent 25%),
     radial-gradient(circle at 92% 18%, rgba(251, 191, 36, 0.24), transparent 28%),
@@ -49,8 +48,9 @@
 }
 
 .analytics-avatar-shell {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   justify-items: center;
 }
 
@@ -68,14 +68,14 @@
 .analytics-avatar {
   display: grid;
   flex: 0 0 auto;
-  width: 86px;
-  height: 86px;
+  width: 68px;
+  height: 68px;
   place-items: center;
   border: 1px solid rgba(251, 191, 36, 0.5);
-  border-radius: 28px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #fde68a 0%, #38bdf8 100%);
   color: #07111f;
-  font-size: 1.65rem;
+  font-size: 1.35rem;
   font-weight: 900;
   box-shadow: 0 18px 34px rgba(56, 189, 248, 0.22);
 }
@@ -106,7 +106,7 @@
 
 .analytics-hero-card h2 {
   max-width: 780px;
-  font-size: 2rem;
+  font-size: 1.62rem;
   line-height: 1.14;
 }
 
@@ -119,10 +119,15 @@
   line-height: 1.62;
 }
 
+.analytics-hero-card p {
+  max-width: 760px;
+  margin: 8px 0 0;
+}
+
 .analytics-profile-meta {
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .analytics-profile-meta span,
@@ -140,17 +145,23 @@
 }
 
 .analytics-hero-action {
-  flex: 0 0 280px;
-  flex-direction: column;
+  display: grid;
+  flex: 0 0 420px;
+  grid-template-columns: 1fr 1fr;
   align-items: stretch;
-  gap: 12px;
+  gap: 10px;
+}
+
+.analytics-hero-action .button {
+  grid-column: 1 / -1;
+  min-height: 42px;
 }
 
 .analytics-rank-card,
 .analytics-level-card {
-  border-radius: 18px;
+  border-radius: 16px;
   gap: 12px;
-  padding: 14px;
+  padding: 12px;
 }
 
 .analytics-rank-card svg {
@@ -200,14 +211,14 @@
 .analytics-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .analytics-metric-card {
   display: grid;
-  gap: 10px;
-  min-height: 172px;
-  padding: 20px;
+  gap: 8px;
+  min-height: 132px;
+  padding: 16px;
   border-radius: 18px;
   overflow: hidden;
   position: relative;
@@ -240,8 +251,8 @@
 
 .analytics-card-icon {
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   place-items: center;
   border-radius: 14px;
   background: rgba(56, 189, 248, 0.14);
@@ -271,14 +282,15 @@
 
 .analytics-metric-card strong {
   color: #f8fafc;
-  font-size: 1.85rem;
-  line-height: 1;
+  font-size: 1.35rem;
+  line-height: 1.16;
 }
 
 .analytics-main-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr);
   gap: 20px;
+  align-items: start;
 }
 
 .analytics-panel {
@@ -310,17 +322,103 @@
   overflow: hidden;
 }
 
+.analytics-heatmap-layout {
+  width: min(100%, 1320px);
+  margin-inline: auto;
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.analytics-heatmap-chart-card,
+.analytics-heatmap-summary-card {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.analytics-heatmap-chart-card {
+  --heatmap-day-label-width: 38px;
+  --heatmap-cell-size: clamp(10px, 1vw, 16px);
+  --heatmap-row-gap: clamp(2px, 0.28vw, 5px);
+  --heatmap-column-gap: clamp(2px, 0.24vw, 4px);
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  min-height: 245px;
+  flex: 1 1 auto;
+  padding: 22px 24px;
+  overflow: hidden;
+}
+
+.analytics-heatmap-summary-card {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.analytics-heatmap-summary-card strong,
+.analytics-empty-state strong {
+  color: #f8fafc;
+}
+
+.analytics-heatmap-summary-card p,
+.analytics-empty-state p {
+  margin: 0;
+  color: #b6c3d6;
+  line-height: 1.5;
+}
+
+.analytics-heatmap-stat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.analytics-heatmap-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 10px 12px;
+}
+
+.analytics-heatmap-stat span {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.analytics-heatmap-stat strong {
+  color: #f8fafc;
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.analytics-heatmap-empty,
+.analytics-heatmap-active {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .analytics-heatmap-shell {
-  overflow-x: auto;
-  padding-bottom: 6px;
+  width: 100%;
+  overflow: visible;
+  padding-bottom: 8px;
 }
 
 .analytics-heatmap-months {
-  display: grid;
-  grid-template-columns: 34px repeat(26, 16px);
-  gap: 5px;
-  min-width: 590px;
-  margin-bottom: 6px;
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 8px;
 }
 
 .analytics-heatmap-months span {
@@ -330,92 +428,123 @@
   min-height: 16px;
 }
 
+.analytics-heatmap-months > span {
+  flex: 0 0 var(--heatmap-day-label-width);
+}
+
+.analytics-heatmap-month-track {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.analytics-heatmap-month-track span {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .analytics-heatmap-body {
   display: flex;
-  gap: 7px;
-  min-width: 590px;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
 }
 
 .analytics-heatmap-days {
-  display: grid;
-  grid-template-rows: repeat(7, 16px);
-  gap: 5px;
-  width: 27px;
+  display: flex;
+  flex: 0 0 var(--heatmap-day-label-width);
+  flex-direction: column;
+  gap: var(--heatmap-row-gap);
+  width: var(--heatmap-day-label-width);
 }
 
 .analytics-heatmap-days span {
+  display: flex;
+  align-items: center;
+  height: var(--heatmap-cell-size);
   color: #94a3b8;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 800;
-  line-height: 16px;
+  line-height: 1;
+  min-height: 0;
 }
 
 .analytics-heatmap-grid {
-  display: grid;
-  grid-template-columns: repeat(26, 16px);
-  gap: 5px;
+  display: flex;
+  flex: 1 1 auto;
+  gap: var(--heatmap-column-gap);
+  min-width: 0;
 }
 
 .analytics-heatmap-week {
-  display: grid;
-  grid-template-rows: repeat(7, 16px);
-  gap: 5px;
+  display: flex;
+  flex: 1 1 var(--heatmap-cell-size);
+  flex-direction: column;
+  gap: var(--heatmap-row-gap);
+  min-width: 0;
+  max-width: var(--heatmap-cell-size);
 }
 
 .analytics-heatmap-cell {
   display: block;
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.08);
-  border-radius: 4px;
-  background: #111827;
-  transition: border-color 0.16s ease, transform 0.16s ease;
+  width: var(--heatmap-cell-size);
+  height: var(--heatmap-cell-size);
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 5px;
+  background: #253244;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .analytics-heatmap-cell:hover {
-  border-color: rgba(248, 250, 252, 0.68);
-  transform: translateY(-1px);
+  border-color: rgba(248, 250, 252, 0.72);
+  box-shadow: 0 0 0 1px rgba(248, 250, 252, 0.16);
 }
 
 .analytics-heatmap-cell.level-1 {
-  background: #0e4429;
+  background: #0f5132;
 }
 
 .analytics-heatmap-cell.level-2 {
-  background: #006d32;
+  background: #16803c;
 }
 
 .analytics-heatmap-cell.level-3 {
-  background: #26a641;
+  background: #22b85a;
 }
 
 .analytics-heatmap-cell.level-4 {
-  background: #39d353;
-  box-shadow: 0 0 10px rgba(57, 211, 83, 0.34);
+  background: #7ee787;
+  box-shadow: 0 0 10px rgba(126, 231, 135, 0.24);
 }
 
 .analytics-heatmap-footer {
-  justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px 14px;
+  margin-top: 12px;
   color: #94a3b8;
   font-size: 0.82rem;
   font-weight: 800;
 }
 
 .analytics-legend {
-  justify-content: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 7px;
 }
 
 .analytics-legend .analytics-heatmap-cell {
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
 }
 
 .analytics-radar-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(190px, 0.72fr);
-  gap: 18px;
+  grid-template-columns: minmax(220px, 0.82fr) minmax(230px, 1fr);
+  gap: 16px;
   align-items: center;
 }
 
@@ -426,7 +555,7 @@
 .analytics-radar-chart svg {
   display: block;
   width: 100%;
-  min-height: 280px;
+  height: 240px;
 }
 
 .analytics-radar-ring,
@@ -452,42 +581,49 @@
   fill: #fbbf24;
 }
 
-.analytics-radar-chart text {
-  fill: #cbd5e1;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.analytics-radar-chart .analytics-radar-value {
-  fill: #94a3b8;
-  font-size: 9px;
-}
-
-.analytics-skill-summary {
-  align-items: stretch;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.analytics-skill-summary article {
+.analytics-skill-list {
   display: grid;
-  gap: 5px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 16px;
-  background: rgba(2, 6, 23, 0.28);
-  padding: 14px;
+  gap: 10px;
 }
 
-.analytics-skill-summary strong {
+.analytics-skill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.28);
+  padding: 12px;
+}
+
+.analytics-skill-row strong {
+  display: block;
   color: #f8fafc;
 }
 
-.analytics-skill-summary small {
+.analytics-skill-row span {
+  color: #94a3b8;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.analytics-skill-row small {
   color: #fbbf24;
   font-weight: 900;
+  white-space: nowrap;
+}
+
+.analytics-skill-row.tone-strong small {
+  color: #86efac;
+}
+
+.analytics-skill-row.tone-muted small {
+  color: #cbd5e1;
 }
 
 .analytics-insight-panel {
+  min-height: unset;
   align-content: start;
   background:
     radial-gradient(circle at top right, rgba(251, 191, 36, 0.2), transparent 32%),
@@ -510,6 +646,58 @@
   padding-left: 12px;
 }
 
+.analytics-checklist {
+  display: grid;
+  gap: 10px;
+}
+
+.analytics-checklist-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(248, 250, 252, 0.12);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.32);
+  padding: 10px;
+}
+
+.analytics-checklist-item > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+  font-weight: 900;
+}
+
+.analytics-checklist-item.state-ready > span {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+.analytics-checklist-item.state-next > span {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fde68a;
+}
+
+.analytics-checklist-item strong,
+.analytics-checklist-item small {
+  display: block;
+}
+
+.analytics-checklist-item strong {
+  color: #f8fafc;
+}
+
+.analytics-checklist-item small {
+  color: rgba(248, 250, 252, 0.72);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .analytics-action-row {
   flex-wrap: wrap;
   gap: 10px;
@@ -518,6 +706,17 @@
 .analytics-activity-list {
   display: grid;
   gap: 10px;
+}
+
+.analytics-empty-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.24);
+  padding: 14px;
 }
 
 .analytics-activity-item {
@@ -575,13 +774,19 @@
   }
 
   .analytics-hero-action {
+    display: flex;
     flex: 0 0 auto;
+    flex-direction: column;
     width: 100%;
   }
 
   .analytics-metric-grid,
   .analytics-main-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .analytics-heatmap-layout {
+    grid-template-columns: 1fr;
   }
 
   .analytics-radar-layout {
@@ -621,7 +826,16 @@
   }
 
   .analytics-radar-chart svg {
-    min-height: 250px;
+    height: 220px;
+  }
+
+  .analytics-empty-state {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .analytics-empty-state .button {
+    grid-column: 1 / -1;
+    min-height: 44px;
   }
 
   .analytics-activity-item {
@@ -631,5 +845,132 @@
   .analytics-activity-item > span {
     grid-column: 2;
     width: fit-content;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 768px) {
+  .analytics-hero-card {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .analytics-profile-block,
+  .analytics-avatar-shell {
+    align-items: flex-start;
+    flex-direction: row;
+  }
+
+  .analytics-hero-action {
+    display: grid;
+    flex: 0 0 300px;
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-metric-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .analytics-hero-card,
+  .analytics-profile-block,
+  .analytics-avatar-shell {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .analytics-profile-meta span,
+  .analytics-activity-item > span {
+    white-space: normal;
+  }
+
+  .analytics-heatmap-chart-card {
+    padding: 12px;
+  }
+
+  .analytics-action-row .button,
+  .analytics-hero-action .button,
+  .analytics-heatmap-summary-card .button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .analytics-radar-chart svg {
+    height: 200px;
+  }
+}
+
+/* Compact analytics refresh: hero removed, denser panels, larger learning calendar. */
+.analytics-dashboard {
+  gap: 16px;
+}
+
+.analytics-metric-grid {
+  gap: 10px;
+}
+
+.analytics-metric-card {
+  min-height: 122px;
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.analytics-main-grid {
+  gap: 16px;
+}
+
+.analytics-panel {
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
+}
+
+.analytics-heatmap-layout {
+  width: min(100%, 1320px);
+  margin-inline: auto;
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+}
+
+.analytics-heatmap-chart-card {
+  min-height: 245px;
+  padding: 22px 24px;
+}
+
+.analytics-checklist-item > span svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 1100px) {
+  .analytics-heatmap-layout {
+    flex-direction: column;
+  }
+
+  .analytics-heatmap-summary-card {
+    flex-basis: auto;
+  }
+
+  .analytics-heatmap-chart-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .analytics-dashboard {
+    gap: 14px;
+  }
+
+  .analytics-panel {
+    padding: 16px;
+  }
+
+  .analytics-heatmap-chart-card {
+    --heatmap-day-label-width: 30px;
+    --heatmap-cell-size: 10px;
+    --heatmap-row-gap: 2px;
+    --heatmap-column-gap: 2px;
+    padding: 16px;
   }
 }

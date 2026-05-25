@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { LuArrowLeft, LuPlus, LuRefreshCw, LuX } from 'react-icons/lu';
 import {
   documentService,
   getApiErrorMessage,
@@ -1832,7 +1833,7 @@ function FolderStudio() {
       <section className="folder-studio-shell">
         <div className="folder-studio-topbar">
           <button type="button" className="folder-studio-mini-btn" onClick={() => navigate('/workspaces')}>
-            &lt;
+            <LuArrowLeft aria-hidden="true" />
           </button>
 
           <div className="folder-studio-topbar-copy">
@@ -1856,9 +1857,11 @@ function FolderStudio() {
               {isActionPanelOpen ? (language === 'vi' ? 'Ẩn điều khiển' : 'Hide controls') : (language === 'vi' ? 'Mở điều khiển' : 'Show controls')}
             </button>
             <button type="button" className="folder-studio-mini-btn" onClick={() => loadWorkspace()} disabled={uploading}>
+              <LuRefreshCw aria-hidden="true" />
               {language === 'vi' ? 'Làm mới' : 'Refresh'}
             </button>
             <button type="button" className="folder-studio-mini-btn" onClick={handleUploadClick} disabled={uploading}>
+              {!uploading && <LuPlus aria-hidden="true" />}
               {uploading ? (language === 'vi' ? 'Đang thêm...' : 'Adding...') : (language === 'vi' ? 'Thêm nguồn' : 'Add source')}
             </button>
             <div className="folder-studio-avatar">GV</div>
@@ -1928,13 +1931,14 @@ function FolderStudio() {
                 onClick={() => setFilterText('')}
                 aria-label={language === 'vi' ? 'Xóa tìm kiếm' : 'Clear search'}
               >
-                ×
+                <LuX aria-hidden="true" />
               </button>
             </div>
 
             <div className="folder-studio-sidebar-cta">
               <button type="button" className="folder-studio-side-button" onClick={handleUploadClick} disabled={uploading}>
-                {language === 'vi' ? '+ Thêm source vào workspace' : '+ Add source to workspace'}
+                <LuPlus aria-hidden="true" />
+                <span>{language === 'vi' ? 'Thêm source vào workspace' : 'Add source to workspace'}</span>
               </button>
             </div>
 
@@ -2763,7 +2767,7 @@ function FolderStudio() {
                 <span>
                   {selectedSource.status !== 3
                     ? t('slides.scopePicker.processingShort')
-                    : `${t('slides.scopePicker.availableCount', { count: selectableSections.length })} • ${t('slides.scopePicker.selectedButton', { count: selectedSectionIds.length })}`}
+                    : `${t('slides.scopePicker.availableCount', { count: selectableSections.length })} | ${t('slides.scopePicker.selectedButton', { count: selectedSectionIds.length })}`}
                 </span>
               </div>
               <button type="button" className="scope-picker-close" onClick={handleCloseScopePicker}>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LuArrowLeft, LuPlus, LuX } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
@@ -1073,7 +1074,7 @@ function DocumentList() {
       <section className="documents-studio-shell">
         <div className="documents-studio-topbar">
           <button type="button" className="documents-mini-btn" onClick={() => navigate('/')}>
-            &larr;
+            <LuArrowLeft aria-hidden="true" />
           </button>
 
           <div className="documents-topbar-copy">
@@ -1120,13 +1121,14 @@ function DocumentList() {
                 placeholder="Filter documents"
               />
               <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')}>
-                x
+                <LuX aria-hidden="true" />
               </button>
             </div>
 
             <div className="documents-sidebar-cta">
               <button type="button" className="documents-side-button" onClick={() => navigate('/')}>
-                + Thêm nguồn
+                <LuPlus aria-hidden="true" />
+                <span>Thêm nguồn</span>
               </button>
             </div>
 
@@ -1201,7 +1203,9 @@ function DocumentList() {
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Phân tích nội dùng: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={closeAnalysisModal}>x</button>
+              <button className="close-btn" onClick={closeAnalysisModal}>
+                <LuX aria-hidden="true" />
+              </button>
             </div>
             <div className="modal-body">
               {showAnalysis.mainTopics && showAnalysis.mainTopics.length > 0 && (

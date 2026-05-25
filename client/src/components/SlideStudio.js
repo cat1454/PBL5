@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { LuCheck, LuImage, LuPencil, LuRefreshCw, LuX } from 'react-icons/lu';
 import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { normalizeProgressState } from '../services/progress';
@@ -54,7 +55,7 @@ const isTextOnlySlide = (item) => {
 };
 
 const splitBodyText = (text) => text
-  .split(/(?<=[.!?。])\s+|[\r\n]+/)
+  .split(/(?<=[.!?ã€‚])\s+|[\r\n]+/)
   .map((block) => block.trim())
   .filter(Boolean);
 
@@ -146,7 +147,7 @@ function SlideStudio({ documentId: propDocumentId }) {
     audience: audienceOptions[0],
     tone: toneOptions[0],
     narrativeGoal: language === 'vi'
-      ? 'Giúp người đọc nắm cấu trúc và ý chính của tài liệu chỉ trong một lần xem.'
+      ? 'GiÃºp ngÆ°á»i Ä‘á»c náº¯m cáº¥u trÃºc vÃ  Ã½ chÃ­nh cá»§a tÃ i liá»‡u chá»‰ trong má»™t láº§n xem.'
       : 'Help the reader grasp the structure and key ideas of the source in one pass.',
     languageStyle: languageStyleOptions[0],
   }), [audienceOptions, language, languageStyleOptions, toneOptions]);
@@ -726,9 +727,9 @@ function SlideStudio({ documentId: propDocumentId }) {
             <h2>{deck?.title || documentMeta?.fileName || t('slides.heroFallbackTitle')}</h2>
             <p>
               {documentMeta?.fileName || t('slides.noData')}
-              <span className="studio-inline-dot">•</span>
+              <span className="studio-inline-dot" aria-hidden="true" />
               {completedSlides}/{allPreviewItems.length || desiredSlideCount} {t('slides.slideUnit')}
-              <span className="studio-inline-dot">•</span>
+              <span className="studio-inline-dot" aria-hidden="true" />
               {getProgressStageLabel(activeProgress)}
             </p>
           </div>
@@ -821,7 +822,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                             <strong>{slide.heading}</strong>
                             <small>{slide.goal || getSlideTypeLabel(slide.slideType)}</small>
                           </span>
-                          <span aria-hidden="true">›</span>
+                          <LuX aria-hidden="true" />
                         </button>
                       );
                     })}
@@ -926,7 +927,7 @@ function SlideStudio({ documentId: propDocumentId }) {
               </div>
               {selectedSlide && (
                 <button className="button button-secondary" onClick={() => handleEdit(selectedSlide)}>
-                  <span aria-hidden="true">✎</span>
+                  <LuPencil aria-hidden="true" />
                   <span>{t('slides.editSlide')}</span>
                 </button>
               )}
@@ -1076,7 +1077,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                 <p>{isEditingSelectedSlide ? t('slides.editPanelBody') : t('slides.inspectorBody')}</p>
               </div>
               <button type="button" className="studio-icon-button" onClick={() => setIsInspectorOpen(false)} aria-label={t('slides.hideInspector')}>
-                <span aria-hidden="true">×</span>
+                <LuX aria-hidden="true" />
               </button>
             </div>
 
@@ -1110,11 +1111,11 @@ function SlideStudio({ documentId: propDocumentId }) {
                     </label>
                     <div className="slide-edit-actions sticky">
                       <button className="button" onClick={() => handleSave(selectedSlide)}>
-                        <span aria-hidden="true">✓</span>
+                        <LuCheck aria-hidden="true" />
                         <span>{t('slides.saveSlide')}</span>
                       </button>
                       <button className="button button-secondary" onClick={handleCancelEdit}>
-                        <span aria-hidden="true">×</span>
+                        <LuX aria-hidden="true" />
                         <span>{t('slides.cancel')}</span>
                       </button>
                     </div>
@@ -1147,7 +1148,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                           type="button"
                           onClick={() => setExpandedMediaSlideId(expandedMediaSlideId === selectedSlide.id ? null : selectedSlide.id)}
                         >
-                          <span aria-hidden="true">▣</span>
+                          <LuImage aria-hidden="true" />
                           <span>{expandedMediaSlideId === selectedSlide.id ? t('slides.hideMedia') : t('slides.manageMedia')}</span>
                         </button>
                       </div>
@@ -1164,7 +1165,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                             onClick={() => handleRefreshImages(selectedSlide)}
                             disabled={mediaBusySlideId === selectedSlide.id}
                           >
-                            <span aria-hidden="true">↻</span>
+                            <LuRefreshCw aria-hidden="true" />
                             <span>
                               {mediaBusySlideId === selectedSlide.id
                                 ? t('slides.searchingImage')
@@ -1190,7 +1191,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                                   </span>
                                   <strong>{candidate.provider}</strong>
                                   {(candidate.licenseLabel || candidate.attributionText) && (
-                                    <small>{[candidate.licenseLabel, candidate.attributionText].filter(Boolean).join(' • ')}</small>
+                                    <small>{[candidate.licenseLabel, candidate.attributionText].filter(Boolean).join(' | ')}</small>
                                   )}
                                   <button
                                     className="button button-secondary"
@@ -1213,7 +1214,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                     )}
 
                     <button className="button" onClick={() => handleEdit(selectedSlide)}>
-                      <span aria-hidden="true">✎</span>
+                      <LuPencil aria-hidden="true" />
                       <span>{t('slides.editSlide')}</span>
                     </button>
                   </div>

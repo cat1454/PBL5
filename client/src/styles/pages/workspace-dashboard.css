@@ -265,6 +265,12 @@
   font-weight: 800;
 }
 
+.workspace-shortcut-icon svg,
+.workspace-checklist-bullet svg {
+  width: 18px;
+  height: 18px;
+}
+
 .workspace-shortcut-link {
   border: 0;
   padding: 0;

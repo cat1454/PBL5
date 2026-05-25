@@ -51,6 +51,18 @@ textarea {
   border-radius: var(--ux-radius) !important;
 }
 
+.button svg,
+.close-btn svg,
+.documents-mini-btn svg,
+.documents-side-button svg,
+.folder-studio-mini-btn svg,
+.folder-studio-side-button svg,
+.studio-icon-button svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
