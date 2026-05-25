@@ -3,44 +3,20 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { documentService, getApiErrorMessage, questionStudioService } from '../../services/api';
 import { trackEvent } from '../../services/analytics';
 import { useLanguage } from '../../context/LanguageContext';
+import {
+  DEFAULT_PRESET_KEY,
+  IMPORTABLE_DRAFT_STATUSES,
+  PRESET_KEYS,
+  PRESETS,
+  getDefaultQuestionStudioForm,
+  getImportableDraftIds,
+  getVisibleImportableDraftIds,
+} from './questionStudioHelpers';
 
 const MODES = ['fast', 'balanced', 'quality', 'max_draft'];
 const QUESTION_TYPES = ['MultipleChoice', 'Flashcard', 'ShortAnswer', 'TrueFalse', 'FillInTheBlank'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
 const STATUSES = ['', 'Draft', 'Verified', 'Borderline', 'Rejected', 'Quarantined', 'Imported'];
-const PRESET_KEYS = ['quick_review', 'deep_practice', 'mock_exam', 'flashcard_first', 'review_bank'];
-const PRESETS = {
-  quick_review: {
-    targetDraftCount: 12,
-    mode: 'fast',
-    questionTypes: ['MultipleChoice', 'TrueFalse'],
-    difficulties: ['Easy', 'Medium'],
-  },
-  deep_practice: {
-    targetDraftCount: 24,
-    mode: 'quality',
-    questionTypes: ['MultipleChoice', 'ShortAnswer', 'FillInTheBlank'],
-    difficulties: ['Medium', 'Hard'],
-  },
-  mock_exam: {
-    targetDraftCount: 30,
-    mode: 'balanced',
-    questionTypes: ['MultipleChoice', 'ShortAnswer'],
-    difficulties: ['Medium', 'Hard'],
-  },
-  flashcard_first: {
-    targetDraftCount: 20,
-    mode: 'balanced',
-    questionTypes: ['Flashcard', 'ShortAnswer'],
-    difficulties: ['Easy', 'Medium'],
-  },
-  review_bank: {
-    targetDraftCount: 50,
-    mode: 'max_draft',
-    questionTypes: ['MultipleChoice', 'Flashcard', 'ShortAnswer', 'TrueFalse'],
-    difficulties: ['Easy', 'Medium', 'Hard'],
-  },
-};
 const TIMELINE_STEPS = [
   { key: 'source', stages: ['Created', 'ExtractingSourceUnits'] },
   { key: 'generate', stages: ['GeneratingCanonical', 'GeneratingVariants'] },
@@ -60,12 +36,7 @@ function QuestionStudioPage() {
   const [drafts, setDrafts] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [selectedDraftIds, setSelectedDraftIds] = useState([]);
-  const [form, setForm] = useState({
-    targetDraftCount: 30,
-    mode: 'balanced',
-    questionTypes: ['MultipleChoice', 'Flashcard', 'ShortAnswer'],
-    difficulties: ['Easy', 'Medium', 'Hard'],
-  });
+  const [form, setForm] = useState(getDefaultQuestionStudioForm);
   const [filters, setFilters] = useState({
     status: 'Verified',
     type: '',
@@ -79,7 +50,7 @@ function QuestionStudioPage() {
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [editingDraft, setEditingDraft] = useState(null);
-  const [selectedPreset, setSelectedPreset] = useState('deep_practice');
+  const [selectedPreset, setSelectedPreset] = useState(DEFAULT_PRESET_KEY);
   const [importResult, setImportResult] = useState(null);
 
   const terminalRun = run?.status === 'Completed' || run?.status === 'Failed' || run?.status === 'Cancelled';
@@ -178,7 +149,7 @@ function QuestionStudioPage() {
   }, [filters, loadDrafts, runId, terminalRun, t]);
 
   const selectedVerifiedCount = useMemo(
-    () => drafts.filter((draft) => selectedDraftIds.includes(draft.id) && ['Verified', 'Borderline'].includes(draft.status)).length,
+    () => drafts.filter((draft) => selectedDraftIds.includes(draft.id) && IMPORTABLE_DRAFT_STATUSES.includes(draft.status)).length,
     [drafts, selectedDraftIds]
   );
 
@@ -227,7 +198,7 @@ function QuestionStudioPage() {
   };
 
   const selectVisible = () => {
-    setSelectedDraftIds(drafts.map((draft) => draft.id));
+    setSelectedDraftIds(getVisibleImportableDraftIds(drafts));
   };
 
   const updateDraftAction = async (draftId, action) => {
@@ -250,9 +221,10 @@ function QuestionStudioPage() {
     setBusy(true);
     setError('');
     setFeedback('');
-    const selectedDrafts = drafts.filter((draft) => selectedDraftIds.includes(draft.id));
+    const importableDraftIds = getImportableDraftIds(selectedDraftIds, drafts);
+    const selectedDrafts = drafts.filter((draft) => importableDraftIds.includes(draft.id));
     try {
-      const result = await questionStudioService.importDrafts({ documentId, draftIds: selectedDraftIds });
+      const result = await questionStudioService.importDrafts({ documentId, draftIds: importableDraftIds });
       setFeedback(t('questionStudio.feedback.imported', { count: result.importedCount || 0, skipped: result.skippedCount || 0 }));
       setImportResult(buildImportResult(result, selectedDrafts));
       trackEvent('question_drafts_imported', {
