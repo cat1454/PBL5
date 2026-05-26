@@ -1,5 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter as Router, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import {
+  LuBookOpen,
+  LuChartLine,
+  LuCheck,
+  LuChevronDown,
+  LuCircle,
+  LuCircleDot,
+  LuCircleHelp,
+  LuFolderOpen,
+  LuHouse,
+  LuInfo,
+  LuLogOut,
+  LuMenu,
+  LuRefreshCw,
+  LuSparkles,
+  LuUser,
+  LuX,
+} from 'react-icons/lu';
 import './App.css';
 import AdminPage from './components/AdminPage';
 import DocumentUpload from './components/DocumentUpload';
@@ -128,9 +146,7 @@ function AppShell({ user, onLogout }) {
               onClick={() => setIsMainMenuOpen(true)}
               aria-label={t('app.menu.open')}
             >
-              <span />
-              <span />
-              <span />
+              <LuMenu aria-hidden="true" />
             </button>
 
             <NavLink to="/" className="app-shell-brand">
@@ -143,20 +159,25 @@ function AppShell({ user, onLogout }) {
 
             <nav className="app-topbar-nav" aria-label={t('app.menu.navigation')}>
               <NavLink to="/" end className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                <LuHouse aria-hidden="true" />
                 {t('app.nav.dashboard')}
               </NavLink>
               <NavLink to="/workspaces" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                <LuFolderOpen aria-hidden="true" />
                 {t('app.nav.workspaces')}
               </NavLink>
               <NavLink to="/analytics" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                <LuChartLine aria-hidden="true" />
                 {t('app.nav.analytics')}
               </NavLink>
               {currentUser?.role === 'ADMIN' && (
                 <NavLink to="/admin" className={({ isActive }) => `app-topbar-link${isActive ? ' active' : ''}`}>
+                  <LuUser aria-hidden="true" />
                   {t('app.nav.admin')}
                 </NavLink>
               )}
               <button type="button" className="app-topbar-link app-topbar-link-placeholder" onClick={handleHelpClick}>
+                <LuCircleHelp aria-hidden="true" />
                 {t('app.nav.help')}
               </button>
             </nav>
@@ -195,7 +216,7 @@ function AppShell({ user, onLogout }) {
                   <span className="user-name">{user.name}</span>
                   <span>{user.roleLabel}</span>
                 </div>
-                <span className="app-shell-account-chevron" aria-hidden="true">▾</span>
+                <LuChevronDown className="app-shell-account-chevron" aria-hidden="true" />
               </button>
 
               {isAccountMenuOpen && (
@@ -211,11 +232,11 @@ function AppShell({ user, onLogout }) {
                   </div>
 
                   <button type="button" className="app-account-item" onClick={handleHelpClick}>
-                    <span>{t('app.account.helpGuide')}</span>
+                    <span><LuCircleHelp aria-hidden="true" /> {t('app.account.helpGuide')}</span>
                     <small>{t('app.account.helpHint')}</small>
                   </button>
                   <button type="button" className="app-account-item app-account-item-danger" onClick={handleLogout}>
-                    <span>{t('app.account.logout')}</span>
+                    <span><LuLogOut aria-hidden="true" /> {t('app.account.logout')}</span>
                     <small>{t('app.account.logoutHint')}</small>
                   </button>
                 </div>
@@ -244,26 +265,31 @@ function AppShell({ user, onLogout }) {
                 onClick={() => setIsMainMenuOpen(false)}
                 aria-label={t('app.menu.close')}
               >
-                ×
+                <LuX aria-hidden="true" />
               </button>
             </div>
 
             <nav className="app-menu-nav" aria-label={t('app.menu.navigation')}>
               <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+                <LuHouse aria-hidden="true" />
                 {t('app.nav.dashboard')}
               </NavLink>
               <NavLink to="/workspaces" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <LuFolderOpen aria-hidden="true" />
                 {t('app.nav.workspaces')}
               </NavLink>
               <NavLink to="/analytics" className={({ isActive }) => (isActive ? 'active' : '')}>
+                <LuChartLine aria-hidden="true" />
                 {t('app.nav.analytics')}
               </NavLink>
               {currentUser?.role === 'ADMIN' && (
                 <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
+                  <LuUser aria-hidden="true" />
                   {t('app.nav.admin')}
                 </NavLink>
               )}
               <button type="button" className="app-menu-placeholder" onClick={handleHelpClick}>
+                <LuCircleHelp aria-hidden="true" />
                 {t('app.nav.help')}
               </button>
             </nav>
@@ -750,7 +776,13 @@ function DashboardPage() {
           <div className="workspace-checklist-list">
             {checklistItems.map((item) => (
               <article key={item.key} className={`workspace-checklist-item is-${item.state}`}>
-                <div className="workspace-checklist-bullet" aria-hidden="true">{item.state === 'complete' ? '✓' : item.state === 'active' ? '•' : '○'}</div>
+                <div className="workspace-checklist-bullet" aria-hidden="true">
+                  {item.state === 'complete'
+                    ? <LuCheck />
+                    : item.state === 'active'
+                      ? <LuCircleDot />
+                      : <LuCircle />}
+                </div>
                 <div>
                   <strong>{item.title}</strong>
                   <p>{item.body}</p>
@@ -1030,14 +1062,14 @@ function buildShortcutCards(vm, t) {
   return [
     {
       key: 'recentFiles',
-      icon: '01',
+      icon: <LuBookOpen aria-hidden="true" />,
       title: t('app.dashboard.shortcuts.recentFiles.title'),
       body: t('app.dashboard.shortcuts.recentFiles.body', { count: vm.sourceCount }),
       pill: vm.latestSource ? vm.latestSource.fileName : t('app.dashboard.shortcuts.empty'),
     },
     {
       key: 'continueLearning',
-      icon: '02',
+      icon: <LuSparkles aria-hidden="true" />,
       title: t('app.dashboard.shortcuts.continueLearning.title'),
       body: vm.studyReadySource
         ? t('app.dashboard.shortcuts.continueLearning.ready')
@@ -1049,7 +1081,7 @@ function buildShortcutCards(vm, t) {
     },
     {
       key: 'activity',
-      icon: '03',
+      icon: <LuRefreshCw aria-hidden="true" />,
       title: t('app.dashboard.shortcuts.activity.title'),
       body: vm.latestSource
         ? t('app.dashboard.shortcuts.activity.body')
@@ -1058,7 +1090,7 @@ function buildShortcutCards(vm, t) {
     },
     {
       key: 'systemStatus',
-      icon: '04',
+      icon: <LuInfo aria-hidden="true" />,
       title: t('app.dashboard.shortcuts.systemStatus.title'),
       body: vm.processingSource
         ? t('app.dashboard.shortcuts.systemStatus.processing')

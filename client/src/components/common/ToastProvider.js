@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { LuX } from 'react-icons/lu';
 import { useLanguage } from '../../context/LanguageContext';
 
 const DEFAULT_DURATION = 3800;
@@ -30,7 +31,7 @@ function ToastItem({ toast, onClose, closeLabel }) {
           onClick={() => onClose(toast.id)}
           aria-label={closeLabel}
         >
-          ×
+          <LuX aria-hidden="true" />
         </button>
       </div>
     </article>

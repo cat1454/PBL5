@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LuArrowLeft, LuPlus, LuX } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
@@ -1072,8 +1073,8 @@ function DocumentList() {
     <div className="documents-studio-page">
       <section className="documents-studio-shell">
         <div className="documents-studio-topbar">
-          <button type="button" className="documents-mini-btn" onClick={() => navigate('/')}>
-            &larr;
+          <button type="button" className="documents-mini-btn" onClick={() => navigate('/')} aria-label="Back">
+            <LuArrowLeft aria-hidden="true" />
           </button>
 
           <div className="documents-topbar-copy">
@@ -1119,14 +1120,15 @@ function DocumentList() {
                 onChange={(event) => setFilterValue(event.target.value)}
                 placeholder="Filter documents"
               />
-              <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')}>
-                x
+              <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')} aria-label="Clear filter">
+                <LuX aria-hidden="true" />
               </button>
             </div>
 
             <div className="documents-sidebar-cta">
               <button type="button" className="documents-side-button" onClick={() => navigate('/')}>
-                + Thêm nguồn
+                <LuPlus aria-hidden="true" />
+                <span>Thêm nguồn</span>
               </button>
             </div>
 
@@ -1201,7 +1203,9 @@ function DocumentList() {
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Phân tích nội dùng: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={closeAnalysisModal}>x</button>
+              <button className="close-btn" onClick={closeAnalysisModal} aria-label="Close">
+                <LuX aria-hidden="true" />
+              </button>
             </div>
             <div className="modal-body">
               {showAnalysis.mainTopics && showAnalysis.mainTopics.length > 0 && (

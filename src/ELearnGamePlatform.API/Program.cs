@@ -139,6 +139,7 @@ builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
 builder.Services.AddScoped<IAnalyticsEventService, AnalyticsEventService>();
+builder.Services.AddScoped<IPersonalAnalyticsService, PersonalAnalyticsService>();
 builder.Services.AddScoped<IQuestionMetricsService, QuestionMetricsService>();
 builder.Services.AddSingleton<IAutoRepairEvidenceLogger, FileAutoRepairEvidenceLogger>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>

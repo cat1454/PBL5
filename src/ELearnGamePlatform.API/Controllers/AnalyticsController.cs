@@ -10,10 +10,29 @@ namespace ELearnGamePlatform.API.Controllers;
 public sealed class AnalyticsController : AuthenticatedControllerBase
 {
     private readonly IAnalyticsEventService _analyticsEventService;
+    private readonly IPersonalAnalyticsService _personalAnalyticsService;
 
-    public AnalyticsController(IAnalyticsEventService analyticsEventService)
+    public AnalyticsController(
+        IAnalyticsEventService analyticsEventService,
+        IPersonalAnalyticsService personalAnalyticsService)
     {
         _analyticsEventService = analyticsEventService;
+        _personalAnalyticsService = personalAnalyticsService;
+    }
+
+    [HttpGet("personal")]
+    public async Task<IActionResult> GetPersonalSummary(CancellationToken cancellationToken)
+    {
+        if (CurrentUserId == null || string.IsNullOrWhiteSpace(CurrentUserIdAsString))
+        {
+            return Unauthorized();
+        }
+
+        var summary = await _personalAnalyticsService.GetPersonalSummaryAsync(
+            CurrentUserIdAsString,
+            cancellationToken);
+
+        return Ok(summary);
     }
 
     [HttpPost("events")]

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  LuAward,
+  LuArrowRight,
   LuBookOpen,
   LuBrain,
   LuCalendarDays,
   LuChartLine,
   LuCheck,
   LuClock3,
+  LuCircle,
   LuFileText,
   LuFlame,
   LuLayoutDashboard,
@@ -17,9 +18,10 @@ import {
 } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { getApiErrorMessage, workspaceService } from '../services/api';
+import { analyticsService, getApiErrorMessage } from '../services/api';
 
-const HEATMAP_WEEK_COUNT = 26;
+const HEATMAP_WEEK_COUNT = 52;
+const HEATMAP_MONTH_COUNT = 12;
 const HEATMAP_DAYS_PER_WEEK = 7;
 const SKILL_KEYS = ['recall', 'concepts', 'questionBank', 'slides', 'consistency'];
 
@@ -27,11 +29,11 @@ function PersonalAnalyticsDashboard() {
   const { currentUser } = useAuth();
   const { language, t } = useLanguage();
   const navigate = useNavigate();
-  const { defaultWorkspace, sources, loading, error, reload } = useAnalyticsWorkspaceData();
+  const { summary, loading, error, reload } = usePersonalAnalyticsData();
 
   const vm = useMemo(
-    () => buildAnalyticsViewModel(currentUser, defaultWorkspace, sources, language, t),
-    [currentUser, defaultWorkspace, sources, language, t],
+    () => buildAnalyticsViewModel(currentUser, summary, language, t),
+    [currentUser, summary, language, t],
   );
 
   const openAction = useCallback((action) => {
@@ -44,48 +46,6 @@ function PersonalAnalyticsDashboard() {
 
   return (
     <div className="analytics-dashboard">
-      <section className="analytics-hero-card">
-        <div className="analytics-profile-block">
-          <div className="analytics-avatar-shell">
-            <div className="analytics-avatar" aria-hidden="true">{vm.initials}</div>
-            <span>{vm.rankLabel}</span>
-          </div>
-          <div className="analytics-hero-copy">
-            <span className="analytics-kicker">{vm.copy.kicker}</span>
-            <h2>{t('analyticsDashboard.hero.title', { name: vm.displayName })}</h2>
-            <p>{vm.copy.subtitle}</p>
-            <div className="analytics-profile-meta">
-              <span>{vm.roleLabel}</span>
-              <span>{vm.workspaceName}</span>
-              <span>{t('analyticsDashboard.hero.peakLabel', { value: vm.peakActivityLabel })}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="analytics-hero-action">
-          <div className="analytics-rank-card">
-            <LuAward aria-hidden="true" />
-            <div>
-              <span>{t('analyticsDashboard.hero.focusLabel')}</span>
-              <strong>{vm.copy.focus}</strong>
-            </div>
-          </div>
-          <div className="analytics-level-card">
-            <div>
-              <span>{t('analyticsDashboard.hero.levelLabel')}</span>
-              <strong>{vm.nextMilestone}</strong>
-            </div>
-            <div className="analytics-level-track" aria-hidden="true">
-              <span style={{ width: `${vm.levelProgress}%` }} />
-            </div>
-            <small>{t('analyticsDashboard.hero.levelProgress', { count: vm.levelProgress })}</small>
-          </div>
-          <button type="button" className="button" onClick={() => openAction(vm.primaryAction)}>
-            {vm.primaryAction.label}
-          </button>
-        </div>
-      </section>
-
       {loading && (
         <section className="analytics-state-card">
           <div className="spinner"></div>
@@ -125,45 +85,78 @@ function PersonalAnalyticsDashboard() {
           <p>{vm.heatmapSummary}</p>
         </div>
 
-        <div className="analytics-heatmap-shell" aria-label={t('analyticsDashboard.heatmap.label')}>
-          <div className="analytics-heatmap-months">
-            <span aria-hidden="true" />
-            {vm.heatmapWeeks.map((week) => (
-              <span key={week.key}>{week.monthLabel}</span>
-            ))}
-          </div>
-          <div className="analytics-heatmap-body">
-            <div className="analytics-heatmap-days" aria-hidden="true">
-              {vm.weekdayLabels.map((label, index) => (
-                <span key={`${label}-${index}`}>{label}</span>
-              ))}
-            </div>
-            <div className="analytics-heatmap-grid">
-              {vm.heatmapWeeks.map((week) => (
-                <div key={week.key} className="analytics-heatmap-week">
-                  {week.days.map((day) => (
-                    <span
-                      key={day.key}
-                      className={`analytics-heatmap-cell level-${day.level}`}
-                      title={day.title}
-                      aria-label={day.title}
-                    />
+        <div className="analytics-heatmap-layout">
+          <div className="analytics-heatmap-chart-card">
+            <div className="analytics-heatmap-shell" aria-label={t('analyticsDashboard.heatmap.label')}>
+              <div className="analytics-heatmap-months">
+                <span aria-hidden="true" />
+                <div className="analytics-heatmap-month-track">
+                  {vm.heatmapMonthLabels.map((month) => (
+                    <span key={month.key}>{month.label}</span>
                   ))}
+                </div>
+              </div>
+              <div className="analytics-heatmap-body">
+                <div className="analytics-heatmap-days" aria-hidden="true">
+                  {vm.weekdayLabels.map((label, index) => (
+                    <span key={`${label}-${index}`}>{label}</span>
+                  ))}
+                </div>
+                <div className="analytics-heatmap-grid">
+                  {vm.heatmapWeeks.map((week) => (
+                    <div key={week.key} className="analytics-heatmap-week">
+                      {week.days.map((day) => (
+                        <span
+                          key={day.key}
+                          className={`analytics-heatmap-cell level-${day.level}`}
+                          title={day.title}
+                          aria-label={day.title}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="analytics-heatmap-footer">
+              <span>{t('analyticsDashboard.heatmap.weeksWindow', { count: HEATMAP_MONTH_COUNT })}</span>
+              <div className="analytics-legend">
+                <span>{t('analyticsDashboard.heatmap.less')}</span>
+                {[0, 1, 2, 3, 4].map((level) => (
+                  <span key={level} className={`analytics-heatmap-cell level-${level}`} />
+                ))}
+                <span>{t('analyticsDashboard.heatmap.more')}</span>
+              </div>
+            </div>
+          </div>
+
+          <aside className="analytics-heatmap-summary-card">
+            <div className="analytics-heatmap-stat-list">
+              {vm.heatmapStats.map((stat) => (
+                <div key={stat.key} className="analytics-heatmap-stat">
+                  <span>{stat.label}</span>
+                  <strong>{stat.value}</strong>
                 </div>
               ))}
             </div>
-          </div>
-        </div>
 
-        <div className="analytics-heatmap-footer">
-          <span>{t('analyticsDashboard.heatmap.weeksWindow', { count: HEATMAP_WEEK_COUNT })}</span>
-          <div className="analytics-legend">
-            <span>{t('analyticsDashboard.heatmap.less')}</span>
-            {[0, 1, 2, 3, 4].map((level) => (
-              <span key={level} className={`analytics-heatmap-cell level-${level}`} />
-            ))}
-            <span>{t('analyticsDashboard.heatmap.more')}</span>
-          </div>
+            {vm.heatmapActiveCells === 0 ? (
+              <div className="analytics-heatmap-empty">
+                <strong>{t('analyticsDashboard.heatmap.emptyTitle')}</strong>
+                <p>{t('analyticsDashboard.heatmap.emptyBody')}</p>
+              </div>
+            ) : (
+              <div className="analytics-heatmap-active">
+                <strong>{vm.heatmapSummary}</strong>
+                <p>{t('analyticsDashboard.heatmap.activeBody', { peak: vm.peakActivityLabel })}</p>
+              </div>
+            )}
+
+            <button type="button" className="button" onClick={() => openAction(vm.heatmapCta)}>
+              {vm.heatmapCta.label}
+            </button>
+          </aside>
         </div>
       </section>
 
@@ -179,17 +172,16 @@ function PersonalAnalyticsDashboard() {
 
           <div className="analytics-radar-layout">
             <RadarChart vm={vm} />
-            <div className="analytics-skill-summary">
-              <article>
-                <span>{t('analyticsDashboard.skills.strongest')}</span>
-                <strong>{vm.strongestSkill.label}</strong>
-                <small>{vm.strongestSkill.value}%</small>
-              </article>
-              <article>
-                <span>{t('analyticsDashboard.skills.growthArea')}</span>
-                <strong>{vm.weakestSkill.label}</strong>
-                <small>{vm.weakestSkill.value}%</small>
-              </article>
+            <div className="analytics-skill-list">
+              {vm.skills.map((skill) => (
+                <article key={skill.key} className={`analytics-skill-row tone-${skill.statusTone}`}>
+                  <div>
+                    <strong>{skill.label}</strong>
+                    <span>{skill.statusLabel}</span>
+                  </div>
+                  <small>{skill.value}%</small>
+                </article>
+              ))}
             </div>
           </div>
         </section>
@@ -201,13 +193,18 @@ function PersonalAnalyticsDashboard() {
               <h3><LuSparkles aria-hidden="true" /> {t('analyticsDashboard.insight.title')}</h3>
             </div>
           </div>
-          <p>{vm.copy.insight}</p>
-          <p className="analytics-coach-note">
-            {t('analyticsDashboard.insight.skillNudge', {
-              weak: vm.weakestSkill.label,
-              strong: vm.strongestSkill.label,
-            })}
-          </p>
+          <div className="analytics-checklist">
+            {vm.checklist.map((item) => (
+              <article key={item.key} className={`analytics-checklist-item state-${item.state}`}>
+                <span aria-hidden="true">{getChecklistIcon(item.state)}</span>
+                <div>
+                  <strong>{item.title}</strong>
+                  <small>{item.statusLabel}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="analytics-coach-note">{vm.copy.insight}</p>
           <div className="analytics-action-row">
             {vm.actions.map((action) => (
               <button
@@ -231,20 +228,35 @@ function PersonalAnalyticsDashboard() {
           </div>
         </div>
 
-        <div className="analytics-activity-list">
-          {vm.activities.map((activity) => (
-            <article key={activity.key} className="analytics-activity-item">
-              <div className={`analytics-activity-icon tone-${activity.tone}`}>
-                {activity.icon}
-              </div>
-              <div>
-                <strong>{activity.title}</strong>
-                <p>{activity.body}</p>
-              </div>
-              <span>{activity.time}</span>
-            </article>
-          ))}
-        </div>
+        {vm.isActivityEmpty ? (
+          <div className="analytics-empty-state">
+            <div className="analytics-activity-icon tone-info">
+              <LuLayoutDashboard aria-hidden="true" />
+            </div>
+            <div>
+              <strong>{t('analyticsDashboard.activity.emptyTitle')}</strong>
+              <p>{t('analyticsDashboard.activity.emptyBody')}</p>
+            </div>
+            <button type="button" className="button" onClick={() => openAction(vm.workspaceAction)}>
+              {t('analyticsDashboard.actions.openWorkspaces')}
+            </button>
+          </div>
+        ) : (
+          <div className="analytics-activity-list">
+            {vm.activities.map((activity) => (
+              <article key={activity.key} className="analytics-activity-item">
+                <div className={`analytics-activity-icon tone-${activity.tone}`}>
+                  {activity.icon}
+                </div>
+                <div>
+                  <strong>{activity.title}</strong>
+                  <p>{activity.body}</p>
+                </div>
+                <span>{activity.time}</span>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
@@ -253,7 +265,7 @@ function PersonalAnalyticsDashboard() {
 function RadarChart({ vm }) {
   return (
     <div className="analytics-radar-chart" aria-label={vm.radarLabel}>
-      <svg viewBox="0 0 320 300" role="img">
+      <svg viewBox="0 0 260 240" role="img">
         <defs>
           <radialGradient id="analyticsRadarFill" cx="50%" cy="46%" r="62%">
             <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.42" />
@@ -264,18 +276,12 @@ function RadarChart({ vm }) {
           <polygon key={ring.key} points={ring.points} className="analytics-radar-ring" />
         ))}
         {vm.radarAxis.map((axis) => (
-          <line key={axis.key} x1="160" y1="148" x2={axis.x} y2={axis.y} className="analytics-radar-axis" />
+          <line key={axis.key} x1="130" y1="120" x2={axis.x} y2={axis.y} className="analytics-radar-axis" />
         ))}
         <polygon points={vm.radarPolygon} className="analytics-radar-area" />
         {vm.radarPoints.map((point) => (
           <g key={point.key}>
             <circle cx={point.x} cy={point.y} r="4.5" className={point.isWeakest ? 'is-weakest' : ''} />
-            <text x={point.labelX} y={point.labelY} textAnchor={point.anchor}>
-              {point.label}
-            </text>
-            <text x={point.valueX} y={point.valueY} textAnchor={point.anchor} className="analytics-radar-value">
-              {point.value}%
-            </text>
           </g>
         ))}
       </svg>
@@ -283,18 +289,28 @@ function RadarChart({ vm }) {
   );
 }
 
-function useAnalyticsWorkspaceData() {
+function getChecklistIcon(state) {
+  if (state === 'ready') {
+    return <LuCheck aria-hidden="true" />;
+  }
+
+  if (state === 'next') {
+    return <LuArrowRight aria-hidden="true" />;
+  }
+
+  return <LuCircle aria-hidden="true" />;
+}
+
+function usePersonalAnalyticsData() {
   const { currentUser } = useAuth();
   const { t } = useLanguage();
-  const [defaultWorkspace, setDefaultWorkspace] = useState(null);
-  const [sources, setSources] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadData = useCallback(async () => {
     if (!currentUser?.id) {
-      setDefaultWorkspace(null);
-      setSources([]);
+      setSummary(null);
       setLoading(false);
       return;
     }
@@ -303,13 +319,10 @@ function useAnalyticsWorkspaceData() {
     setError('');
 
     try {
-      const workspace = await workspaceService.getDefault(String(currentUser.id));
-      const workspaceSources = workspace?.id ? await workspaceService.listSources(workspace.id) : [];
-      setDefaultWorkspace(workspace || null);
-      setSources(sortSourcesByRecency(Array.isArray(workspaceSources) ? workspaceSources : []));
+      const nextSummary = await analyticsService.getPersonalSummary();
+      setSummary(nextSummary || null);
     } catch (err) {
-      setDefaultWorkspace(null);
-      setSources([]);
+      setSummary(null);
       setError(getApiErrorMessage(err, t('analyticsDashboard.errorBody')));
     } finally {
       setLoading(false);
@@ -320,37 +333,60 @@ function useAnalyticsWorkspaceData() {
     loadData();
   }, [loadData]);
 
-  return { defaultWorkspace, sources, loading, error, reload: loadData };
+  return { summary, loading, error, reload: loadData };
 }
 
-function buildAnalyticsViewModel(user, workspace, sources, language, t) {
+function buildAnalyticsViewModel(user, summary, language, t) {
   const role = normalizeRole(user?.role);
+  const workspace = summary?.workspace || null;
+  const sources = sortSourcesByRecency(Array.isArray(summary?.sources) ? summary.sources : []);
+  const metricsData = summary?.metrics || {};
   const completedSources = sources.filter(isCompletedSource);
   const studyReadySources = sources.filter(isStudyReadySource);
   const latestSource = sources[0] || null;
   const rolePath = `analyticsDashboard.roles.${role}`;
   const roleLabel = t(`app.roles.${role}`);
   const workspaceName = workspace?.name || t('analyticsDashboard.workspaceFallback');
-  const sourceCount = sources.length;
-  const completedCount = completedSources.length;
-  const readyCount = studyReadySources.length;
+  const sourceCount = Number(metricsData.sourceCount ?? sources.length);
+  const completedCount = Number(metricsData.completedSourceCount ?? completedSources.length);
+  const readyCount = Number(metricsData.readySourceCount ?? studyReadySources.length);
   const deckReady = Boolean(workspace?.latestDeck);
-  const questionTotal = sources.reduce((sum, source) => sum + Number(source?.questionsCount || source?.QuestionsCount || 0), 0);
-  const derivedHours = Math.max(0, completedCount * 2 + readyCount + Math.ceil(questionTotal / 18) + (deckReady ? 2 : 0));
-  const readiness = readyCount > 0
-    ? Math.min(98, 64 + readyCount * 7 + completedCount * 3 + (deckReady ? 6 : 0))
-    : Math.min(74, 38 + completedCount * 8 + (deckReady ? 5 : 0));
-  const streak = Math.min(45, readyCount * 2 + completedCount + (latestSource ? 1 : 0) + (deckReady ? 2 : 0));
-  const primaryDocumentId = latestSource?.documentId ?? latestSource?.DocumentId ?? latestSource?.id;
-  const skills = SKILL_KEYS.map((key, index) => ({
-    key,
-    label: t(`analyticsDashboard.skills.items.${key}`),
-    value: getSkillScore(key, index, role, completedCount, readyCount, deckReady, questionTotal),
-  }));
+  const questionTotal = Number(metricsData.questionCount ?? sources.reduce((sum, source) => sum + Number(source?.questionsCount || source?.QuestionsCount || 0), 0));
+  const attemptCount = Number(metricsData.attemptCount || 0);
+  const testCount = Number(metricsData.testCount || 0);
+  const hasLearningData = sourceCount > 0 || completedCount > 0 || readyCount > 0 || deckReady || questionTotal > 0 || attemptCount > 0 || testCount > 0;
+  const studySeconds = Number(metricsData.studySeconds || 0);
+  const readiness = Math.round(Number(metricsData.readinessPercent || 0));
+  const streak = Number(metricsData.currentStreakDays || 0);
+  const latestSourceId = latestSource?.documentId || latestSource?.DocumentId || latestSource?.id;
+  const readyDocumentId = summary?.actionsContext?.latestReadySourceId
+    || (isStudyReadySource(latestSource) ? latestSourceId : null);
+  const fallbackDocumentId = summary?.actionsContext?.latestCompletedSourceId
+    || summary?.actionsContext?.latestSourceId
+    || latestSourceId;
+  const primaryDocumentId = summary?.actionsContext?.latestReadySourceId
+    || summary?.actionsContext?.latestCompletedSourceId
+    || summary?.actionsContext?.latestSourceId
+    || latestSourceId;
+  const skillByKey = new Map((summary?.skills || []).map((skill) => [skill.key, Number(skill.value || 0)]));
+  const skills = SKILL_KEYS.map((key) => {
+    const value = Math.max(0, Math.min(100, Math.round(skillByKey.get(key) ?? 0)));
+    return {
+      key,
+      label: t(`analyticsDashboard.skills.items.${key}`),
+      value,
+      ...getSkillStatus(hasLearningData, value, t),
+    };
+  });
   const weakestSkill = skills.reduce((weakest, skill) => (skill.value < weakest.value ? skill : weakest), skills[0]);
   const strongestSkill = skills.reduce((strongest, skill) => (skill.value > strongest.value ? skill : strongest), skills[0]);
-  const heatmap = buildHeatmapWeeks(sources, language, t, { completedCount, readyCount, deckReady, questionTotal });
+  const heatmap = buildHeatmapWeeks(summary?.heatmap, language, t);
   const levelProgress = Math.min(98, Math.max(8, Math.round((readiness + streak + completedCount * 8 + readyCount * 10) / 3)));
+  const workspaceAction = { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
+  const heatmapCta = getHeatmapAction(workspace, t, { sourceCount, readyCount, readyDocumentId, fallbackDocumentId });
+  const actions = getRoleActions(role, workspace, primaryDocumentId, t, { hasLearningData, completedCount, readyCount, deckReady, latestSource });
+  const activities = buildActivities(summary?.activity || [], sources, language, t);
+  const currentStreak = heatmap.currentStreak;
 
   return {
     role,
@@ -362,8 +398,30 @@ function buildAnalyticsViewModel(user, workspace, sources, language, t) {
     levelProgress,
     nextMilestone: getNextMilestone(completedCount, readyCount, deckReady, t),
     heatmapWeeks: heatmap.weeks,
+    heatmapMonthLabels: heatmap.monthLabels,
     heatmapSummary: heatmap.summary,
+    heatmapActiveCells: heatmap.activeCells,
     peakActivityLabel: heatmap.peakActivityLabel,
+    heatmapCta,
+    heatmapStats: [
+      {
+        key: 'activeDays',
+        label: t('analyticsDashboard.heatmap.stats.activeDays'),
+        value: heatmap.activeCells,
+      },
+      {
+        key: 'currentStreak',
+        label: t('analyticsDashboard.heatmap.stats.currentStreak'),
+        value: currentStreak > 0
+          ? t('analyticsDashboard.heatmap.streakDays', { count: currentStreak })
+          : t('analyticsDashboard.metrics.notStarted'),
+      },
+      {
+        key: 'peakLevel',
+        label: t('analyticsDashboard.heatmap.stats.peakLevel'),
+        value: heatmap.peakActivityLabel,
+      },
+    ],
     weekdayLabels: getWeekdayLabels(language),
     radarAxis: buildRadarAxis(skills),
     radarGrid: buildRadarGrid(skills.length),
@@ -384,40 +442,68 @@ function buildAnalyticsViewModel(user, workspace, sources, language, t) {
       }),
     },
     primaryAction: getPrimaryAction(role, workspace, latestSource, t),
-    actions: getRoleActions(role, workspace, primaryDocumentId, t),
+    workspaceAction,
+    actions,
     metrics: [
       {
         key: 'streak',
         icon: <LuFlame aria-hidden="true" />,
         label: t('analyticsDashboard.metrics.streak'),
-        value: t('analyticsDashboard.metrics.days', { count: streak }),
+        value: hasLearningData ? t('analyticsDashboard.metrics.days', { count: streak }) : t('analyticsDashboard.metrics.notStarted'),
         hint: t(`${rolePath}.metricHints.streak`),
       },
       {
         key: 'hours',
         icon: <LuClock3 aria-hidden="true" />,
         label: t('analyticsDashboard.metrics.hours'),
-        value: t('analyticsDashboard.metrics.hourValue', { count: derivedHours }),
+        value: studySeconds > 0 ? t('analyticsDashboard.metrics.hourValue', { count: Math.max(1, Math.round(studySeconds / 3600)) }) : t('analyticsDashboard.metrics.noStudySession'),
         hint: t(`${rolePath}.metricHints.hours`),
       },
       {
         key: 'readiness',
         icon: <LuBrain aria-hidden="true" />,
         label: t('analyticsDashboard.metrics.readiness'),
-        value: t('analyticsDashboard.metrics.percent', { count: readiness }),
-        hint: t(`${rolePath}.metricHints.accuracy`),
+        value: hasLearningData ? t('analyticsDashboard.metrics.percent', { count: readiness }) : t('analyticsDashboard.metrics.estimated'),
+        hint: hasLearningData ? t(`${rolePath}.metricHints.accuracy`) : t('analyticsDashboard.metrics.needsLearningData'),
       },
       {
         key: 'sources',
         icon: role === 'ADMIN' ? <LuUsers aria-hidden="true" /> : <LuFileText aria-hidden="true" />,
         label: t(`${rolePath}.sourceMetricLabel`),
-        value: String(role === 'ADMIN' ? Math.max(sourceCount, readyCount + completedCount) : sourceCount),
+        value: sourceCount > 0 ? String(role === 'ADMIN' ? Math.max(sourceCount, readyCount + completedCount) : sourceCount) : t('analyticsDashboard.metrics.noDocuments'),
         hint: t(`${rolePath}.metricHints.sources`),
       },
     ],
     skills,
-    activities: buildActivities(sources, workspace, language, t),
+    checklist: buildInsightChecklist({
+      sourceCount,
+      completedCount,
+      readyCount,
+      deckReady,
+      attemptCount,
+      testCount,
+      serverChecklist: summary?.checklist,
+    }, t),
+    activities,
+    isActivityEmpty: activities.length === 0,
   };
+}
+
+function getHeatmapAction(workspace, t, state) {
+  const workspacePath = workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces';
+
+  if (state.readyCount > 0 && state.readyDocumentId) {
+    return { to: `/quiz/${state.readyDocumentId}`, label: t('analyticsDashboard.actions.studyQuiz') };
+  }
+
+  if (state.sourceCount > 0) {
+    return {
+      to: state.fallbackDocumentId ? `/question-studio/${state.fallbackDocumentId}` : workspacePath,
+      label: t('analyticsDashboard.actions.createQuestionBank'),
+    };
+  }
+
+  return { to: workspacePath, label: t('analyticsDashboard.actions.openWorkspaces') };
 }
 
 function getPrimaryAction(role, workspace, latestSource, t) {
@@ -437,14 +523,26 @@ function getPrimaryAction(role, workspace, latestSource, t) {
   return { to: '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
 }
 
-function getRoleActions(role, workspace, documentId, t) {
+function getRoleActions(role, workspace, documentId, t, state = {}) {
   const studioPath = workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces';
-  const actions = [
-    { to: studioPath, label: t('analyticsDashboard.actions.openStudio') },
-  ];
+  const actions = [];
 
-  if (documentId) {
-    actions.push({ to: `/quiz/${documentId}`, label: t('analyticsDashboard.actions.openQuiz'), secondary: true });
+  if (!state.hasLearningData) {
+    actions.push({ to: studioPath, label: t('analyticsDashboard.actions.openWorkspaces') });
+    return actions;
+  }
+
+  if (state.completedCount > 0 && state.readyCount === 0 && documentId) {
+    actions.push({ to: `/question-studio/${documentId}`, label: t('analyticsDashboard.actions.createQuestionBank') });
+  } else if (state.readyCount > 0 && documentId) {
+    actions.push({ to: `/quiz/${documentId}`, label: t('analyticsDashboard.actions.openQuiz') });
+    actions.push({ to: `/flashcards/${documentId}`, label: t('analyticsDashboard.actions.openFlashcards'), secondary: true });
+  } else {
+    actions.push({ to: studioPath, label: t('analyticsDashboard.actions.openStudio') });
+  }
+
+  if (!state.deckReady) {
+    actions.push({ to: studioPath, label: t('analyticsDashboard.actions.createSlides'), secondary: true });
   }
 
   if (role === 'ADMIN') {
@@ -454,120 +552,213 @@ function getRoleActions(role, workspace, documentId, t) {
   return actions.slice(0, 3);
 }
 
-function buildActivities(sources, workspace, language, t) {
-  const latestActivities = sources.slice(0, 4).map((source, index) => ({
-    key: source.id || `${source.fileName}-${index}`,
-    title: source.fileName || t('analyticsDashboard.activity.sourceFallback'),
-    body: t(`analyticsDashboard.activity.status.${normalizeSourceStatus(source.status)}`),
-    time: formatRelativeTime(source.updatedAt || source.createdAt, language, t),
-    tone: isStudyReadySource(source) ? 'success' : isCompletedSource(source) ? 'info' : 'progress',
-    icon: isStudyReadySource(source) ? <LuCheck aria-hidden="true" /> : <LuBookOpen aria-hidden="true" />,
-  }));
-
-  if (latestActivities.length > 0) {
-    return latestActivities;
+function buildActivities(activity, sources, language, t) {
+  if (!Array.isArray(activity) || activity.length === 0) {
+    return sources.slice(0, 4).map((source, index) => ({
+      key: source.id || `${source.fileName}-${index}`,
+      title: source.fileName || t('analyticsDashboard.activity.sourceFallback'),
+      body: t(`analyticsDashboard.activity.status.${normalizeSourceStatus(source.status)}`),
+      time: formatRelativeTime(source.updatedAt || source.createdAt, language, t),
+      tone: isStudyReadySource(source) ? 'success' : isCompletedSource(source) ? 'info' : 'progress',
+      icon: isStudyReadySource(source) ? <LuCheck aria-hidden="true" /> : <LuBookOpen aria-hidden="true" />,
+    }));
   }
 
-  return [
+  return activity.slice(0, 8).map((item, index) => {
+    const kind = String(item.kind || '').toLowerCase();
+    const sourceStatus = kind === 'source' ? normalizeSourceStatus(item.status) : 'completed';
+    return {
+      key: item.key || `${kind || 'activity'}-${item.documentId || index}`,
+      title: item.title || t('analyticsDashboard.activity.sourceFallback'),
+      body: t(`analyticsDashboard.activity.status.${sourceStatus}`),
+      time: formatRelativeTime(item.occurredAt, language, t),
+      tone: getActivityTone(kind, item.status),
+      icon: getActivityIcon(kind, item.status),
+    };
+  });
+}
+
+function getActivityTone(kind, status) {
+  if (kind === 'study' || kind === 'test') {
+    return String(status).toLowerCase() === 'incorrect' ? 'progress' : 'success';
+  }
+
+  if (kind === 'deck') {
+    return String(status) === 'Completed' ? 'success' : 'info';
+  }
+
+  return 'info';
+}
+
+function getActivityIcon(kind, status) {
+  if (kind === 'study' || kind === 'test') {
+    return String(status).toLowerCase() === 'incorrect'
+      ? <LuBookOpen aria-hidden="true" />
+      : <LuCheck aria-hidden="true" />;
+  }
+
+  if (kind === 'deck') {
+    return <LuLayoutDashboard aria-hidden="true" />;
+  }
+
+  return <LuBookOpen aria-hidden="true" />;
+}
+
+function buildInsightChecklist(state, t) {
+  const fallbackItems = [
     {
-      key: 'empty-workspace',
-      title: workspace?.name || t('analyticsDashboard.workspaceFallback'),
-      body: t('analyticsDashboard.activity.empty'),
-      time: t('analyticsDashboard.activity.now'),
-      tone: 'info',
-      icon: <LuLayoutDashboard aria-hidden="true" />,
+      key: 'upload',
+      title: t('analyticsDashboard.insight.checklist.upload'),
+      state: state.sourceCount > 0 ? 'ready' : 'next',
+    },
+    {
+      key: 'questions',
+      title: t('analyticsDashboard.insight.checklist.questions'),
+      state: state.readyCount > 0 ? 'ready' : state.completedCount > 0 ? 'next' : 'pending',
+    },
+    {
+      key: 'study',
+      title: t('analyticsDashboard.insight.checklist.study'),
+      state: state.attemptCount > 0 || state.testCount > 0 ? 'ready' : state.readyCount > 0 ? 'next' : 'pending',
+    },
+    {
+      key: 'slides',
+      title: t('analyticsDashboard.insight.checklist.slides'),
+      state: state.deckReady ? 'ready' : state.completedCount > 0 ? 'later' : 'pending',
     },
   ];
+  const serverItems = Array.isArray(state.serverChecklist)
+    ? state.serverChecklist
+        .filter((item) => item?.key)
+        .map((item) => ({
+          key: item.key,
+          title: t(`analyticsDashboard.insight.checklist.${item.key}`),
+          state: normalizeChecklistState(item.state),
+        }))
+    : [];
+  const items = serverItems.length > 0 ? serverItems : fallbackItems;
+
+  return items.map((item) => ({
+    ...item,
+    statusLabel: t(`analyticsDashboard.insight.status.${item.state}`),
+  }));
 }
 
-function getSkillScore(key, index, role, completedCount, readyCount, deckReady, questionTotal) {
-  const roleBoost = role === 'INSTRUCTOR' && (key === 'slides' || key === 'questionBank')
-    ? 10
-    : role === 'ADMIN' && key === 'consistency'
-      ? 12
-      : 0;
-  const questionBoost = key === 'questionBank' ? Math.min(14, Math.floor(questionTotal / 12)) : Math.min(8, Math.floor(questionTotal / 24));
-  const deckBoost = deckReady && key === 'slides' ? 14 : deckReady ? 6 : 0;
-  const base = 34 + completedCount * 7 + readyCount * 8 + questionBoost + deckBoost + index * 4 + roleBoost;
-  return Math.max(22, Math.min(97, base));
+function normalizeChecklistState(state) {
+  const normalized = String(state || '').trim().toLowerCase();
+  return ['ready', 'next', 'pending', 'later'].includes(normalized) ? normalized : 'pending';
 }
 
-function buildHeatmapWeeks(sources, language, t, signals) {
+function getSkillStatus(hasLearningData, value, t) {
+  if (!hasLearningData) {
+    return {
+      statusTone: 'muted',
+      statusLabel: t('analyticsDashboard.skills.status.insufficient'),
+    };
+  }
+
+  if (value >= 70) {
+    return {
+      statusTone: 'strong',
+      statusLabel: t('analyticsDashboard.skills.status.strong'),
+    };
+  }
+
+  return {
+    statusTone: 'growth',
+    statusLabel: t('analyticsDashboard.skills.status.improve'),
+  };
+}
+
+function buildHeatmapWeeks(heatmap, language, t) {
   const today = startOfDay(new Date());
-  const start = new Date(today);
-  start.setDate(today.getDate() - ((HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK) - 1));
-  const signalByDate = sources.reduce((map, source) => {
-    const dateValue = source.updatedAt || source.createdAt;
-    if (!dateValue) {
-      return map;
-    }
-
-    const key = toDateKey(new Date(dateValue));
-    const questions = Number(source?.questionsCount || source?.QuestionsCount || 0);
-    const sourceSignal = 1 + (isCompletedSource(source) ? 1 : 0) + (questions > 0 ? 2 : 0);
-    map.set(key, (map.get(key) || 0) + sourceSignal);
-    return map;
-  }, new Map());
-  const seed = Math.max(1, sources.length + signals.completedCount * 2 + signals.readyCount * 4 + (signals.deckReady ? 3 : 0));
+  const apiDays = Array.isArray(heatmap?.days) ? heatmap.days : [];
   const weeks = [];
-  let activeCells = 0;
-  let peakLevel = 0;
+  const cells = [];
+  const monthLabels = buildHeatmapMonthLabels(today, language);
+  const fallbackStart = new Date(today);
+  fallbackStart.setDate(today.getDate() - ((HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK) - 1));
 
   for (let weekIndex = 0; weekIndex < HEATMAP_WEEK_COUNT; weekIndex += 1) {
     const days = [];
-    const weekStart = new Date(start);
-    weekStart.setDate(start.getDate() + weekIndex * HEATMAP_DAYS_PER_WEEK);
-    const previousMonth = weekIndex > 0 ? weeks[weekIndex - 1]?.monthNumber : null;
-    const monthNumber = weekStart.getMonth();
-    const monthLabel = weekIndex === 0 || monthNumber !== previousMonth
-      ? weekStart.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { month: 'short' })
-      : '';
+    const weekStart = new Date(fallbackStart);
+    weekStart.setDate(fallbackStart.getDate() + weekIndex * HEATMAP_DAYS_PER_WEEK);
 
     for (let dayIndex = 0; dayIndex < HEATMAP_DAYS_PER_WEEK; dayIndex += 1) {
-      const date = new Date(weekStart);
-      date.setDate(weekStart.getDate() + dayIndex);
-      const dateKey = toDateKey(date);
-      const explicitSignal = signalByDate.get(dateKey) || 0;
-      const ambientSignal = sources.length > 0 ? (weekIndex * 3 + dayIndex * seed + signals.readyCount) % 5 : 0;
-      const level = Math.max(0, Math.min(4, explicitSignal || (ambientSignal > 2 ? ambientSignal - 1 : 0)));
+      const flatIndex = weekIndex * HEATMAP_DAYS_PER_WEEK + dayIndex;
+      const apiDay = apiDays[flatIndex] || null;
+      const fallbackDate = new Date(weekStart);
+      fallbackDate.setDate(weekStart.getDate() + dayIndex);
+      const dateKey = apiDay?.date || toDateKey(fallbackDate);
+      const level = Math.max(0, Math.min(4, Number(apiDay?.level || 0)));
 
-      if (level > 0) {
-        activeCells += 1;
-      }
-      peakLevel = Math.max(peakLevel, level);
+      cells.push({ dateKey, level });
       days.push({
         key: dateKey,
         level,
         title: t('analyticsDashboard.heatmap.cellTitle', {
-          date: date.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US'),
-          level,
+          date: apiDay?.date ? formatHeatmapDateKey(apiDay.date, language) : formatHeatmapDate(fallbackDate, language),
+          levelText: t(`analyticsDashboard.heatmap.levelLabels.${level}`),
         }),
       });
     }
 
     weeks.push({
       key: toDateKey(weekStart),
-      monthLabel,
-      monthNumber,
       days,
     });
   }
 
+  const activeCells = Number(heatmap?.activeDays ?? cells.filter((cell) => cell.level > 0).length);
+  const peakLevel = Number(heatmap?.peakLevel ?? cells.reduce((peak, cell) => Math.max(peak, cell.level), 0));
+
   return {
     weeks,
-    summary: t('analyticsDashboard.heatmap.summary', {
+    monthLabels,
+    activeCells,
+    currentStreak: Number(heatmap?.currentStreakDays ?? getCurrentHeatmapStreak(cells)),
+    summary: t(activeCells === 0 ? 'analyticsDashboard.heatmap.emptySummary' : 'analyticsDashboard.heatmap.summary', {
       active: activeCells,
       total: HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK,
+      weeks: HEATMAP_WEEK_COUNT,
+      months: HEATMAP_MONTH_COUNT,
     }),
     peakActivityLabel: t(`analyticsDashboard.heatmap.peakLevels.${peakLevel}`),
   };
+}
+
+function buildHeatmapMonthLabels(today, language) {
+  return Array.from({ length: HEATMAP_MONTH_COUNT }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(1);
+    date.setMonth(today.getMonth() - (HEATMAP_MONTH_COUNT - 1 - index));
+
+    return {
+      key: `${date.getFullYear()}-${date.getMonth() + 1}`,
+      label: getCompactMonthLabel(date, language),
+    };
+  });
+}
+
+function getCurrentHeatmapStreak(cells) {
+  let streak = 0;
+
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    if (cells[index].level <= 0) {
+      break;
+    }
+
+    streak += 1;
+  }
+
+  return streak;
 }
 
 function buildRadarGrid(axisCount) {
   return [0.25, 0.5, 0.75, 1].map((scale) => ({
     key: `ring-${scale}`,
     points: Array.from({ length: axisCount }, (_, index) => {
-      const point = getRadarCoordinate(index, axisCount, 112 * scale);
+      const point = getRadarCoordinate(index, axisCount, 86 * scale);
       return `${point.x},${point.y}`;
     }).join(' '),
   }));
@@ -576,26 +767,19 @@ function buildRadarGrid(axisCount) {
 function buildRadarAxis(skills) {
   return skills.map((skill, index) => ({
     key: skill.key,
-    ...getRadarCoordinate(index, skills.length, 112),
+    ...getRadarCoordinate(index, skills.length, 86),
   }));
 }
 
 function buildRadarPoints(skills, weakestKey) {
   return skills.map((skill, index) => {
-    const point = getRadarCoordinate(index, skills.length, 112 * (skill.value / 100));
-    const labelPoint = getRadarCoordinate(index, skills.length, 136);
-    const valuePoint = getRadarCoordinate(index, skills.length, 152);
+    const point = getRadarCoordinate(index, skills.length, 86 * (skill.value / 100));
     return {
       key: skill.key,
       label: skill.label,
       value: skill.value,
       x: point.x,
       y: point.y,
-      labelX: labelPoint.x,
-      labelY: labelPoint.y,
-      valueX: valuePoint.x,
-      valueY: valuePoint.y,
-      anchor: labelPoint.x < 132 ? 'end' : labelPoint.x > 188 ? 'start' : 'middle',
       isWeakest: skill.key === weakestKey,
     };
   });
@@ -604,9 +788,17 @@ function buildRadarPoints(skills, weakestKey) {
 function getRadarCoordinate(index, axisCount, radius) {
   const angle = ((Math.PI * 2) / axisCount) * index - Math.PI / 2;
   return {
-    x: Number((160 + Math.cos(angle) * radius).toFixed(2)),
-    y: Number((148 + Math.sin(angle) * radius).toFixed(2)),
+    x: Number((130 + Math.cos(angle) * radius).toFixed(2)),
+    y: Number((120 + Math.sin(angle) * radius).toFixed(2)),
   };
+}
+
+function getCompactMonthLabel(date, language) {
+  if (language === 'vi') {
+    return `T${date.getMonth() + 1}`;
+  }
+
+  return date.toLocaleDateString('en-US', { month: 'short' });
 }
 
 function getRankLabel(readiness, streak, readyCount, deckReady, t) {
@@ -634,7 +826,9 @@ function getNextMilestone(completedCount, readyCount, deckReady, t) {
 }
 
 function getWeekdayLabels(language) {
-  return language === 'vi' ? ['T2', '', 'T4', '', 'T6', '', 'CN'] : ['Mon', '', 'Wed', '', 'Fri', '', 'Sun'];
+  return language === 'vi'
+    ? ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 }
 
 function normalizeRole(role) {
@@ -718,6 +912,22 @@ function startOfDay(value) {
 function toDateKey(value) {
   const date = startOfDay(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatHeatmapDate(value, language) {
+  return language === 'vi'
+    ? value.toLocaleDateString('vi-VN')
+    : toDateKey(value);
+}
+
+function formatHeatmapDateKey(value, language) {
+  const parts = String(value || '').split('-');
+  if (parts.length !== 3) {
+    return value;
+  }
+
+  const [year, month, day] = parts;
+  return language === 'vi' ? `${day}/${month}/${year}` : value;
 }
 
 export default PersonalAnalyticsDashboard;

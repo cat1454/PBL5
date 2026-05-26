@@ -523,6 +523,11 @@ export const learningService = {
 };
 
 export const analyticsService = {
+  getPersonalSummary: async () => {
+    const response = await apiClient.get('/analytics/personal');
+    return response.data;
+  },
+
   recordEvents: async (events) => {
     const response = await apiClient.post('/analytics/events', {
       events,

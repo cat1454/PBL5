@@ -691,19 +691,16 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.06);
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   cursor: pointer;
   flex: 0 0 auto;
 }
 
-.app-menu-toggle span {
-  width: 18px;
-  height: 2px;
-  border-radius: 999px;
-  background: #ffffff;
+.app-menu-toggle svg {
+  width: 21px;
+  height: 21px;
+  color: #ffffff;
 }
 
 .app-menu-backdrop {
@@ -773,8 +770,13 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
-  font-size: 22px;
   cursor: pointer;
+}
+
+.app-menu-close svg,
+.app-toast-close svg {
+  width: 18px;
+  height: 18px;
 }
 
 .app-menu-nav {
@@ -783,9 +785,11 @@
   margin-top: 18px;
 }
 
-.app-menu-nav a {
+.app-menu-nav a,
+.app-menu-placeholder {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: 48px;
   padding: 0 14px;
   border-radius: 14px;
@@ -796,7 +800,8 @@
 }
 
 .app-menu-nav a:hover,
-.app-menu-nav a.active {
+.app-menu-nav a.active,
+.app-menu-placeholder:hover {
   background: rgba(124, 110, 230, 0.18);
   color: #ffffff;
 }
