@@ -358,12 +358,16 @@ function buildAnalyticsViewModel(user, summary, language, t) {
   const studySeconds = Number(metricsData.studySeconds || 0);
   const readiness = Math.round(Number(metricsData.readinessPercent || 0));
   const streak = Number(metricsData.currentStreakDays || 0);
+  const latestSourceId = latestSource?.documentId || latestSource?.DocumentId || latestSource?.id;
+  const readyDocumentId = summary?.actionsContext?.latestReadySourceId
+    || (isStudyReadySource(latestSource) ? latestSourceId : null);
+  const fallbackDocumentId = summary?.actionsContext?.latestCompletedSourceId
+    || summary?.actionsContext?.latestSourceId
+    || latestSourceId;
   const primaryDocumentId = summary?.actionsContext?.latestReadySourceId
     || summary?.actionsContext?.latestCompletedSourceId
     || summary?.actionsContext?.latestSourceId
-    || latestSource?.documentId
-    || latestSource?.DocumentId
-    || latestSource?.id;
+    || latestSourceId;
   const skillByKey = new Map((summary?.skills || []).map((skill) => [skill.key, Number(skill.value || 0)]));
   const skills = SKILL_KEYS.map((key) => {
     const value = Math.max(0, Math.min(100, Math.round(skillByKey.get(key) ?? 0)));
@@ -379,7 +383,7 @@ function buildAnalyticsViewModel(user, summary, language, t) {
   const heatmap = buildHeatmapWeeks(summary?.heatmap, language, t);
   const levelProgress = Math.min(98, Math.max(8, Math.round((readiness + streak + completedCount * 8 + readyCount * 10) / 3)));
   const workspaceAction = { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
-  const heatmapCta = getHeatmapAction(workspace, latestSource, t, { sourceCount, readyCount });
+  const heatmapCta = getHeatmapAction(workspace, t, { sourceCount, readyCount, readyDocumentId, fallbackDocumentId });
   const actions = getRoleActions(role, workspace, primaryDocumentId, t, { hasLearningData, completedCount, readyCount, deckReady, latestSource });
   const activities = buildActivities(summary?.activity || [], sources, language, t);
   const currentStreak = heatmap.currentStreak;
@@ -471,23 +475,30 @@ function buildAnalyticsViewModel(user, summary, language, t) {
       },
     ],
     skills,
-    checklist: buildInsightChecklist({ sourceCount, completedCount, readyCount, deckReady }, t),
+    checklist: buildInsightChecklist({
+      sourceCount,
+      completedCount,
+      readyCount,
+      deckReady,
+      attemptCount,
+      testCount,
+      serverChecklist: summary?.checklist,
+    }, t),
     activities,
     isActivityEmpty: activities.length === 0,
   };
 }
 
-function getHeatmapAction(workspace, latestSource, t, state) {
+function getHeatmapAction(workspace, t, state) {
   const workspacePath = workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces';
-  const documentId = latestSource?.documentId ?? latestSource?.DocumentId ?? latestSource?.id;
 
-  if (state.readyCount > 0 && documentId) {
-    return { to: `/quiz/${documentId}`, label: t('analyticsDashboard.actions.studyQuiz') };
+  if (state.readyCount > 0 && state.readyDocumentId) {
+    return { to: `/quiz/${state.readyDocumentId}`, label: t('analyticsDashboard.actions.studyQuiz') };
   }
 
   if (state.sourceCount > 0) {
     return {
-      to: documentId ? `/question-studio/${documentId}` : workspacePath,
+      to: state.fallbackDocumentId ? `/question-studio/${state.fallbackDocumentId}` : workspacePath,
       label: t('analyticsDashboard.actions.createQuestionBank'),
     };
   }
@@ -594,7 +605,7 @@ function getActivityIcon(kind, status) {
 }
 
 function buildInsightChecklist(state, t) {
-  const items = [
+  const fallbackItems = [
     {
       key: 'upload',
       title: t('analyticsDashboard.insight.checklist.upload'),
@@ -608,7 +619,7 @@ function buildInsightChecklist(state, t) {
     {
       key: 'study',
       title: t('analyticsDashboard.insight.checklist.study'),
-      state: state.readyCount > 0 ? 'next' : 'pending',
+      state: state.attemptCount > 0 || state.testCount > 0 ? 'ready' : state.readyCount > 0 ? 'next' : 'pending',
     },
     {
       key: 'slides',
@@ -616,11 +627,26 @@ function buildInsightChecklist(state, t) {
       state: state.deckReady ? 'ready' : state.completedCount > 0 ? 'later' : 'pending',
     },
   ];
+  const serverItems = Array.isArray(state.serverChecklist)
+    ? state.serverChecklist
+        .filter((item) => item?.key)
+        .map((item) => ({
+          key: item.key,
+          title: t(`analyticsDashboard.insight.checklist.${item.key}`),
+          state: normalizeChecklistState(item.state),
+        }))
+    : [];
+  const items = serverItems.length > 0 ? serverItems : fallbackItems;
 
   return items.map((item) => ({
     ...item,
     statusLabel: t(`analyticsDashboard.insight.status.${item.state}`),
   }));
+}
+
+function normalizeChecklistState(state) {
+  const normalized = String(state || '').trim().toLowerCase();
+  return ['ready', 'next', 'pending', 'later'].includes(normalized) ? normalized : 'pending';
 }
 
 function getSkillStatus(hasLearningData, value, t) {

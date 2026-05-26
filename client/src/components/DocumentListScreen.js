@@ -842,7 +842,7 @@ function DocumentListScreen() {
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Phan tich noi dung: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={() => setShowAnalysis(null)}>
+              <button className="close-btn" onClick={() => setShowAnalysis(null)} aria-label="Close">
                 <LuX aria-hidden="true" />
               </button>
             </div>

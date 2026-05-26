@@ -1073,7 +1073,7 @@ function DocumentList() {
     <div className="documents-studio-page">
       <section className="documents-studio-shell">
         <div className="documents-studio-topbar">
-          <button type="button" className="documents-mini-btn" onClick={() => navigate('/')}>
+          <button type="button" className="documents-mini-btn" onClick={() => navigate('/')} aria-label="Back">
             <LuArrowLeft aria-hidden="true" />
           </button>
 
@@ -1120,7 +1120,7 @@ function DocumentList() {
                 onChange={(event) => setFilterValue(event.target.value)}
                 placeholder="Filter documents"
               />
-              <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')}>
+              <button type="button" className="documents-mini-btn" onClick={() => setFilterValue('')} aria-label="Clear filter">
                 <LuX aria-hidden="true" />
               </button>
             </div>
@@ -1203,7 +1203,7 @@ function DocumentList() {
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Phân tích nội dùng: {showAnalysis.fileName}</h2>
-              <button className="close-btn" onClick={closeAnalysisModal}>
+              <button className="close-btn" onClick={closeAnalysisModal} aria-label="Close">
                 <LuX aria-hidden="true" />
               </button>
             </div>

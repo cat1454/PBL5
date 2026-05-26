@@ -55,7 +55,7 @@ const isTextOnlySlide = (item) => {
 };
 
 const splitBodyText = (text) => text
-  .split(/(?<=[.!?ã€‚])\s+|[\r\n]+/)
+  .split(/(?<=[.!?。])\s+|[\r\n]+/)
   .map((block) => block.trim())
   .filter(Boolean);
 
@@ -147,7 +147,7 @@ function SlideStudio({ documentId: propDocumentId }) {
     audience: audienceOptions[0],
     tone: toneOptions[0],
     narrativeGoal: language === 'vi'
-      ? 'GiÃºp ngÆ°á»i Ä‘á»c náº¯m cáº¥u trÃºc vÃ  Ã½ chÃ­nh cá»§a tÃ i liá»‡u chá»‰ trong má»™t láº§n xem.'
+      ? 'Giúp người đọc nắm cấu trúc và ý chính của tài liệu chỉ trong một lần xem.'
       : 'Help the reader grasp the structure and key ideas of the source in one pass.',
     languageStyle: languageStyleOptions[0],
   }), [audienceOptions, language, languageStyleOptions, toneOptions]);

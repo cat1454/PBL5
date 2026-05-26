@@ -33,8 +33,6 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         var workspaces = await _dbContext.FolderProjects
             .AsNoTracking()
-            .Include(folder => folder.SlideDecks)
-                .ThenInclude(deck => deck.Items)
             .Where(folder => folder.UploadedBy == userId)
             .OrderByDescending(folder => folder.UpdatedAt)
             .ToListAsync(cancellationToken);
@@ -78,19 +76,23 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             .ToListAsync(cancellationToken);
 
         var latestWorkspace = workspaces.FirstOrDefault();
-        var latestDeck = decks
-            .OrderByDescending(deck => deck.UpdatedAt)
-            .ThenByDescending(deck => deck.CompletedAt)
-            .FirstOrDefault();
+        var latestWorkspaceDeck = latestWorkspace == null
+            ? null
+            : decks
+                .Where(deck => IsDeckInWorkspace(deck, latestWorkspace.Id, documents))
+                .OrderByDescending(deck => deck.UpdatedAt)
+                .ThenByDescending(deck => deck.CompletedAt)
+                .FirstOrDefault();
+        var hasDeck = decks.Count > 0;
 
         var completedSources = documents.Where(document => document.Status == DocumentStatus.Completed).ToList();
-        var readySources = completedSources.Where(document => document.Questions.Count > 0).ToList();
+        var readySources = completedSources.Where(document => document.Questions.Count(question => !question.IsArchived) > 0).ToList();
         var questionCount = documents.Sum(document => document.Questions.Count(question => !question.IsArchived));
         var correctAttemptCount = attempts.Count(attempt => attempt.IsCorrect);
         var accuracy = attempts.Count > 0 ? (double)correctAttemptCount / attempts.Count * 100d : 0d;
         var studySeconds = CalculateStudySeconds(attempts, tests);
-        var activeDates = BuildActiveDateSet(documents, attempts, tests, decks, analyticsEvents);
-        var heatmap = BuildHeatmap(activeDates, heatmapStart, today);
+        var activitySignals = BuildActivitySignals(documents, attempts, tests, decks, analyticsEvents);
+        var heatmap = BuildHeatmap(activitySignals, heatmapStart, today);
         var averageMastery = progresses.Count > 0 ? progresses.Average(item => item.MasteryScore) : 0d;
         var averageMemory = progresses.Count > 0 ? progresses.Average(item => item.MemoryScore) : 0d;
 
@@ -107,7 +109,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             CurrentStreakDays = heatmap.CurrentStreakDays,
             ActiveDays = heatmap.ActiveDays,
             AccuracyPercent = RoundScore(accuracy),
-            ReadinessPercent = CalculateReadiness(completedSources.Count, readySources.Count, questionCount, progresses, latestDeck != null),
+            ReadinessPercent = CalculateReadiness(completedSources.Count, readySources.Count, questionCount, progresses, hasDeck),
             AverageMasteryScore = RoundScore(averageMastery),
             AverageMemoryScore = RoundScore(averageMemory),
             WeakCount = progresses.Count(progress => progress.Level == LearningLevel.Weak),
@@ -117,22 +119,33 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         return new PersonalAnalyticsSummary
         {
             UserId = userId,
-            Workspace = latestWorkspace == null ? null : BuildWorkspace(latestWorkspace, latestDeck),
+            Workspace = latestWorkspace == null ? null : BuildWorkspace(latestWorkspace, latestWorkspaceDeck),
             Sources = documents.Select(BuildSource).ToList(),
             Metrics = metrics,
-            Skills = BuildSkills(metrics, latestDeck != null).ToList(),
+            Skills = BuildSkills(metrics, hasDeck).ToList(),
             Heatmap = heatmap,
             Activity = BuildActivity(documents, attempts, tests, decks).ToList(),
-            Checklist = BuildChecklist(metrics, latestDeck != null).ToList(),
+            Checklist = BuildChecklist(metrics, hasDeck).ToList(),
             ActionsContext = new PersonalAnalyticsActionsContext
             {
                 WorkspaceId = latestWorkspace?.Id,
                 LatestSourceId = documents.FirstOrDefault()?.Id,
                 LatestCompletedSourceId = completedSources.OrderByDescending(item => item.UpdatedAt).FirstOrDefault()?.Id,
                 LatestReadySourceId = readySources.OrderByDescending(item => item.UpdatedAt).FirstOrDefault()?.Id,
-                HasDeck = latestDeck != null
+                HasDeck = hasDeck
             }
         };
+    }
+
+    private static bool IsDeckInWorkspace(SlideDeck deck, int workspaceId, IReadOnlyList<Document> documents)
+    {
+        if (deck.FolderProjectId == workspaceId)
+        {
+            return true;
+        }
+
+        return deck.DocumentId.HasValue
+            && documents.Any(document => document.Id == deck.DocumentId.Value && document.FolderProjectId == workspaceId);
     }
 
     private static PersonalAnalyticsWorkspace BuildWorkspace(FolderProject workspace, SlideDeck? latestDeck)
@@ -179,45 +192,45 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         return attemptSeconds + testSeconds;
     }
 
-    private static HashSet<DateTime> BuildActiveDateSet(
+    private static Dictionary<DateTime, int> BuildActivitySignals(
         IReadOnlyList<Document> documents,
         IReadOnlyList<LearningAttempt> attempts,
         IReadOnlyList<LearningTestResult> tests,
         IReadOnlyList<SlideDeck> decks,
         IReadOnlyList<AnalyticsEvent> analyticsEvents)
     {
-        var dates = new HashSet<DateTime>();
+        var signals = new Dictionary<DateTime, int>();
 
         foreach (var document in documents)
         {
-            dates.Add(StartOfDay(document.CreatedAt));
-            dates.Add(StartOfDay(document.UpdatedAt));
+            AddActivitySignal(signals, document.CreatedAt);
+            AddActivitySignal(signals, document.UpdatedAt);
         }
 
         foreach (var attempt in attempts)
         {
-            dates.Add(StartOfDay(attempt.CreatedAt));
+            AddActivitySignal(signals, attempt.CreatedAt);
         }
 
         foreach (var test in tests)
         {
-            dates.Add(StartOfDay(test.SubmittedAt));
+            AddActivitySignal(signals, test.SubmittedAt);
         }
 
         foreach (var deck in decks)
         {
-            dates.Add(StartOfDay(deck.CompletedAt ?? deck.UpdatedAt));
+            AddActivitySignal(signals, deck.CompletedAt ?? deck.UpdatedAt);
         }
 
         foreach (var analyticsEvent in analyticsEvents)
         {
-            dates.Add(StartOfDay(analyticsEvent.OccurredAt));
+            AddActivitySignal(signals, analyticsEvent.OccurredAt);
         }
 
-        return dates;
+        return signals;
     }
 
-    private static PersonalAnalyticsHeatmap BuildHeatmap(HashSet<DateTime> activeDates, DateTime start, DateTime today)
+    private static PersonalAnalyticsHeatmap BuildHeatmap(IReadOnlyDictionary<DateTime, int> activitySignals, DateTime start, DateTime today)
     {
         var days = new List<PersonalAnalyticsHeatmapDay>(HeatmapDayCount);
         var activeDays = 0;
@@ -226,8 +239,8 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         for (var index = 0; index < HeatmapDayCount; index++)
         {
             var date = start.AddDays(index);
-            var signalCount = activeDates.Contains(date) ? 1 : 0;
-            var level = signalCount == 0 ? 0 : 1;
+            var signalCount = activitySignals.TryGetValue(date, out var count) ? count : 0;
+            var level = CalculateHeatmapLevel(signalCount);
             activeDays += level > 0 ? 1 : 0;
             peakLevel = Math.Max(peakLevel, level);
 
@@ -243,22 +256,48 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         {
             Days = days,
             ActiveDays = activeDays,
-            CurrentStreakDays = CalculateCurrentStreak(activeDates, today),
+            CurrentStreakDays = CalculateCurrentStreak(activitySignals, today),
             PeakLevel = peakLevel
         };
     }
 
-    private static int CalculateCurrentStreak(HashSet<DateTime> activeDates, DateTime today)
+    private static int CalculateCurrentStreak(IReadOnlyDictionary<DateTime, int> activitySignals, DateTime today)
     {
         var streak = 0;
         var cursor = today;
-        while (activeDates.Contains(cursor))
+        while (activitySignals.TryGetValue(cursor, out var count) && count > 0)
         {
             streak++;
             cursor = cursor.AddDays(-1);
         }
 
         return streak;
+    }
+
+    private static void AddActivitySignal(IDictionary<DateTime, int> signals, DateTime value)
+    {
+        var date = StartOfDay(value);
+        signals[date] = signals.TryGetValue(date, out var count) ? count + 1 : 1;
+    }
+
+    private static int CalculateHeatmapLevel(int signalCount)
+    {
+        if (signalCount <= 0)
+        {
+            return 0;
+        }
+
+        if (signalCount == 1)
+        {
+            return 1;
+        }
+
+        if (signalCount == 2)
+        {
+            return 2;
+        }
+
+        return signalCount <= 4 ? 3 : 4;
     }
 
     private static double CalculateReadiness(

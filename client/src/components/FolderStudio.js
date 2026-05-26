@@ -1832,7 +1832,12 @@ function FolderStudio() {
       {generationError && <div className="alert alert-error">{generationError}</div>}
       <section className="folder-studio-shell">
         <div className="folder-studio-topbar">
-          <button type="button" className="folder-studio-mini-btn" onClick={() => navigate('/workspaces')}>
+          <button
+            type="button"
+            className="folder-studio-mini-btn"
+            onClick={() => navigate('/workspaces')}
+            aria-label={language === 'vi' ? 'Quay lại Workspaces' : 'Back to workspaces'}
+          >
             <LuArrowLeft aria-hidden="true" />
           </button>
 
