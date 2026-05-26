@@ -618,6 +618,15 @@
   color: #86efac;
 }
 
+.analytics-skill-row.tone-growth {
+  border-color: rgba(251, 191, 36, 0.24);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.analytics-skill-row.tone-growth small {
+  color: #fde68a;
+}
+
 .analytics-skill-row.tone-muted small {
   color: #cbd5e1;
 }

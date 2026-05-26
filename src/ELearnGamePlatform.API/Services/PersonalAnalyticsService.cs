@@ -1,3 +1,4 @@
+using System.Globalization;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -68,10 +69,11 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         var attemptCount = await attemptQuery.CountAsync(cancellationToken);
         var correctAttemptCount = await attemptQuery.CountAsync(attempt => attempt.IsCorrect, cancellationToken);
-        var attemptResponseTimes = await attemptQuery
+        var attemptStudySeconds = await attemptQuery
             .Where(attempt => attempt.ResponseTimeMs.HasValue)
-            .Select(attempt => attempt.ResponseTimeMs!.Value)
-            .ToListAsync(cancellationToken);
+            .SumAsync(
+                attempt => Math.Min(Math.Max((long)attempt.ResponseTimeMs!.Value / 1000L, 0L), 300L),
+                cancellationToken);
         var attempts = await attemptQuery
             .Where(attempt => attempt.CreatedAt >= heatmapStart && attempt.CreatedAt < tomorrow)
             .OrderByDescending(attempt => attempt.CreatedAt)
@@ -103,9 +105,10 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
                 && result.Status == LearningTestResultStatus.Completed);
 
         var testCount = await testQuery.CountAsync(cancellationToken);
-        var testDurations = await testQuery
-            .Select(result => result.DurationMs)
-            .ToListAsync(cancellationToken);
+        var testStudySeconds = await testQuery
+            .SumAsync(
+                result => Math.Min(Math.Max(result.DurationMs / 1000L, 0L), 7200L),
+                cancellationToken);
         var tests = await testQuery
             .Where(result => result.SubmittedAt >= heatmapStart && result.SubmittedAt < tomorrow)
             .OrderByDescending(result => result.SubmittedAt)
@@ -160,7 +163,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         var readySources = completedSources.Where(document => document.QuestionCount > 0).ToList();
         var questionCount = documents.Sum(document => document.QuestionCount);
         var accuracy = attemptCount > 0 ? (double)correctAttemptCount / attemptCount * 100d : 0d;
-        var studySeconds = CalculateStudySeconds(attemptResponseTimes, testDurations);
+        var studySeconds = attemptStudySeconds + testStudySeconds;
         var activitySignals = BuildActivitySignals(documents, attempts, tests, decks, analyticsEvents);
         var heatmap = BuildHeatmap(activitySignals, heatmapStart, today);
         var averageMastery = progresses.Count > 0 ? progresses.Average(item => item.MasteryScore) : 0d;
@@ -252,13 +255,6 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             CreatedAt = document.CreatedAt,
             UpdatedAt = document.UpdatedAt
         };
-
-    private static long CalculateStudySeconds(IReadOnlyList<int> attemptResponseTimes, IReadOnlyList<long> testDurations)
-    {
-        var attemptSeconds = attemptResponseTimes.Sum(value => Math.Clamp(value / 1000L, 0L, 300L));
-        var testSeconds = testDurations.Sum(value => Math.Clamp(value / 1000L, 0L, 7200L));
-        return attemptSeconds + testSeconds;
-    }
 
     private static Dictionary<DateTime, int> BuildActivitySignals(
         IReadOnlyList<DocumentRow> documents,
@@ -440,7 +436,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             Key = $"test-{test.Id}",
             Kind = "test",
             Title = test.TestType.ToString(),
-            Status = $"{test.Score:0.#}",
+            Status = test.Score.ToString("0.#", CultureInfo.InvariantCulture),
             DocumentId = test.DocumentId,
             OccurredAt = test.SubmittedAt
         }));

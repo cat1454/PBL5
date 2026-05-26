@@ -1,3 +1,4 @@
+using System.Globalization;
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
@@ -325,6 +326,145 @@ public class PersonalAnalyticsServiceTests
         Assert.True(todayCell.SignalCount > 1);
         Assert.True(todayCell.Level > 1);
         Assert.True(summary.Heatmap.PeakLevel > 1);
+    }
+
+    [Fact]
+    public async Task GetPersonalSummaryAsync_ComputesClampedStudySeconds()
+    {
+        await using var context = CreateDbContext();
+        var now = DateTime.UtcNow;
+
+        context.Documents.Add(new Document
+        {
+            Id = 90,
+            FileName = "timing.pdf",
+            FileType = "PDF",
+            FilePath = "timing.pdf",
+            UploadedBy = "user-1",
+            Status = DocumentStatus.Completed,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        context.Questions.Add(CreateQuestion(91, 90));
+        context.LearningAttempts.AddRange(
+            new LearningAttempt
+            {
+                UserId = "user-1",
+                DocumentId = 90,
+                QuestionId = 91,
+                Mode = LearningMode.Quiz,
+                IsCorrect = true,
+                ResponseTimeMs = 1500,
+                CreatedAt = now
+            },
+            new LearningAttempt
+            {
+                UserId = "user-1",
+                DocumentId = 90,
+                QuestionId = 91,
+                Mode = LearningMode.Quiz,
+                IsCorrect = true,
+                ResponseTimeMs = 301000,
+                CreatedAt = now
+            },
+            new LearningAttempt
+            {
+                UserId = "user-1",
+                DocumentId = 90,
+                QuestionId = 91,
+                Mode = LearningMode.Quiz,
+                IsCorrect = true,
+                ResponseTimeMs = -1000,
+                CreatedAt = now
+            });
+        context.LearningTestResults.AddRange(
+            new LearningTestResult
+            {
+                UserId = "user-1",
+                DocumentId = 90,
+                TotalQuestions = 1,
+                CorrectCount = 1,
+                Score = 100,
+                DurationMs = 2500,
+                Status = LearningTestResultStatus.Completed,
+                StartedAt = now,
+                SubmittedAt = now,
+                CreatedAt = now
+            },
+            new LearningTestResult
+            {
+                UserId = "user-1",
+                DocumentId = 90,
+                TotalQuestions = 1,
+                CorrectCount = 1,
+                Score = 100,
+                DurationMs = 9000000,
+                Status = LearningTestResultStatus.Completed,
+                StartedAt = now,
+                SubmittedAt = now,
+                CreatedAt = now
+            });
+
+        await context.SaveChangesAsync();
+        var service = new PersonalAnalyticsService(context);
+
+        var summary = await service.GetPersonalSummaryAsync("user-1");
+
+        Assert.Equal(7503, summary.Metrics.StudySeconds);
+    }
+
+    [Fact]
+    public async Task GetPersonalSummaryAsync_FormatsTestScoreWithInvariantCulture()
+    {
+        await using var context = CreateDbContext();
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        var now = DateTime.UtcNow;
+
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("vi-VN");
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("vi-VN");
+
+            context.Documents.Add(new Document
+            {
+                Id = 100,
+                FileName = "score.pdf",
+                FileType = "PDF",
+                FilePath = "score.pdf",
+                UploadedBy = "user-1",
+                Status = DocumentStatus.Completed,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            context.LearningTestResults.Add(new LearningTestResult
+            {
+                UserId = "user-1",
+                DocumentId = 100,
+                TotalQuestions = 2,
+                CorrectCount = 1,
+                WrongCount = 1,
+                Score = 12.5,
+                DurationMs = 120000,
+                Status = LearningTestResultStatus.Completed,
+                StartedAt = now,
+                SubmittedAt = now,
+                CreatedAt = now
+            });
+
+            await context.SaveChangesAsync();
+            var service = new PersonalAnalyticsService(context);
+
+            var summary = await service.GetPersonalSummaryAsync("user-1");
+
+            Assert.Contains(summary.Activity, item => item.Kind == "test" && item.Status == "12.5");
+            Assert.DoesNotContain(summary.Activity, item => item.Kind == "test" && item.Status == "12,5");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     private static Question CreateQuestion(int id, int documentId, bool isArchived = false)
