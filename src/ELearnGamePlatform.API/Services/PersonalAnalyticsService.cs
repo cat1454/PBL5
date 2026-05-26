@@ -67,13 +67,17 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             .AsNoTracking()
             .Where(attempt => attempt.UserId == userId && documentIds.Contains(attempt.DocumentId));
 
-        var attemptCount = await attemptQuery.CountAsync(cancellationToken);
-        var correctAttemptCount = await attemptQuery.CountAsync(attempt => attempt.IsCorrect, cancellationToken);
-        var attemptStudySeconds = await attemptQuery
-            .Where(attempt => attempt.ResponseTimeMs.HasValue)
-            .SumAsync(
-                attempt => Math.Min(Math.Max((long)attempt.ResponseTimeMs!.Value / 1000L, 0L), 300L),
-                cancellationToken);
+        var attemptAggregate = await attemptQuery
+            .GroupBy(_ => 1)
+            .Select(group => new AttemptAggregate
+            {
+                Count = group.Count(),
+                CorrectCount = group.Count(attempt => attempt.IsCorrect),
+                StudySeconds = group
+                    .Where(attempt => attempt.ResponseTimeMs.HasValue)
+                    .Sum(attempt => Math.Min(Math.Max((long)attempt.ResponseTimeMs!.Value / 1000L, 0L), 300L))
+            })
+            .FirstOrDefaultAsync(cancellationToken) ?? new AttemptAggregate();
         var attempts = await attemptQuery
             .Where(attempt => attempt.CreatedAt >= heatmapStart && attempt.CreatedAt < tomorrow)
             .OrderByDescending(attempt => attempt.CreatedAt)
@@ -104,11 +108,14 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
                 && documentIds.Contains(result.DocumentId)
                 && result.Status == LearningTestResultStatus.Completed);
 
-        var testCount = await testQuery.CountAsync(cancellationToken);
-        var testStudySeconds = await testQuery
-            .SumAsync(
-                result => Math.Min(Math.Max(result.DurationMs / 1000L, 0L), 7200L),
-                cancellationToken);
+        var testAggregate = await testQuery
+            .GroupBy(_ => 1)
+            .Select(group => new TestAggregate
+            {
+                Count = group.Count(),
+                StudySeconds = group.Sum(result => Math.Min(Math.Max(result.DurationMs / 1000L, 0L), 7200L))
+            })
+            .FirstOrDefaultAsync(cancellationToken) ?? new TestAggregate();
         var tests = await testQuery
             .Where(result => result.SubmittedAt >= heatmapStart && result.SubmittedAt < tomorrow)
             .OrderByDescending(result => result.SubmittedAt)
@@ -149,21 +156,22 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             })
             .ToListAsync(cancellationToken);
 
+        var completedDecks = decks.Where(deck => deck.Status == SlideDeckStatus.Completed).ToList();
         var latestWorkspace = workspaces.FirstOrDefault();
         var latestWorkspaceDeck = latestWorkspace == null
             ? null
-            : decks
+            : completedDecks
                 .Where(deck => IsDeckInWorkspace(deck, latestWorkspace.Id, documents))
                 .OrderByDescending(deck => deck.UpdatedAt)
                 .ThenByDescending(deck => deck.CompletedAt)
                 .FirstOrDefault();
-        var hasDeck = decks.Count > 0;
+        var hasDeck = completedDecks.Count > 0;
 
         var completedSources = documents.Where(document => document.Status == DocumentStatus.Completed).ToList();
         var readySources = completedSources.Where(document => document.QuestionCount > 0).ToList();
         var questionCount = documents.Sum(document => document.QuestionCount);
-        var accuracy = attemptCount > 0 ? (double)correctAttemptCount / attemptCount * 100d : 0d;
-        var studySeconds = attemptStudySeconds + testStudySeconds;
+        var accuracy = attemptAggregate.Count > 0 ? (double)attemptAggregate.CorrectCount / attemptAggregate.Count * 100d : 0d;
+        var studySeconds = attemptAggregate.StudySeconds + testAggregate.StudySeconds;
         var activitySignals = BuildActivitySignals(documents, attempts, tests, decks, analyticsEvents);
         var heatmap = BuildHeatmap(activitySignals, heatmapStart, today);
         var averageMastery = progresses.Count > 0 ? progresses.Average(item => item.MasteryScore) : 0d;
@@ -175,9 +183,9 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             CompletedSourceCount = completedSources.Count,
             ReadySourceCount = readySources.Count,
             QuestionCount = questionCount,
-            AttemptCount = attemptCount,
-            CorrectAttemptCount = correctAttemptCount,
-            TestCount = testCount,
+            AttemptCount = attemptAggregate.Count,
+            CorrectAttemptCount = attemptAggregate.CorrectCount,
+            TestCount = testAggregate.Count,
             StudySeconds = studySeconds,
             CurrentStreakDays = heatmap.CurrentStreakDays,
             ActiveDays = heatmap.ActiveDays,
@@ -408,15 +416,18 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
     {
         var items = new List<PersonalAnalyticsActivity>();
 
-        items.AddRange(documents.Select(document => new PersonalAnalyticsActivity
-        {
-            Key = $"source-{document.Id}",
-            Kind = "source",
-            Title = document.FileName,
-            Status = document.Status.ToString(),
-            DocumentId = document.Id,
-            OccurredAt = document.UpdatedAt
-        }));
+        items.AddRange(documents
+            .OrderByDescending(document => document.UpdatedAt)
+            .Take(10)
+            .Select(document => new PersonalAnalyticsActivity
+            {
+                Key = $"source-{document.Id}",
+                Kind = "source",
+                Title = document.FileName,
+                Status = document.Status.ToString(),
+                DocumentId = document.Id,
+                OccurredAt = document.UpdatedAt
+            }));
 
         items.AddRange(attempts
             .OrderByDescending(attempt => attempt.CreatedAt)
@@ -431,25 +442,31 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
                 OccurredAt = attempt.CreatedAt
             }));
 
-        items.AddRange(tests.Select(test => new PersonalAnalyticsActivity
-        {
-            Key = $"test-{test.Id}",
-            Kind = "test",
-            Title = test.TestType.ToString(),
-            Status = test.Score.ToString("0.#", CultureInfo.InvariantCulture),
-            DocumentId = test.DocumentId,
-            OccurredAt = test.SubmittedAt
-        }));
+        items.AddRange(tests
+            .OrderByDescending(test => test.SubmittedAt)
+            .Take(10)
+            .Select(test => new PersonalAnalyticsActivity
+            {
+                Key = $"test-{test.Id}",
+                Kind = "test",
+                Title = test.TestType.ToString(),
+                Status = test.Score.ToString("0.#", CultureInfo.InvariantCulture),
+                DocumentId = test.DocumentId,
+                OccurredAt = test.SubmittedAt
+            }));
 
-        items.AddRange(decks.Select(deck => new PersonalAnalyticsActivity
-        {
-            Key = $"deck-{deck.Id}",
-            Kind = "deck",
-            Title = deck.Title ?? "Slide deck",
-            Status = deck.Status.ToString(),
-            DocumentId = deck.DocumentId,
-            OccurredAt = deck.CompletedAt ?? deck.UpdatedAt
-        }));
+        items.AddRange(decks
+            .OrderByDescending(deck => deck.CompletedAt ?? deck.UpdatedAt)
+            .Take(10)
+            .Select(deck => new PersonalAnalyticsActivity
+            {
+                Key = $"deck-{deck.Id}",
+                Kind = "deck",
+                Title = deck.Title ?? "Slide deck",
+                Status = deck.Status.ToString(),
+                DocumentId = deck.DocumentId,
+                OccurredAt = deck.CompletedAt ?? deck.UpdatedAt
+            }));
 
         return items
             .OrderByDescending(item => item.OccurredAt)
@@ -540,6 +557,19 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
     private sealed class AnalyticsEventRow
     {
         public DateTime OccurredAt { get; init; }
+    }
+
+    private sealed class AttemptAggregate
+    {
+        public int Count { get; init; }
+        public int CorrectCount { get; init; }
+        public long StudySeconds { get; init; }
+    }
+
+    private sealed class TestAggregate
+    {
+        public int Count { get; init; }
+        public long StudySeconds { get; init; }
     }
 
     private static DateTime StartOfDay(DateTime value)

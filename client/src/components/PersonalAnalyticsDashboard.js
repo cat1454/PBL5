@@ -687,11 +687,9 @@ function buildHeatmapWeeks(heatmap, language, t) {
     for (let dayIndex = 0; dayIndex < HEATMAP_DAYS_PER_WEEK; dayIndex += 1) {
       const flatIndex = weekIndex * HEATMAP_DAYS_PER_WEEK + dayIndex;
       const apiDay = apiDays[flatIndex] || null;
-      const date = apiDay?.date ? new Date(`${apiDay.date}T00:00:00`) : new Date(weekStart);
-      if (!apiDay?.date) {
-        date.setDate(weekStart.getDate() + dayIndex);
-      }
-      const dateKey = toDateKey(date);
+      const fallbackDate = new Date(weekStart);
+      fallbackDate.setDate(weekStart.getDate() + dayIndex);
+      const dateKey = apiDay?.date || toDateKey(fallbackDate);
       const level = Math.max(0, Math.min(4, Number(apiDay?.level || 0)));
 
       cells.push({ dateKey, level });
@@ -699,7 +697,7 @@ function buildHeatmapWeeks(heatmap, language, t) {
         key: dateKey,
         level,
         title: t('analyticsDashboard.heatmap.cellTitle', {
-          date: formatHeatmapDate(date, language),
+          date: apiDay?.date ? formatHeatmapDateKey(apiDay.date, language) : formatHeatmapDate(fallbackDate, language),
           levelText: t(`analyticsDashboard.heatmap.levelLabels.${level}`),
         }),
       });
@@ -920,6 +918,16 @@ function formatHeatmapDate(value, language) {
   return language === 'vi'
     ? value.toLocaleDateString('vi-VN')
     : toDateKey(value);
+}
+
+function formatHeatmapDateKey(value, language) {
+  const parts = String(value || '').split('-');
+  if (parts.length !== 3) {
+    return value;
+  }
+
+  const [year, month, day] = parts;
+  return language === 'vi' ? `${day}/${month}/${year}` : value;
 }
 
 export default PersonalAnalyticsDashboard;

@@ -19,10 +19,14 @@ public class PersonalAnalyticsServiceTests
 
         var entityType = context.Model.FindEntityType(typeof(AnalyticsEvent));
         var idProperty = entityType?.FindProperty(nameof(AnalyticsEvent.Id));
-        var storeObject = StoreObjectIdentifier.Create(entityType!, StoreObjectType.Table);
+
+        Assert.NotNull(entityType);
+        Assert.NotNull(idProperty);
+
+        var storeObject = StoreObjectIdentifier.Create(entityType, StoreObjectType.Table);
 
         Assert.True(storeObject.HasValue);
-        Assert.Equal("id", idProperty?.GetColumnName(storeObject.Value));
+        Assert.Equal("id", idProperty.GetColumnName(storeObject.Value));
     }
 
     [Fact]
@@ -280,6 +284,65 @@ public class PersonalAnalyticsServiceTests
         Assert.Equal(60, summary.Workspace?.Id);
         Assert.Equal(70, summary.Workspace?.LatestDeck?.Id);
         Assert.Equal(60, summary.Workspace?.LatestDeck?.FolderProjectId);
+    }
+
+    [Fact]
+    public async Task GetPersonalSummaryAsync_UsesOnlyCompletedDecksForReadinessAndLatestWorkspaceDeck()
+    {
+        await using var context = CreateDbContext();
+        var now = DateTime.UtcNow;
+
+        context.FolderProjects.Add(new FolderProject
+        {
+            Id = 75,
+            Name = "Slides Workspace",
+            UploadedBy = "user-1",
+            CreatedAt = now.AddDays(-2),
+            UpdatedAt = now
+        });
+        context.Documents.Add(new Document
+        {
+            Id = 76,
+            FileName = "slides-source.pdf",
+            FileType = "PDF",
+            FilePath = "slides-source.pdf",
+            UploadedBy = "user-1",
+            FolderProjectId = 75,
+            Status = DocumentStatus.Completed,
+            CreatedAt = now.AddDays(-2),
+            UpdatedAt = now.AddDays(-1)
+        });
+        context.SlideDecks.AddRange(
+            new SlideDeck
+            {
+                Id = 77,
+                FolderProjectId = 75,
+                Status = SlideDeckStatus.GeneratingSlides,
+                Title = "Generating deck",
+                CreatedAt = now,
+                UpdatedAt = now,
+                CompletedAt = null
+            },
+            new SlideDeck
+            {
+                Id = 78,
+                DocumentId = 76,
+                Status = SlideDeckStatus.Failed,
+                Title = "Failed deck",
+                CreatedAt = now.AddHours(-1),
+                UpdatedAt = now.AddHours(-1),
+                CompletedAt = null
+            });
+
+        await context.SaveChangesAsync();
+        var service = new PersonalAnalyticsService(context);
+
+        var summary = await service.GetPersonalSummaryAsync("user-1");
+
+        Assert.Null(summary.Workspace?.LatestDeck);
+        Assert.False(summary.ActionsContext.HasDeck);
+        Assert.Contains(summary.Checklist, item => item.Key == "slides" && item.State == "later");
+        Assert.Contains(summary.Skills, skill => skill.Key == "slides" && skill.Value < 82);
     }
 
     [Fact]
