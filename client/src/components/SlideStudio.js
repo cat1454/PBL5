@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LuCheck, LuImage, LuPencil, LuRefreshCw, LuX } from 'react-icons/lu';
+import { LuCheck, LuChevronRight, LuImage, LuPencil, LuRefreshCw, LuX } from 'react-icons/lu';
 import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { normalizeProgressState } from '../services/progress';
@@ -822,7 +822,7 @@ function SlideStudio({ documentId: propDocumentId }) {
                             <strong>{slide.heading}</strong>
                             <small>{slide.goal || getSlideTypeLabel(slide.slideType)}</small>
                           </span>
-                          <LuX aria-hidden="true" />
+                          <LuChevronRight aria-hidden="true" />
                         </button>
                       );
                     })}

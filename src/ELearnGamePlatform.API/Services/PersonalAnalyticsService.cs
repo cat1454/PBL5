@@ -28,51 +28,122 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         var now = DateTime.UtcNow;
         var today = StartOfDay(now);
-        var currentWeekStart = StartOfIsoWeek(today);
-        var heatmapStart = currentWeekStart.AddDays(-((HeatmapWeekCount - 1) * HeatmapDaysPerWeek));
+        var heatmapStart = today.AddDays(-(HeatmapDayCount - 1));
+        var tomorrow = today.AddDays(1);
 
         var workspaces = await _dbContext.FolderProjects
             .AsNoTracking()
             .Where(folder => folder.UploadedBy == userId)
             .OrderByDescending(folder => folder.UpdatedAt)
+            .Select(folder => new WorkspaceRow
+            {
+                Id = folder.Id,
+                Name = folder.Name,
+                Description = folder.Description,
+                CreatedAt = folder.CreatedAt,
+                UpdatedAt = folder.UpdatedAt
+            })
             .ToListAsync(cancellationToken);
 
         var documents = await _dbContext.Documents
             .AsNoTracking()
-            .Include(document => document.Questions)
             .Where(document => document.UploadedBy == userId)
             .OrderByDescending(document => document.UpdatedAt)
+            .Select(document => new DocumentRow
+            {
+                Id = document.Id,
+                WorkspaceId = document.FolderProjectId,
+                FileName = document.FileName,
+                Status = document.Status,
+                QuestionCount = document.Questions.Count(question => !question.IsArchived),
+                CreatedAt = document.CreatedAt,
+                UpdatedAt = document.UpdatedAt
+            })
             .ToListAsync(cancellationToken);
 
         var documentIds = documents.Select(document => document.Id).ToHashSet();
-        var attempts = await _dbContext.LearningAttempts
+        var attemptQuery = _dbContext.LearningAttempts
             .AsNoTracking()
-            .Where(attempt => attempt.UserId == userId && documentIds.Contains(attempt.DocumentId))
+            .Where(attempt => attempt.UserId == userId && documentIds.Contains(attempt.DocumentId));
+
+        var attemptCount = await attemptQuery.CountAsync(cancellationToken);
+        var correctAttemptCount = await attemptQuery.CountAsync(attempt => attempt.IsCorrect, cancellationToken);
+        var attemptResponseTimes = await attemptQuery
+            .Where(attempt => attempt.ResponseTimeMs.HasValue)
+            .Select(attempt => attempt.ResponseTimeMs!.Value)
+            .ToListAsync(cancellationToken);
+        var attempts = await attemptQuery
+            .Where(attempt => attempt.CreatedAt >= heatmapStart && attempt.CreatedAt < tomorrow)
+            .OrderByDescending(attempt => attempt.CreatedAt)
+            .Select(attempt => new AttemptRow
+            {
+                Id = attempt.Id,
+                DocumentId = attempt.DocumentId,
+                Mode = attempt.Mode,
+                IsCorrect = attempt.IsCorrect,
+                CreatedAt = attempt.CreatedAt
+            })
             .ToListAsync(cancellationToken);
 
         var progresses = await _dbContext.LearningProgresses
             .AsNoTracking()
             .Where(progress => progress.UserId == userId && documentIds.Contains(progress.DocumentId))
+            .Select(progress => new ProgressRow
+            {
+                MemoryScore = progress.MemoryScore,
+                MasteryScore = progress.MasteryScore,
+                Level = progress.Level
+            })
             .ToListAsync(cancellationToken);
 
-        var tests = await _dbContext.LearningTestResults
+        var testQuery = _dbContext.LearningTestResults
             .AsNoTracking()
             .Where(result => result.UserId == userId
                 && documentIds.Contains(result.DocumentId)
-                && result.Status == LearningTestResultStatus.Completed)
+                && result.Status == LearningTestResultStatus.Completed);
+
+        var testCount = await testQuery.CountAsync(cancellationToken);
+        var testDurations = await testQuery
+            .Select(result => result.DurationMs)
+            .ToListAsync(cancellationToken);
+        var tests = await testQuery
+            .Where(result => result.SubmittedAt >= heatmapStart && result.SubmittedAt < tomorrow)
+            .OrderByDescending(result => result.SubmittedAt)
+            .Select(result => new TestRow
+            {
+                Id = result.Id,
+                DocumentId = result.DocumentId,
+                Score = result.Score,
+                TestType = result.TestType,
+                SubmittedAt = result.SubmittedAt
+            })
             .ToListAsync(cancellationToken);
 
         var workspaceIds = workspaces.Select(folder => folder.Id).ToHashSet();
         var decks = await _dbContext.SlideDecks
             .AsNoTracking()
-            .Include(deck => deck.Items)
             .Where(deck => (deck.DocumentId.HasValue && documentIds.Contains(deck.DocumentId.Value))
                 || (deck.FolderProjectId.HasValue && workspaceIds.Contains(deck.FolderProjectId.Value)))
+            .Select(deck => new DeckRow
+            {
+                Id = deck.Id,
+                DocumentId = deck.DocumentId,
+                FolderProjectId = deck.FolderProjectId,
+                Status = deck.Status,
+                Title = deck.Title,
+                SlideCount = deck.Items.Count,
+                UpdatedAt = deck.UpdatedAt,
+                CompletedAt = deck.CompletedAt
+            })
             .ToListAsync(cancellationToken);
 
         var analyticsEvents = await _dbContext.AnalyticsEvents
             .AsNoTracking()
-            .Where(item => item.UserId == userId && item.OccurredAt >= heatmapStart)
+            .Where(item => item.UserId == userId && item.OccurredAt >= heatmapStart && item.OccurredAt < tomorrow)
+            .Select(item => new AnalyticsEventRow
+            {
+                OccurredAt = item.OccurredAt
+            })
             .ToListAsync(cancellationToken);
 
         var latestWorkspace = workspaces.FirstOrDefault();
@@ -86,11 +157,10 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         var hasDeck = decks.Count > 0;
 
         var completedSources = documents.Where(document => document.Status == DocumentStatus.Completed).ToList();
-        var readySources = completedSources.Where(document => document.Questions.Count(question => !question.IsArchived) > 0).ToList();
-        var questionCount = documents.Sum(document => document.Questions.Count(question => !question.IsArchived));
-        var correctAttemptCount = attempts.Count(attempt => attempt.IsCorrect);
-        var accuracy = attempts.Count > 0 ? (double)correctAttemptCount / attempts.Count * 100d : 0d;
-        var studySeconds = CalculateStudySeconds(attempts, tests);
+        var readySources = completedSources.Where(document => document.QuestionCount > 0).ToList();
+        var questionCount = documents.Sum(document => document.QuestionCount);
+        var accuracy = attemptCount > 0 ? (double)correctAttemptCount / attemptCount * 100d : 0d;
+        var studySeconds = CalculateStudySeconds(attemptResponseTimes, testDurations);
         var activitySignals = BuildActivitySignals(documents, attempts, tests, decks, analyticsEvents);
         var heatmap = BuildHeatmap(activitySignals, heatmapStart, today);
         var averageMastery = progresses.Count > 0 ? progresses.Average(item => item.MasteryScore) : 0d;
@@ -102,9 +172,9 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             CompletedSourceCount = completedSources.Count,
             ReadySourceCount = readySources.Count,
             QuestionCount = questionCount,
-            AttemptCount = attempts.Count,
+            AttemptCount = attemptCount,
             CorrectAttemptCount = correctAttemptCount,
-            TestCount = tests.Count,
+            TestCount = testCount,
             StudySeconds = studySeconds,
             CurrentStreakDays = heatmap.CurrentStreakDays,
             ActiveDays = heatmap.ActiveDays,
@@ -137,7 +207,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         };
     }
 
-    private static bool IsDeckInWorkspace(SlideDeck deck, int workspaceId, IReadOnlyList<Document> documents)
+    private static bool IsDeckInWorkspace(DeckRow deck, int workspaceId, IReadOnlyList<DocumentRow> documents)
     {
         if (deck.FolderProjectId == workspaceId)
         {
@@ -145,10 +215,10 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         }
 
         return deck.DocumentId.HasValue
-            && documents.Any(document => document.Id == deck.DocumentId.Value && document.FolderProjectId == workspaceId);
+            && documents.Any(document => document.Id == deck.DocumentId.Value && document.WorkspaceId == workspaceId);
     }
 
-    private static PersonalAnalyticsWorkspace BuildWorkspace(FolderProject workspace, SlideDeck? latestDeck)
+    private static PersonalAnalyticsWorkspace BuildWorkspace(WorkspaceRow workspace, DeckRow? latestDeck)
         => new()
         {
             Id = workspace.Id,
@@ -165,39 +235,37 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
                     FolderProjectId = latestDeck.FolderProjectId,
                     Status = latestDeck.Status.ToString(),
                     Title = latestDeck.Title,
-                    SlideCount = latestDeck.Items?.Count ?? 0,
+                    SlideCount = latestDeck.SlideCount,
                     UpdatedAt = latestDeck.UpdatedAt,
                     CompletedAt = latestDeck.CompletedAt
                 }
         };
 
-    private static PersonalAnalyticsSource BuildSource(Document document)
+    private static PersonalAnalyticsSource BuildSource(DocumentRow document)
         => new()
         {
             Id = document.Id,
-            WorkspaceId = document.FolderProjectId,
+            WorkspaceId = document.WorkspaceId,
             FileName = document.FileName,
             Status = document.Status.ToString(),
-            QuestionsCount = document.Questions.Count(question => !question.IsArchived),
+            QuestionsCount = document.QuestionCount,
             CreatedAt = document.CreatedAt,
             UpdatedAt = document.UpdatedAt
         };
 
-    private static long CalculateStudySeconds(IReadOnlyList<LearningAttempt> attempts, IReadOnlyList<LearningTestResult> tests)
+    private static long CalculateStudySeconds(IReadOnlyList<int> attemptResponseTimes, IReadOnlyList<long> testDurations)
     {
-        var attemptSeconds = attempts
-            .Where(attempt => attempt.ResponseTimeMs.HasValue)
-            .Sum(attempt => Math.Clamp(attempt.ResponseTimeMs!.Value / 1000L, 0L, 300L));
-        var testSeconds = tests.Sum(test => Math.Clamp(test.DurationMs / 1000L, 0L, 7200L));
+        var attemptSeconds = attemptResponseTimes.Sum(value => Math.Clamp(value / 1000L, 0L, 300L));
+        var testSeconds = testDurations.Sum(value => Math.Clamp(value / 1000L, 0L, 7200L));
         return attemptSeconds + testSeconds;
     }
 
     private static Dictionary<DateTime, int> BuildActivitySignals(
-        IReadOnlyList<Document> documents,
-        IReadOnlyList<LearningAttempt> attempts,
-        IReadOnlyList<LearningTestResult> tests,
-        IReadOnlyList<SlideDeck> decks,
-        IReadOnlyList<AnalyticsEvent> analyticsEvents)
+        IReadOnlyList<DocumentRow> documents,
+        IReadOnlyList<AttemptRow> attempts,
+        IReadOnlyList<TestRow> tests,
+        IReadOnlyList<DeckRow> decks,
+        IReadOnlyList<AnalyticsEventRow> analyticsEvents)
     {
         var signals = new Dictionary<DateTime, int>();
 
@@ -304,7 +372,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         int completedSourceCount,
         int readySourceCount,
         int questionCount,
-        IReadOnlyList<LearningProgress> progresses,
+        IReadOnlyList<ProgressRow> progresses,
         bool hasDeck)
     {
         if (completedSourceCount == 0 && questionCount == 0 && progresses.Count == 0 && !hasDeck)
@@ -337,10 +405,10 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         };
 
     private static IEnumerable<PersonalAnalyticsActivity> BuildActivity(
-        IReadOnlyList<Document> documents,
-        IReadOnlyList<LearningAttempt> attempts,
-        IReadOnlyList<LearningTestResult> tests,
-        IReadOnlyList<SlideDeck> decks)
+        IReadOnlyList<DocumentRow> documents,
+        IReadOnlyList<AttemptRow> attempts,
+        IReadOnlyList<TestRow> tests,
+        IReadOnlyList<DeckRow> decks)
     {
         var items = new List<PersonalAnalyticsActivity>();
 
@@ -416,15 +484,70 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         };
     }
 
+    private sealed class WorkspaceRow
+    {
+        public int Id { get; init; }
+        public string Name { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public DateTime UpdatedAt { get; init; }
+    }
+
+    private sealed class DocumentRow
+    {
+        public int Id { get; init; }
+        public int? WorkspaceId { get; init; }
+        public string FileName { get; init; } = string.Empty;
+        public DocumentStatus Status { get; init; }
+        public int QuestionCount { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public DateTime UpdatedAt { get; init; }
+    }
+
+    private sealed class AttemptRow
+    {
+        public int Id { get; init; }
+        public int DocumentId { get; init; }
+        public LearningMode Mode { get; init; }
+        public bool IsCorrect { get; init; }
+        public DateTime CreatedAt { get; init; }
+    }
+
+    private sealed class ProgressRow
+    {
+        public double MemoryScore { get; init; }
+        public double MasteryScore { get; init; }
+        public LearningLevel Level { get; init; }
+    }
+
+    private sealed class TestRow
+    {
+        public int Id { get; init; }
+        public int DocumentId { get; init; }
+        public double Score { get; init; }
+        public LearningTestType TestType { get; init; }
+        public DateTime SubmittedAt { get; init; }
+    }
+
+    private sealed class DeckRow
+    {
+        public int Id { get; init; }
+        public int? DocumentId { get; init; }
+        public int? FolderProjectId { get; init; }
+        public SlideDeckStatus Status { get; init; }
+        public string? Title { get; init; }
+        public int SlideCount { get; init; }
+        public DateTime UpdatedAt { get; init; }
+        public DateTime? CompletedAt { get; init; }
+    }
+
+    private sealed class AnalyticsEventRow
+    {
+        public DateTime OccurredAt { get; init; }
+    }
+
     private static DateTime StartOfDay(DateTime value)
         => value.Date;
-
-    private static DateTime StartOfIsoWeek(DateTime value)
-    {
-        var day = value.DayOfWeek;
-        var mondayOffset = day == DayOfWeek.Sunday ? -6 : (int)DayOfWeek.Monday - (int)day;
-        return value.Date.AddDays(mondayOffset);
-    }
 
     private static double RoundScore(double value)
         => Math.Round(value, 2, MidpointRounding.AwayFromZero);

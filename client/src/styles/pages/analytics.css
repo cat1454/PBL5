@@ -1,6 +1,6 @@
 ﻿.analytics-dashboard {
   display: grid;
-  gap: 22px;
+  gap: 16px;
   color: #e5edf8;
 }
 
@@ -211,15 +211,15 @@
 .analytics-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .analytics-metric-card {
   display: grid;
   gap: 8px;
-  min-height: 132px;
-  padding: 16px;
-  border-radius: 18px;
+  min-height: 122px;
+  padding: 14px;
+  border-radius: 16px;
   overflow: hidden;
   position: relative;
 }
@@ -289,15 +289,15 @@
 .analytics-main-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr);
-  gap: 20px;
+  gap: 16px;
   align-items: start;
 }
 
 .analytics-panel {
   display: grid;
-  gap: 18px;
-  padding: 24px;
-  border-radius: 18px;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
 }
 
 .analytics-section-head {
@@ -683,6 +683,11 @@
   color: #fde68a;
 }
 
+.analytics-checklist-item > span svg {
+  width: 16px;
+  height: 16px;
+}
+
 .analytics-checklist-item strong,
 .analytics-checklist-item small {
   display: block;
@@ -786,7 +791,15 @@
   }
 
   .analytics-heatmap-layout {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .analytics-heatmap-summary-card {
+    flex-basis: auto;
+  }
+
+  .analytics-heatmap-chart-card {
+    min-height: auto;
   }
 
   .analytics-radar-layout {
@@ -795,10 +808,18 @@
 }
 
 @media (max-width: 768px) {
-  .analytics-hero-card,
-  .analytics-panel {
+  .analytics-dashboard {
+    gap: 14px;
+  }
+
+  .analytics-hero-card {
     border-radius: 18px;
     padding: 20px;
+  }
+
+  .analytics-panel {
+    border-radius: 18px;
+    padding: 16px;
   }
 
   .analytics-profile-block {
@@ -823,6 +844,14 @@
   .analytics-heatmap-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .analytics-heatmap-chart-card {
+    --heatmap-day-label-width: 30px;
+    --heatmap-cell-size: 10px;
+    --heatmap-row-gap: 2px;
+    --heatmap-column-gap: 2px;
+    padding: 16px;
   }
 
   .analytics-radar-chart svg {
@@ -897,80 +926,5 @@
 
   .analytics-radar-chart svg {
     height: 200px;
-  }
-}
-
-/* Compact analytics refresh: hero removed, denser panels, larger learning calendar. */
-.analytics-dashboard {
-  gap: 16px;
-}
-
-.analytics-metric-grid {
-  gap: 10px;
-}
-
-.analytics-metric-card {
-  min-height: 122px;
-  padding: 14px;
-  border-radius: 16px;
-}
-
-.analytics-main-grid {
-  gap: 16px;
-}
-
-.analytics-panel {
-  gap: 14px;
-  padding: 18px 20px;
-  border-radius: 16px;
-}
-
-.analytics-heatmap-layout {
-  width: min(100%, 1320px);
-  margin-inline: auto;
-  display: flex;
-  align-items: stretch;
-  gap: 24px;
-}
-
-.analytics-heatmap-chart-card {
-  min-height: 245px;
-  padding: 22px 24px;
-}
-
-.analytics-checklist-item > span svg {
-  width: 16px;
-  height: 16px;
-}
-
-@media (max-width: 1100px) {
-  .analytics-heatmap-layout {
-    flex-direction: column;
-  }
-
-  .analytics-heatmap-summary-card {
-    flex-basis: auto;
-  }
-
-  .analytics-heatmap-chart-card {
-    min-height: auto;
-  }
-}
-
-@media (max-width: 768px) {
-  .analytics-dashboard {
-    gap: 14px;
-  }
-
-  .analytics-panel {
-    padding: 16px;
-  }
-
-  .analytics-heatmap-chart-card {
-    --heatmap-day-label-width: 30px;
-    --heatmap-cell-size: 10px;
-    --heatmap-row-gap: 2px;
-    --heatmap-column-gap: 2px;
-    padding: 16px;
   }
 }

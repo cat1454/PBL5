@@ -676,9 +676,8 @@ function buildHeatmapWeeks(heatmap, language, t) {
   const weeks = [];
   const cells = [];
   const monthLabels = buildHeatmapMonthLabels(today, language);
-  const currentWeekStart = startOfIsoWeek(today);
-  const fallbackStart = new Date(currentWeekStart);
-  fallbackStart.setDate(currentWeekStart.getDate() - ((HEATMAP_WEEK_COUNT - 1) * HEATMAP_DAYS_PER_WEEK));
+  const fallbackStart = new Date(today);
+  fallbackStart.setDate(today.getDate() - ((HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK) - 1));
 
   for (let weekIndex = 0; weekIndex < HEATMAP_WEEK_COUNT; weekIndex += 1) {
     const days = [];
@@ -909,14 +908,6 @@ function formatRelativeTime(value, language, t) {
 function startOfDay(value) {
   const date = new Date(value);
   date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function startOfIsoWeek(value) {
-  const date = startOfDay(value);
-  const day = date.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + mondayOffset);
   return date;
 }
 
