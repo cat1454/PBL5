@@ -62,6 +62,7 @@ benchmarks/                           OCR/document benchmark harness
 scripts/                              Repo helper scripts
 ```
 
+
 Các thư mục/file như `artifacts/`, `.artifacts/`, `.tmp/`, `commit-history/`, `src/ELearnGamePlatform.API/uploads/`, `src/ELearnGamePlatform.API/logs/`, `src/ELearnGamePlatform.API/tessdata/*.traineddata`, `poppler-25.12.0/` là dữ liệu local/generated hoặc runtime asset, không nên xem là source chính.
 
 ## Yêu cầu môi trường
