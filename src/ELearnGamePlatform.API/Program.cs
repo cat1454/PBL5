@@ -31,7 +31,10 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = ResolveContentRoot()
 });
 builder.Configuration.AddUserSecrets<Program>(optional: true);
-builder.WebHost.UseUrls("http://localhost:5000");
+if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+{
+    builder.WebHost.UseUrls("http://localhost:5000");
+}
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
@@ -152,13 +155,19 @@ builder.Services.AddSingleton<IQuestionGenerationJobStore, QuestionGenerationJob
 builder.Services.AddSingleton<ISlideGenerationJobStore, SlideGenerationJobStore>();
 
 // Configure CORS
-// Configure CORS
+var configuredCorsOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+var corsOrigins = configuredCorsOrigins.Length > 0
+    ? configuredCorsOrigins
+    : ["http://localhost:3000", "http://localhost:5173", "https://pbl5.danangtoiiu.live"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
         policy
-            .WithOrigins("http://localhost:3000", "http://localhost:5173")
+            .WithOrigins(corsOrigins)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
@@ -194,15 +203,19 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline
-//if (app.Environment.IsDevelopment())
-//{
+if (app.Environment.IsDevelopment())
+{
     app.UseSwagger();
     app.UseSwaggerUI();
-//}
+}
 
 //app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
 var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
+
+// Serve wwwroot, including /slide-images/...
+app.UseStaticFiles();
+
 if (!Directory.Exists(uploadsPath))
 {
     Directory.CreateDirectory(uploadsPath);

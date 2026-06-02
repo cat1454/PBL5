@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ELearnGameDB}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://0.0.0.0:5000
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-ELearnGameDB};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD};SslMode=disable
+      JwtSettings__Issuer: ${JWT_ISSUER:-ELearnGamePlatform}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-ELearnGamePlatform.Client}
+      JwtSettings__SecretKey: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      AdminSeed__Enabled: ${ADMIN_SEED_ENABLED:-true}
+      AdminSeed__FullName: ${ADMIN_FULL_NAME:-System Admin}
+      AdminSeed__Email: ${ADMIN_EMAIL:-admin@elearn.local}
+      AdminSeed__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      OllamaSettings__BaseUrl: http://host.docker.internal:11434
+      OllamaSettings__Model: ${OLLAMA_MODEL:-qwen3:4b}
+      OllamaSettings__AnalysisModel: ${OLLAMA_ANALYSIS_MODEL:-qwen3:4b}
+      OllamaSettings__GenerationModel: ${OLLAMA_GENERATION_MODEL:-qwen3:4b}
+      OllamaSettings__VerificationModel: ${OLLAMA_VERIFICATION_MODEL:-qwen3:4b}
+      ImagePipeline__Planning__Model: ${OLLAMA_GENERATION_MODEL:-qwen3:4b}
+      ImagePipeline__Review__Model: ${OLLAMA_VERIFICATION_MODEL:-qwen3:4b}
+      Cors__AllowedOrigins__0: https://pbl5.danangtoiiu.live
+    ports:
+      - "127.0.0.1:${API_PORT:-5000}:5000"
+    volumes:
+      - api_uploads:/app/uploads
+      - api_logs:/app/logs
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-https://pbl5-api.danangtoiiu.live}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  postgres_data:
+  api_uploads:
+  api_logs:

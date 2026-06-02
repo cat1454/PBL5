@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: elearn-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ELearnGameDB
+      POSTGRES_USER: elearn
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elearn -d ELearnGameDB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/ELearnGamePlatform.API/Dockerfile
+    container_name: elearn-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=ELearnGameDB;Username=elearn;Password=${POSTGRES_PASSWORD};SslMode=disable
+      JwtSettings__Issuer: ${JWT_ISSUER:-ELearnGamePlatform}
+      JwtSettings__Audience: ${JWT_AUDIENCE:-ELearnGamePlatform.Client}
+      JwtSettings__SecretKey: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      AdminSeed__Enabled: ${ADMIN_SEED_ENABLED:-true}
+      AdminSeed__FullName: ${ADMIN_FULL_NAME:-System Admin}
+      AdminSeed__Email: ${ADMIN_EMAIL:-admin@elearn.local}
+      AdminSeed__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      OllamaSettings__BaseUrl: http://host.docker.internal:11434
+      OllamaSettings__Model: ${OLLAMA_MODEL:-qwen3:4b}
+      OllamaSettings__AnalysisModel: ${OLLAMA_ANALYSIS_MODEL:-qwen3:4b}
+      OllamaSettings__GenerationModel: ${OLLAMA_GENERATION_MODEL:-qwen3:4b}
+      OllamaSettings__VerificationModel: ${OLLAMA_VERIFICATION_MODEL:-qwen3:4b}
+      OllamaSettings__TimeoutSeconds: ${OLLAMA_TIMEOUT_SECONDS:-180}
+      OllamaSettings__Temperature: ${OLLAMA_TEMPERATURE:-0.3}
+      OllamaSettings__AnalysisTemperature: ${OLLAMA_ANALYSIS_TEMPERATURE:-0.15}
+      OllamaSettings__GenerationTemperature: ${OLLAMA_GENERATION_TEMPERATURE:-0.35}
+      OllamaSettings__VerificationTemperature: ${OLLAMA_VERIFICATION_TEMPERATURE:-0.05}
+      ImagePipeline__Planning__Model: ${OLLAMA_GENERATION_MODEL:-qwen3:4b}
+      ImagePipeline__Review__Model: ${OLLAMA_VERIFICATION_MODEL:-qwen3:4b}
+      Cors__AllowedOrigins__0: https://pbl5.danangtoiiu.live
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - uploads_data:/app/uploads
+      - api_logs:/app/logs
+    ports:
+      - "5000:5000"
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_BASE_URL: https://pbl5-api.danangtoiiu.live
+    container_name: elearn-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
+  api_logs:

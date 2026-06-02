@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+COPY global.json ./
+COPY ELearnGamePlatform.sln ./
+COPY src/ELearnGamePlatform.API/ELearnGamePlatform.API.csproj src/ELearnGamePlatform.API/
+COPY src/ELearnGamePlatform.Core/ELearnGamePlatform.Core.csproj src/ELearnGamePlatform.Core/
+COPY src/ELearnGamePlatform.Infrastructure/ELearnGamePlatform.Infrastructure.csproj src/ELearnGamePlatform.Infrastructure/
+COPY src/ELearnGamePlatform.Services/ELearnGamePlatform.Services.csproj src/ELearnGamePlatform.Services/
+RUN dotnet restore src/ELearnGamePlatform.API/ELearnGamePlatform.API.csproj
+
+COPY src ./src
+RUN dotnet publish src/ELearnGamePlatform.API/ELearnGamePlatform.API.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        liblept5 \
+        libtesseract5 \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-vie \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://0.0.0.0:5000
+
+COPY --from=build /app/publish ./
+RUN mkdir -p /app/uploads /app/logs /app/tessdata \
+    && cp -n /usr/share/tesseract-ocr/5/tessdata/eng.traineddata /app/tessdata/ \
+    && cp -n /usr/share/tesseract-ocr/5/tessdata/vie.traineddata /app/tessdata/
+
+EXPOSE 5000
+ENTRYPOINT ["dotnet", "ELearnGamePlatform.API.dll"]

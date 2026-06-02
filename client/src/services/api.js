@@ -1,6 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '/api').replace(/\/$/, '');
+function resolveApiBaseUrl() {
+  const defaultBaseUrl = process.env.NODE_ENV === 'production'
+    ? 'https://pbl5-api.danangtoiiu.live'
+    : 'http://localhost:5000';
+  const configuredBaseUrl = (process.env.REACT_APP_API_BASE_URL || defaultBaseUrl).replace(/\/$/, '');
+  return configuredBaseUrl.endsWith('/api') ? configuredBaseUrl : `${configuredBaseUrl}/api`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
