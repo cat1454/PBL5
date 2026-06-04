@@ -544,6 +544,13 @@ export const analyticsService = {
   },
 };
 
+export const dashboardService = {
+  getHome: async () => {
+    const response = await apiClient.get('/dashboard/home');
+    return response.data;
+  },
+};
+
 export const gameService = {
   createGameSession: async (documentId, gameType, questionCount = 10) => {
     const response = await apiClient.post('/games/sessions', {

@@ -1,6 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LuCheck, LuChevronRight, LuImage, LuPencil, LuRefreshCw, LuX } from 'react-icons/lu';
+import {
+  LuArrowLeft,
+  LuCheck,
+  LuChevronRight,
+  LuDownload,
+  LuEye,
+  LuEyeOff,
+  LuFileDown,
+  LuFileSearch,
+  LuImage,
+  LuListTree,
+  LuPanelRightClose,
+  LuPanelRightOpen,
+  LuPencil,
+  LuPrinter,
+  LuRefreshCw,
+  LuSparkles,
+  LuX,
+} from 'react-icons/lu';
 import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
 import { normalizeProgressState } from '../services/progress';
@@ -10,6 +28,7 @@ import {
   getReadinessMessage,
   normalizeGenerationReadiness,
 } from '../services/generationReadiness';
+import { formatUnderstandingConfidence, normalizeDocumentUnderstanding } from '../services/documentUnderstanding';
 import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
@@ -85,6 +104,64 @@ const normalizeBodyBlocks = (bodyBlocks) => {
 
 const bodyBlocksToDraftText = (bodyBlocks) => normalizeBodyBlocks(bodyBlocks).join('\n');
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+const getSlideEvidenceDebug = (item) => item?.evidenceDebug || item?.EvidenceDebug || {};
+
+const buildSlideGroundingViewModel = (item, t) => {
+  const debug = getSlideEvidenceDebug(item);
+  const selectedChunks = asArray(debug.selectedChunks || debug.SelectedChunks);
+  const reviewWarnings = asArray(debug.reviewWarnings || debug.ReviewWarnings);
+  const suggestedActions = asArray(debug.suggestedActions || debug.SuggestedActions);
+  const needsChartReview = Boolean(debug.needsChartReview ?? debug.NeedsChartReview);
+  const chartIntent = debug.chartIntent || debug.ChartIntent || '';
+  const rhythm = debug.rhythm || debug.Rhythm || '';
+  const visualRole = debug.visualRole || debug.VisualRole || '';
+  const groundingStatus = debug.groundingStatus || debug.GroundingStatus || (selectedChunks.length ? 'good' : 'unknown');
+  const groundingConfidence = debug.groundingConfidence ?? debug.GroundingConfidence;
+
+  return {
+    selectedChunks,
+    reviewWarnings,
+    suggestedActions,
+    needsChartReview,
+    chartIntent,
+    rhythm,
+    visualRole,
+    groundingStatus,
+    groundingConfidence,
+    statusLabel: t(`slides.grounding.statuses.${groundingStatus}`) || groundingStatus,
+  };
+};
+
+const buildSlideBadges = (item, imageVm, t) => {
+  const grounding = buildSlideGroundingViewModel(item, t);
+  const bodyBlocks = normalizeBodyBlocks(item?.bodyBlocks);
+  const badges = [];
+
+  if (grounding.needsChartReview) {
+    badges.push({ key: 'chart-review', tone: 'review', label: t('slides.grounding.badges.chartReview') });
+  }
+
+  if (item?.quality?.isLowConfidence || grounding.groundingStatus === 'weak' || grounding.reviewWarnings.length > 0) {
+    badges.push({ key: 'weak-evidence', tone: 'low', label: t('slides.grounding.badges.weakEvidence') });
+  }
+
+  if (imageVm?.needsImage) {
+    badges.push({ key: 'image-suggested', tone: 'info', label: t('slides.grounding.badges.imageSuggested') });
+  }
+
+  if (grounding.rhythm === 'dense' || bodyBlocks.length >= 4) {
+    badges.push({ key: 'dense', tone: 'muted', label: t('slides.grounding.badges.denseSlide') });
+  }
+
+  if (!item?.quality?.isLowConfidence && grounding.groundingStatus === 'good') {
+    badges.push({ key: 'good-grounding', tone: 'good', label: t('slides.grounding.badges.goodGrounding') });
+  }
+
+  return badges.slice(0, 4);
+};
+
 function SlideStudio({ documentId: propDocumentId }) {
   const { t, language } = useLanguage();
   const { showToast } = useToast();
@@ -95,6 +172,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   const slideRefs = useRef({});
   const centerPanelRef = useRef(null);
   const [documentMeta, setDocumentMeta] = useState(null);
+  const [sourceUnderstanding, setSourceUnderstanding] = useState(null);
   const [generationReadiness, setGenerationReadiness] = useState(null);
   const [deck, setDeck] = useState(null);
   const [progress, setProgress] = useState(null);
@@ -165,6 +243,12 @@ function SlideStudio({ documentId: propDocumentId }) {
       const data = await documentService.getDocument(documentId);
       setDocumentMeta(data);
       setGenerationReadiness(normalizeGenerationReadiness(data?.generationReadiness));
+      try {
+        const understanding = await documentService.getLatestUnderstanding(documentId);
+        setSourceUnderstanding(normalizeDocumentUnderstanding(understanding));
+      } catch {
+        setSourceUnderstanding(null);
+      }
       setDeckBrief((current) => ({
         ...current,
         narrativeGoal: briefDirty
@@ -631,12 +715,29 @@ function SlideStudio({ documentId: propDocumentId }) {
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
   const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
+  const selectedSlideGrounding = selectedSlide ? buildSlideGroundingViewModel(selectedSlide, t) : null;
+  const selectedSlideBadges = selectedSlide ? buildSlideBadges(selectedSlide, selectedImageVm, t) : [];
+  const sourceReviewHints = sourceUnderstanding?.presentation?.uxReviewHints || [];
+  const highSeveritySourceHints = sourceReviewHints.filter((hint) => String(hint.severity || '').toLowerCase() === 'high');
 
   const handleSelectSlide = (item) => {
     setSelectedSlideId(item.id);
     if (slideRefs.current[item.id]) {
       slideRefs.current[item.id].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
+  };
+
+  const handleGroundingQuickAction = (action) => {
+    if (!selectedSlide) {
+      return;
+    }
+
+    handleEdit(selectedSlide);
+    showToast({
+      type: 'info',
+      message: t('slides.grounding.quickActionToast'),
+      description: t(`slides.grounding.actions.${action}`) || action,
+    });
   };
 
   const handleDownloadHtml = async () => {
@@ -720,6 +821,7 @@ function SlideStudio({ documentId: propDocumentId }) {
       <section className="studio-header-bar card">
         <div className="studio-header-main">
           <button className="button button-secondary studio-back-button" onClick={handleBack}>
+            <LuArrowLeft aria-hidden="true" />
             <span>{t('slides.back')}</span>
           </button>
           <div className="studio-title-stack">
@@ -736,22 +838,28 @@ function SlideStudio({ documentId: propDocumentId }) {
         </div>
 
         <div className="studio-header-actions">
-          <button className="button button-secondary" onClick={() => setIsInspectorOpen((current) => !current)}>
+          <button className="button button-secondary studio-action-button" onClick={() => setIsInspectorOpen((current) => !current)} title={isInspectorOpen ? t('slides.hideInspector') : t('slides.showInspector')}>
+            {isInspectorOpen ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
             <span>{isInspectorOpen ? t('slides.hideInspector') : t('slides.showInspector')}</span>
           </button>
-          <button className="button button-secondary" onClick={() => setHideLowConfidence((current) => !current)}>
+          <button className="button button-secondary studio-action-button" onClick={() => setHideLowConfidence((current) => !current)} title={hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}>
+            {hideLowConfidence ? <LuEye aria-hidden="true" /> : <LuEyeOff aria-hidden="true" />}
             <span>{hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}</span>
           </button>
-          <button className="button button-secondary" onClick={handleDownloadHtml} disabled={isExportDisabled}>
+          <button className="button button-secondary studio-action-button" onClick={handleDownloadHtml} disabled={isExportDisabled} title={t('slides.downloadHtml')}>
+            <LuDownload aria-hidden="true" />
             <span>{exportingFormat === 'html' ? t('slides.exportingHtml') : t('slides.downloadHtml')}</span>
           </button>
-          <button className="button button-secondary" onClick={handleOpenPrint} disabled={isExportDisabled}>
+          <button className="button button-secondary studio-action-button" onClick={handleOpenPrint} disabled={isExportDisabled} title={t('slides.printPdf')}>
+            <LuPrinter aria-hidden="true" />
             <span>{exportingFormat === 'print' ? t('slides.openingPrint') : t('slides.printPdf')}</span>
           </button>
-          <button className="button button-secondary" onClick={handleDownloadPptx} disabled={isExportDisabled}>
+          <button className="button button-secondary studio-action-button" onClick={handleDownloadPptx} disabled={isExportDisabled} title={t('slides.downloadPptx')}>
+            <LuFileDown aria-hidden="true" />
             <span>{exportingFormat === 'pptx' ? t('slides.exportingPptx') : t('slides.downloadPptx')}</span>
           </button>
-          <button className="button" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
+          <button className="button studio-action-button studio-primary-action" onClick={handleGenerate} disabled={!canGenerate || isGenerating}>
+            <LuSparkles aria-hidden="true" />
             <span>
               {isGenerating
                 ? t('slides.generating', { percent: Math.round(activeProgressPercent) })
@@ -777,16 +885,22 @@ function SlideStudio({ documentId: propDocumentId }) {
             <div className="studio-tabs" role="tablist" aria-label={t('slides.navigationTabs')}>
               <button
                 type="button"
+                role="tab"
                 className={`studio-tab${activeLeftTab === 'outline' ? ' active' : ''}`}
                 onClick={() => setActiveLeftTab('outline')}
+                aria-selected={activeLeftTab === 'outline'}
               >
+                <LuListTree aria-hidden="true" />
                 <span>{t('slides.outlineTab')}</span>
               </button>
               <button
                 type="button"
+                role="tab"
                 className={`studio-tab${activeLeftTab === 'source' ? ' active' : ''}`}
                 onClick={() => setActiveLeftTab('source')}
+                aria-selected={activeLeftTab === 'source'}
               >
+                <LuFileSearch aria-hidden="true" />
                 <span>{t('slides.sourceTab')}</span>
               </button>
             </div>
@@ -805,13 +919,14 @@ function SlideStudio({ documentId: propDocumentId }) {
                   <div className="studio-outline-list">
                     {outlineSlides.map((slide) => {
                       const isActive = selectedSlide?.slideIndex === slide.slideIndex;
+                      const matchedItem = previewItems.find((item) => item.slideIndex === slide.slideIndex);
+                      const itemBadges = matchedItem ? buildSlideBadges(matchedItem, buildSlideImageViewModel(matchedItem, t), t) : [];
                       return (
                         <button
                           key={`${slide.slideIndex}-${slide.heading}`}
                           type="button"
                           className={`studio-outline-item${isActive ? ' active' : ''}`}
                           onClick={() => {
-                            const matchedItem = previewItems.find((item) => item.slideIndex === slide.slideIndex);
                             if (matchedItem) {
                               handleSelectSlide(matchedItem);
                             }
@@ -821,6 +936,13 @@ function SlideStudio({ documentId: propDocumentId }) {
                           <span className="studio-outline-copy">
                             <strong>{slide.heading}</strong>
                             <small>{slide.goal || getSlideTypeLabel(slide.slideType)}</small>
+                            {itemBadges.length > 0 && (
+                              <span className="studio-grounding-badges">
+                                {itemBadges.slice(0, 2).map((badge) => (
+                                  <span key={badge.key} className={`studio-grounding-badge tone-${badge.tone}`}>{badge.label}</span>
+                                ))}
+                              </span>
+                            )}
                           </span>
                           <LuChevronRight aria-hidden="true" />
                         </button>
@@ -858,6 +980,14 @@ function SlideStudio({ documentId: propDocumentId }) {
                   <div className={`studio-source-card generation-readiness-card tone-${generationReadiness.tone}`}>
                     <span className="studio-source-label">{readinessMessage.title}</span>
                     <p>{readinessMessage.body}</p>
+                  </div>
+                )}
+
+                {highSeveritySourceHints.length > 0 && (
+                  <div className="studio-source-card generation-readiness-card tone-review">
+                    <span className="studio-source-label">{t('slides.grounding.sourceWarningTitle')}</span>
+                    <p>{t('slides.grounding.sourceWarningBody', { count: highSeveritySourceHints.length })}</p>
+                    <small>{highSeveritySourceHints.slice(0, 2).map((hint) => hint.message).join(' | ')}</small>
                   </div>
                 )}
 
@@ -972,6 +1102,9 @@ function SlideStudio({ documentId: propDocumentId }) {
                           {selectedSlide.quality.score}/100
                         </span>
                       )}
+                      {selectedSlideBadges.map((badge) => (
+                        <span key={badge.key} className={`studio-grounding-badge tone-${badge.tone}`}>{badge.label}</span>
+                      ))}
                     </div>
                   </div>
 
@@ -1062,6 +1195,11 @@ function SlideStudio({ documentId: propDocumentId }) {
                     <span>{t('slides.slideLabel', { index: item.slideIndex })}</span>
                     <strong>{item.heading || t('slides.untitledSlide')}</strong>
                     <small>{getFriendlyStatus(item.status)}</small>
+                    <span className="studio-grounding-badges">
+                      {buildSlideBadges(item, buildSlideImageViewModel(item, t), t).slice(0, 2).map((badge) => (
+                        <span key={badge.key} className={`studio-grounding-badge tone-${badge.tone}`}>{badge.label}</span>
+                      ))}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1138,6 +1276,60 @@ function SlideStudio({ documentId: propDocumentId }) {
                         <strong>{getFriendlyStatus(selectedSlide.status)}</strong>
                       </div>
                     </div>
+
+                    {selectedSlideGrounding && (
+                      <div className="studio-inspector-block studio-grounding-inspector">
+                        <div className="studio-inspector-block-head">
+                          <strong>{t('slides.grounding.title')}</strong>
+                          <span className={`studio-grounding-badge tone-${selectedSlideGrounding.groundingStatus === 'good' ? 'good' : selectedSlideGrounding.groundingStatus === 'weak' ? 'low' : 'review'}`}>
+                            {selectedSlideGrounding.statusLabel}
+                          </span>
+                        </div>
+                        <div className="studio-inspector-meta-grid">
+                          <div className="studio-source-meta">
+                            <span>{t('slides.grounding.rhythm')}</span>
+                            <strong>{selectedSlideGrounding.rhythm || t('slides.noData')}</strong>
+                          </div>
+                          <div className="studio-source-meta">
+                            <span>{t('slides.grounding.visualRole')}</span>
+                            <strong>{selectedSlideGrounding.visualRole || t('slides.noData')}</strong>
+                          </div>
+                          <div className="studio-source-meta">
+                            <span>{t('slides.grounding.chartStatus')}</span>
+                            <strong>{selectedSlideGrounding.needsChartReview ? t('slides.grounding.chartNeedsReview') : (selectedSlideGrounding.chartIntent || t('slides.noData'))}</strong>
+                          </div>
+                          <div className="studio-source-meta">
+                            <span>{t('slides.grounding.confidence')}</span>
+                            <strong>{formatUnderstandingConfidence(selectedSlideGrounding.groundingConfidence, t('slides.noData'))}</strong>
+                          </div>
+                        </div>
+                        {selectedSlideGrounding.selectedChunks.length > 0 && (
+                          <div className="studio-grounding-chunks">
+                            {selectedSlideGrounding.selectedChunks.slice(0, 4).map((chunk) => (
+                              <span key={chunk.chunkId || chunk.ChunkId}>
+                                {(chunk.chunkId || chunk.ChunkId)} · {(chunk.classification || chunk.Classification)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {selectedSlideGrounding.reviewWarnings.length > 0 && (
+                          <ul className="quality-issues">
+                            {selectedSlideGrounding.reviewWarnings.slice(0, 3).map((warning) => (
+                              <li key={warning}>{warning}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {selectedSlideGrounding.suggestedActions.length > 0 && (
+                          <div className="studio-grounding-actions">
+                            {selectedSlideGrounding.suggestedActions.slice(0, 4).map((action) => (
+                              <button key={action} type="button" className="button button-secondary" onClick={() => handleGroundingQuickAction(action)}>
+                                {t(`slides.grounding.actions.${action}`) || action}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {selectedSlideNeedsMedia && (
                     <div className="studio-inspector-block">

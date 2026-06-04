@@ -1,0 +1,26 @@
+- generic [active] [ref=e1] [box=0,0,2028,973]:
+  - generic [ref=e3] [box=0,0,2028,973]:
+    - banner [ref=e4] [box=0,0,2028,75]:
+      - generic [ref=e5] [box=354,0,1320,74]:
+        - generic [ref=e6] [box=378,15,914,44]:
+          - button "Mở menu điều hướng" [ref=e7] [cursor=pointer] [box=378,15,40,44]
+          - link "AI Teaching Không gian học tập với AI" [ref=e9] [cursor=pointer] [box=434,15,236,44]:
+            - /url: /
+          - navigation "Menu điều hướng chính" [ref=e17] [box=694,17,598,40]
+        - generic [ref=e33] [box=1382,10,268,54]:
+          - generic "Ngôn ngữ" [ref=e34] [box=1382,10,102,54]
+          - button "P Pi Pi Người học" [ref=e38] [cursor=pointer] [box=1499,10,151,54]
+    - main [ref=e46] [box=0,75,2028,898]:
+      - generic [ref=e48] [box=20,75,1280,874]:
+        - region "AI Studio console" [ref=e49] [box=20,75,1280,113]:
+          - generic [ref=e50] [box=35,109,315,45]
+          - generic [ref=e52] [box=362,90,656,83]
+          - generic [ref=e88] [box=1030,112,255,40]
+        - generic [ref=e107] [box=20,202,1280,350]:
+          - generic [ref=e108] [box=20,202,417,174]
+          - generic [ref=e129] [box=451,202,849,132]
+          - generic [ref=e154] [box=20,390,1280,162]
+        - generic [ref=e183] [box=20,566,1280,383]:
+          - generic [ref=e184] [box=35,581,1250,40]
+          - generic [ref=e192] [box=35,631,1250,303]
+  - img [ref=e105] [cursor=pointer] [box=-16,897,32,32]

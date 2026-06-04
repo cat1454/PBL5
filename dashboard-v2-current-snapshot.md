@@ -1,0 +1,12 @@
+- generic [ref=e1] [box=0,0,2028,1664]:
+  - generic [ref=e3] [box=0,0,2028,1664]:
+    - banner [ref=e4] [box=0,0,2028,75]:
+      - generic [ref=e5] [box=354,0,1320,74]:
+        - generic [ref=e6] [box=378,15,914,44]
+        - generic [ref=e33] [box=1382,10,268,54]
+    - main [ref=e46] [box=0,75,2028,1589]:
+      - generic [ref=e48] [box=20,75,1280,1565]:
+        - generic [ref=e49] [box=20,75,1280,432]
+        - generic [ref=e106] [box=20,529,1280,587]
+        - generic [ref=e165] [box=20,1138,1280,502]
+  - img [ref=e214] [cursor=pointer] [box=-16,897,32,32]

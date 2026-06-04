@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { LuBookOpen, LuCheck, LuLayers3, LuSparkles } from 'react-icons/lu';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -47,7 +48,35 @@ function RegisterPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
+      <div className="auth-stage">
+        <aside className="auth-product-panel" aria-hidden="true">
+          <div className="auth-brand-lockup">
+            <div className="auth-brand-mark">AI</div>
+            <div>
+              <strong>{t('app.brand')}</strong>
+              <span>{t('app.topbar.productTag')}</span>
+            </div>
+          </div>
+          <div className="auth-product-visual">
+            <div className="auth-visual-node auth-visual-node-primary">
+              <LuSparkles />
+              <span>{t('app.dashboard.guide.title')}</span>
+            </div>
+            <div className="auth-visual-node">
+              <LuLayers3 />
+              <span>{t('app.dashboard.pipeline.title')}</span>
+            </div>
+            <div className="auth-visual-node">
+              <LuBookOpen />
+              <span>{t('app.dashboard.checklist.title')}</span>
+            </div>
+            <div className="auth-visual-check">
+              <LuCheck />
+            </div>
+          </div>
+        </aside>
+
+        <div className="auth-card">
         <div className="auth-copy">
           <span className="auth-kicker">{t('auth.common.kicker')}</span>
           <h1>{t('auth.register.title')}</h1>
@@ -121,6 +150,7 @@ function RegisterPage() {
         <p className="auth-switch">
           {t('auth.register.switchPrompt')} <Link to="/login">{t('auth.register.switchAction')}</Link>
         </p>
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,8 @@
+- generic [active] [box=0,0,0,3324]:
+  - generic [box=0,0,0,3324]:
+    - generic [box=0,0,0,3324]:
+      - banner [box=0,0,0,189]:
+        - generic [ref=e7] [box=0,0,28,188]
+      - generic [box=0,189,0,3135]:
+        - main [box=0,189,0,3135]
+  - img [ref=e6] [cursor=pointer] [box=-16,-1,32,32]

@@ -1,6 +1,38 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LuArrowLeft, LuPlus, LuRefreshCw, LuX } from 'react-icons/lu';
+import {
+  LuAlignCenter,
+  LuAlignLeft,
+  LuAlignRight,
+  LuArrowLeft,
+  LuBookOpen,
+  LuBold,
+  LuDownload,
+  LuFileDown,
+  LuFilePlus2,
+  LuGamepad2,
+  LuHighlighter,
+  LuIndentDecrease,
+  LuIndentIncrease,
+  LuItalic,
+  LuLink2,
+  LuList,
+  LuListOrdered,
+  LuPanelRightClose,
+  LuPanelRightOpen,
+  LuPalette,
+  LuPrinter,
+  LuRedo2,
+  LuRefreshCw,
+  LuSave,
+  LuSparkles,
+  LuStrikethrough,
+  LuSubscript,
+  LuSuperscript,
+  LuUnderline,
+  LuUndo2,
+  LuX,
+} from 'react-icons/lu';
 import {
   documentService,
   getApiErrorMessage,
@@ -35,6 +67,11 @@ const DEFAULT_BRIEF = {
 
 const FONT_OPTIONS = ['Lexend', 'Noto Sans', 'Trebuchet MS', 'Segoe UI', 'Palatino Linotype', 'Courier New'];
 const FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36];
+const TEXT_COLOR_OPTIONS = ['#0f172a', '#4338ca', '#047857', '#b42318', '#b45309'];
+const HIGHLIGHT_COLOR_OPTIONS = ['transparent', '#fef3c7', '#dbeafe', '#dcfce7', '#fee2e2'];
+const LINE_HEIGHT_OPTIONS = [1.2, 1.4, 1.6, 1.8, 2];
+const DEFAULT_TEXT_COLOR = '#0f172a';
+const DEFAULT_HIGHLIGHT_COLOR = 'transparent';
 const THEME_OPTIONS = [
   { value: 'editorial-sunrise', label: 'Editorial Sunrise' },
   { value: 'paper-mint', label: 'Paper Mint' },
@@ -162,14 +199,52 @@ function getScopeSectionPreview(section, title) {
   return truncateScopeText(preview, SCOPE_PREVIEW_MAX_LENGTH);
 }
 
+function normalizeEditorBlock(block = {}, fallback = {}) {
+  const listStyle = block.listStyle || (block.bullet ? 'bullet' : fallback.listStyle || 'none');
+
+  return {
+    text: block.text ?? fallback.text ?? '',
+    fontFamily: block.fontFamily || fallback.fontFamily || 'Lexend',
+    fontSize: Number(block.fontSize || fallback.fontSize || 18),
+    bold: Boolean(block.bold ?? fallback.bold),
+    italic: Boolean(block.italic ?? fallback.italic),
+    underline: Boolean(block.underline ?? fallback.underline),
+    strike: Boolean(block.strike ?? fallback.strike),
+    align: block.align || fallback.align || 'left',
+    bullet: listStyle === 'bullet',
+    listStyle,
+    textColor: block.textColor || fallback.textColor || DEFAULT_TEXT_COLOR,
+    highlightColor: block.highlightColor || fallback.highlightColor || DEFAULT_HIGHLIGHT_COLOR,
+    indentLevel: Math.max(0, Math.min(4, Number(block.indentLevel ?? fallback.indentLevel ?? 0))),
+    lineHeight: Number(block.lineHeight || fallback.lineHeight || 1.6),
+    script: block.script || fallback.script || 'normal',
+    linkUrl: block.linkUrl || fallback.linkUrl || '',
+  };
+}
+
 function createFallbackEditorState(item) {
-  return item?.editorState || {
-    layoutVariant: 'standard',
-    title: { text: item?.heading || '', fontFamily: 'Lexend', fontSize: 28, bold: true, italic: false, underline: false, align: 'left', bullet: false },
-    subtitle: { text: item?.subheading || '', fontFamily: 'Lexend', fontSize: 16, bold: false, italic: false, underline: false, align: 'left', bullet: false },
-    goal: { text: item?.goal || '', fontFamily: 'Lexend', fontSize: 14, bold: true, italic: false, underline: false, align: 'left', bullet: false },
-    body: { text: Array.isArray(item?.bodyBlocks) ? item.bodyBlocks.join('\n') : '', fontFamily: 'Lexend', fontSize: 18, bold: false, italic: false, underline: false, align: 'left', bullet: true },
-    notes: { text: item?.speakerNotes || '', fontFamily: 'Lexend', fontSize: 14, bold: false, italic: false, underline: false, align: 'left', bullet: false },
+  const editorState = item?.editorState || {};
+  const fallback = {
+    title: { text: item?.heading || '', fontFamily: 'Lexend', fontSize: 28, bold: true, align: 'left' },
+    subtitle: { text: item?.subheading || '', fontFamily: 'Lexend', fontSize: 16, align: 'left' },
+    goal: { text: item?.goal || '', fontFamily: 'Lexend', fontSize: 14, bold: true, align: 'left' },
+    body: {
+      text: Array.isArray(item?.bodyBlocks) ? item.bodyBlocks.join('\n') : '',
+      fontFamily: 'Lexend',
+      fontSize: 18,
+      align: 'left',
+      listStyle: 'bullet',
+    },
+    notes: { text: item?.speakerNotes || '', fontFamily: 'Lexend', fontSize: 14, align: 'left' },
+  };
+
+  return {
+    layoutVariant: editorState.layoutVariant || 'standard',
+    title: normalizeEditorBlock(editorState.title, fallback.title),
+    subtitle: normalizeEditorBlock(editorState.subtitle, fallback.subtitle),
+    goal: normalizeEditorBlock(editorState.goal, fallback.goal),
+    body: normalizeEditorBlock(editorState.body, fallback.body),
+    notes: normalizeEditorBlock(editorState.notes, fallback.notes),
   };
 }
 
@@ -393,14 +468,79 @@ function SourceProcessingProgress({ vm, t, compact = false }) {
 }
 
 function applyTextStyle(block = {}) {
+  const decorations = [
+    block.underline ? 'underline' : '',
+    block.strike ? 'line-through' : '',
+  ].filter(Boolean);
+  const scriptFontScale = block.script === 'normal' ? 1 : 0.82;
+
   return {
     fontFamily: block.fontFamily || 'Lexend',
-    fontSize: `${block.fontSize || 18}px`,
+    fontSize: `${Math.round((block.fontSize || 18) * scriptFontScale)}px`,
     fontWeight: block.bold ? 700 : 400,
     fontStyle: block.italic ? 'italic' : 'normal',
-    textDecoration: block.underline ? 'underline' : 'none',
+    textDecoration: decorations.length ? decorations.join(' ') : 'none',
     textAlign: block.align || 'left',
+    color: block.textColor || DEFAULT_TEXT_COLOR,
+    backgroundColor: block.highlightColor && block.highlightColor !== DEFAULT_HIGHLIGHT_COLOR
+      ? block.highlightColor
+      : 'transparent',
+    paddingLeft: block.indentLevel ? `${block.indentLevel * 18}px` : undefined,
+    lineHeight: block.lineHeight || 1.6,
+    verticalAlign: block.script === 'superscript' ? 'super' : block.script === 'subscript' ? 'sub' : 'baseline',
   };
+}
+
+function WorkspaceToolbarButton({
+  active = false,
+  children,
+  className = '',
+  label,
+  ...props
+}) {
+  return (
+    <button
+      type="button"
+      className={`folder-studio-toolbar-btn${active ? ' active' : ''}${className ? ` ${className}` : ''}`}
+      aria-label={label}
+      title={label}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WorkspaceColorButton({ color, label, active, disabled, onClick, icon: Icon }) {
+  return (
+    <WorkspaceToolbarButton
+      active={active}
+      className="folder-studio-toolbar-color"
+      disabled={disabled}
+      label={label}
+      onClick={onClick}
+    >
+      <Icon aria-hidden="true" />
+      <span
+        className="folder-studio-color-swatch"
+        style={{ background: color === DEFAULT_HIGHLIGHT_COLOR ? '#ffffff' : color }}
+      />
+    </WorkspaceToolbarButton>
+  );
+}
+
+function WorkspaceLinkAffordance({ block, label }) {
+  if (!block?.linkUrl) {
+    return null;
+  }
+
+  return (
+    <div className="folder-slide-link-affordance">
+      <LuLink2 aria-hidden="true" />
+      <span>{label}</span>
+      <strong>{block.linkUrl}</strong>
+    </div>
+  );
 }
 function WorkspaceDeckProgressCard({ progress, language }) {
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
@@ -534,8 +674,8 @@ function FolderStudio() {
   const [isScopePickerOpen, setIsScopePickerOpen] = useState(false);
   const [scopeRecommendation, setScopeRecommendation] = useState(null);
   const [filterText, setFilterText] = useState('');
-  const [activeSidebarTab, setActiveSidebarTab] = useState('slides');
-  const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
+  const [activeSidebarTab, setActiveSidebarTab] = useState('sources');
+  const [isActionPanelOpen, setIsActionPanelOpen] = useState(true);
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
   const typewriterTimersRef = useRef({});
@@ -1162,6 +1302,49 @@ function FolderStudio() {
     });
   };
 
+  const handleListStyleChange = (listStyle) => {
+    handleStyleChange((block) => ({
+      ...block,
+      listStyle,
+      bullet: listStyle === 'bullet',
+    }));
+  };
+
+  const handleIndentChange = (direction) => {
+    handleStyleChange((block) => ({
+      ...block,
+      indentLevel: Math.max(0, Math.min(4, Number(block.indentLevel || 0) + direction)),
+    }));
+  };
+
+  const handleScriptChange = (script) => {
+    handleStyleChange((block) => ({
+      ...block,
+      script: block.script === script ? 'normal' : script,
+    }));
+  };
+
+  const handleLinkPrompt = () => {
+    if (!selectedSlide || !selectedDraft) {
+      return;
+    }
+
+    const currentUrl = selectedDraft[activeField]?.linkUrl || '';
+    const label = language === 'vi'
+      ? 'Nhap URL lien ket cho block dang chon. De trong de xoa lien ket.'
+      : 'Enter the link URL for the active block. Leave empty to remove the link.';
+    const nextUrl = window.prompt(label, currentUrl);
+
+    if (nextUrl === null) {
+      return;
+    }
+
+    handleStyleChange((block) => ({
+      ...block,
+      linkUrl: nextUrl.trim(),
+    }));
+  };
+
   const handleUndo = () => {
     if (!selectedSlide) {
       return;
@@ -1543,19 +1726,6 @@ function FolderStudio() {
     }
   };
 
-  const notifySoon = (label) => {
-    setError('');
-    showToast({
-      type: 'info',
-      message: language === 'vi'
-        ? `${label} đã được đặt sẵn trong UI.`
-        : `${label} is already scaffolded in the UI.`,
-      description: language === 'vi'
-        ? 'Mình sẽ nối backend flow ở phase tiếp theo.'
-        : 'The backend flow can be wired in the next phase.',
-    });
-  };
-
   const isExportDisabled = !deck || isGeneratingDeck || Boolean(exportingFormat);
 
   const handleDownloadHtml = async () => {
@@ -1684,6 +1854,18 @@ function FolderStudio() {
     : 'folder-studio-live folder-studio-live-pill folder-studio-live-source';
   const activeFieldState = selectedDraft?.[activeField] || null;
   const activeHistory = selectedSlide ? (history[selectedSlide.id] || { past: [], future: [] }) : { past: [], future: [] };
+  const toolbarLabels = t('slides.editorToolbar');
+  const activeTextColor = activeFieldState?.textColor || DEFAULT_TEXT_COLOR;
+  const activeHighlightColor = activeFieldState?.highlightColor || DEFAULT_HIGHLIGHT_COLOR;
+  const activeListStyle = activeFieldState?.listStyle || (activeFieldState?.bullet ? 'bullet' : 'none');
+  const selectedBodyListStyle = selectedDraft?.body?.listStyle || (selectedDraft?.body?.bullet ? 'bullet' : 'none');
+  const activeLineHeight = activeFieldState?.lineHeight || 1.6;
+  const activeScript = activeFieldState?.script || 'normal';
+  const alignOptions = [
+    { key: 'left', label: toolbarLabels.alignLeft, icon: LuAlignLeft },
+    { key: 'center', label: toolbarLabels.alignCenter, icon: LuAlignCenter },
+    { key: 'right', label: toolbarLabels.alignRight, icon: LuAlignRight },
+  ];
   const selectedImage = selectedImageVm?.selectedImage || null;
   const selectedSlideNeedsMedia = selectedImageVm?.needsImage !== false;
   const deckProgressActive = Boolean(activeProgress && isActiveProgress(activeProgress));
@@ -1737,6 +1919,65 @@ function FolderStudio() {
   const hasAnySources = sources.length > 0;
   const hasCompletedSources = readySources.length > 0;
   const previewProcessingVm = runningSourceVm?.vm || sourceViewModels.find(({ vm }) => vm.isPending || vm.isFailed)?.vm || null;
+  const hasSelectedScope = selectedSectionIds.length > 0;
+  const deckReady = Boolean(deck?.items?.length);
+  const emptyStateCopy = !hasAnySources
+    ? {
+        tone: 'empty',
+        title: language === 'vi' ? 'Bắt đầu bằng source đầu tiên' : 'Start with the first source',
+        body: language === 'vi'
+          ? 'Workspace này đang trống. Thêm PDF, DOCX, PPTX, ảnh hoặc TXT để mở luồng chọn phạm vi và tạo deck.'
+          : 'This workspace is empty. Add a PDF, DOCX, PPTX, image, or TXT file to unlock scope selection and deck generation.',
+        primaryLabel: language === 'vi' ? 'Thêm nguồn' : 'Add source',
+        secondaryLabel: language === 'vi' ? 'Chưa thể tạo deck' : 'Deck not ready',
+      }
+    : hasCompletedSources && !hasSelectedScope
+      ? {
+          tone: 'scope',
+          title: language === 'vi' ? 'Chọn phạm vi trước khi tạo deck' : 'Choose scope before generating a deck',
+          body: language === 'vi'
+            ? 'Đã có source hoàn tất. Mở thẻ Phạm vi nội dung, chọn các section phù hợp, rồi tạo deck từ nội dung thật.'
+            : 'Completed sources are ready. Open Content scope, select the relevant sections, then generate a deck from real content.',
+          primaryLabel: language === 'vi' ? 'Thêm nguồn khác' : 'Add another source',
+          secondaryLabel: language === 'vi' ? 'Tạo deck' : 'Generate deck',
+        }
+      : {
+          tone: 'ready',
+          title: language === 'vi' ? 'Workspace đã sẵn sàng tạo deck' : 'Workspace is ready for deck generation',
+          body: language === 'vi'
+            ? 'Source và phạm vi đã sẵn sàng. Kiểm tra brief ở panel bên phải rồi tạo deck để bắt đầu chỉnh sửa.'
+            : 'Source and scope are ready. Review the brief in the right panel, then generate a deck to start editing.',
+          primaryLabel: language === 'vi' ? 'Thêm nguồn' : 'Add source',
+          secondaryLabel: language === 'vi' ? 'Tạo deck' : 'Generate deck',
+        };
+  const workspaceReadinessItems = [
+    {
+      key: 'source',
+      label: language === 'vi' ? 'Nguồn' : 'Source',
+      value: hasCompletedSources
+        ? (language === 'vi' ? `${readySources.length} đã hoàn tất` : `${readySources.length} completed`)
+        : hasAnySources
+          ? (language === 'vi' ? 'Đang xử lý' : 'Processing')
+          : (language === 'vi' ? 'Chưa có' : 'Missing'),
+      tone: hasCompletedSources ? 'ready' : hasAnySources ? 'working' : 'blocked',
+    },
+    {
+      key: 'scope',
+      label: language === 'vi' ? 'Phạm vi' : 'Scope',
+      value: hasSelectedScope
+        ? (language === 'vi' ? `${selectedSectionIds.length} phần` : `${selectedSectionIds.length} sections`)
+        : (language === 'vi' ? 'Chưa chọn' : 'Not selected'),
+      tone: hasSelectedScope ? 'ready' : 'blocked',
+    },
+    {
+      key: 'deck',
+      label: 'Deck',
+      value: deckReady
+        ? `${deck.items.length} ${language === 'vi' ? 'slide' : 'slides'}`
+        : (canGenerate ? (language === 'vi' ? 'Có thể tạo' : 'Ready to create') : (language === 'vi' ? 'Chờ nguồn' : 'Waiting')),
+      tone: deckReady || canGenerate ? 'ready' : 'blocked',
+    },
+  ];
   const qualityIssues = selectedSlide?.quality?.issues || [];
   const qualityScore = selectedSlide?.quality?.score;
   const topbarMeta = [
@@ -1858,41 +2099,44 @@ function FolderStudio() {
           </div>
 
           <div className="folder-studio-topbar-actions">
-            <button type="button" className="folder-studio-mini-btn" onClick={() => setIsActionPanelOpen((current) => !current)}>
-              {isActionPanelOpen ? (language === 'vi' ? 'Ẩn điều khiển' : 'Hide controls') : (language === 'vi' ? 'Mở điều khiển' : 'Show controls')}
-            </button>
-            <button type="button" className="folder-studio-mini-btn" onClick={() => loadWorkspace()} disabled={uploading}>
+            <button
+              type="button"
+              className="folder-studio-mini-btn"
+              onClick={() => loadWorkspace()}
+              disabled={uploading}
+            >
               <LuRefreshCw aria-hidden="true" />
-              {language === 'vi' ? 'Làm mới' : 'Refresh'}
-            </button>
-            <button type="button" className="folder-studio-mini-btn" onClick={handleUploadClick} disabled={uploading}>
-              {!uploading && <LuPlus aria-hidden="true" />}
-              {uploading ? (language === 'vi' ? 'Đang thêm...' : 'Adding...') : (language === 'vi' ? 'Thêm nguồn' : 'Add source')}
-            </button>
-            <div className="folder-studio-avatar">GV</div>
-            <button
-              type="button"
-              className="folder-studio-mini-primary"
-              onClick={handleDownloadHtml}
-              disabled={isExportDisabled}
-            >
-              {exportingFormat === 'html' ? 'HTML...' : 'HTML'}
+              <span>{language === 'vi' ? 'Làm mới' : 'Refresh'}</span>
             </button>
             <button
               type="button"
-              className="folder-studio-mini-primary"
-              onClick={handleOpenPrint}
-              disabled={isExportDisabled}
+              className="folder-studio-mini-btn"
+              onClick={handleUploadClick}
+              disabled={uploading}
             >
-              {exportingFormat === 'print' ? 'Print...' : (language === 'vi' ? 'In PDF' : 'Print PDF')}
+              <LuFilePlus2 aria-hidden="true" />
+              <span>{uploading ? (language === 'vi' ? 'Đang thêm...' : 'Adding...') : (language === 'vi' ? 'Thêm nguồn' : 'Add source')}</span>
             </button>
             <button
               type="button"
-              className="folder-studio-mini-primary"
-              onClick={handleDownloadPptx}
-              disabled={isExportDisabled}
+              className="folder-studio-mini-primary folder-studio-topbar-primary"
+              onClick={handleGenerateDeck}
+              disabled={!canGenerate}
+              title={generateDisabledReason || undefined}
             >
-              {exportingFormat === 'pptx' ? 'PPTX...' : 'PPTX'}
+              <LuSparkles aria-hidden="true" />
+              <span>{language === 'vi' ? 'Tạo deck' : 'Generate deck'}</span>
+            </button>
+            <button
+              type="button"
+              className="folder-studio-mini-btn folder-studio-panel-toggle"
+              onClick={() => setIsActionPanelOpen((current) => !current)}
+              aria-label={isActionPanelOpen
+                ? (language === 'vi' ? 'Ẩn panel hành động' : 'Hide action panel')
+                : (language === 'vi' ? 'Mở panel hành động' : 'Show action panel')}
+            >
+              {isActionPanelOpen ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
+              {isActionPanelOpen ? (language === 'vi' ? 'Ẩn điều khiển' : 'Hide controls') : (language === 'vi' ? 'Mở điều khiển' : 'Show controls')}
             </button>
           </div>
         </div>
@@ -1917,7 +2161,8 @@ function FolderStudio() {
                 {language === 'vi' ? 'Nguồn tài liệu' : 'Sources'}
               </button>
             </div>
-            <div className="folder-studio-panel-title">{language === 'vi' ? 'Nguồn / Slides' : 'Sources / Slides'}</div>
+            <div className="folder-studio-source-pane">
+            <div className="folder-studio-panel-title">{language === 'vi' ? 'Nguồn & phạm vi' : 'Sources & scope'}</div>
 
             <div className="folder-studio-filter">
               <label className="sr-only" htmlFor="folder-studio-source-search">
@@ -1942,7 +2187,7 @@ function FolderStudio() {
 
             <div className="folder-studio-sidebar-cta">
               <button type="button" className="folder-studio-side-button" onClick={handleUploadClick} disabled={uploading}>
-                <LuPlus aria-hidden="true" />
+                <LuFilePlus2 aria-hidden="true" />
                 <span>{language === 'vi' ? 'Thêm source vào workspace' : 'Add source to workspace'}</span>
               </button>
             </div>
@@ -1951,7 +2196,9 @@ function FolderStudio() {
             <div className="folder-studio-source-list">
               {filteredSources.length === 0 && (
                 <div className="folder-studio-empty-sidebar">
-                  {language === 'vi' ? 'Chưa có source nào trong workspace này.' : 'No sources in this workspace yet.'}
+                  {!hasAnySources
+                    ? (language === 'vi' ? 'Chưa có source nào. Thêm source để bắt đầu.' : 'No sources yet. Add a source to start.')
+                    : (language === 'vi' ? 'Không có source khớp bộ lọc.' : 'No sources match this filter.')}
                 </div>
               )}
 
@@ -2054,7 +2301,6 @@ function FolderStudio() {
               })}
             </div>
 
-            <div className="folder-studio-section-label">{language === 'vi' ? 'Cấu trúc slide' : 'Slide structure'}</div>
             <div className="folder-studio-section-label">{language === 'vi' ? 'Phạm vi nội dung' : 'Content scope'}</div>
             <div className="folder-studio-scope-list">
               {!filteredSources.length && (
@@ -2151,11 +2397,16 @@ function FolderStudio() {
                 );
               })}
             </div>
+            </div>
 
+            <div className="folder-studio-slide-pane">
+            <div className="folder-studio-section-label">{language === 'vi' ? 'Cấu trúc slide' : 'Slide structure'}</div>
             <div className="folder-studio-flow-list">
               {!slideItems.length && (
                 <div className="folder-studio-empty-sidebar">
-                  {language === 'vi' ? 'Chưa có deck. Chọn source xong rồi bấm "Tạo slide mới từ nội dung".' : 'No deck yet. Select sources and click "Generate slides from content".'}
+                  {hasSelectedScope
+                    ? (language === 'vi' ? 'Phạm vi đã chọn. Tạo deck để mở trình chỉnh sửa slide.' : 'Scope is selected. Generate a deck to open the slide editor.')
+                    : (language === 'vi' ? 'Chưa có deck. Chọn source Completed và phạm vi nội dung trước.' : 'No deck yet. Select a completed source and content scope first.')}
                 </div>
               )}
 
@@ -2181,10 +2432,153 @@ function FolderStudio() {
                 </button>
               ))}
             </div>
+            </div>
           </aside>
 
           <section className="folder-studio-center">
-            <div className="folder-studio-toolbar">
+            <div className="folder-studio-toolbar folder-studio-toolbar-polished" aria-label={toolbarLabels.label}>
+              <div className="folder-studio-toolbar-group is-select-group">
+                <select
+                  value={activeFieldState?.fontFamily || 'Lexend'}
+                  onChange={(event) => handleStyleChange((block) => ({ ...block, fontFamily: event.target.value }))}
+                  disabled={!selectedDraft}
+                  aria-label={toolbarLabels.fontFamily}
+                  title={toolbarLabels.fontFamily}
+                >
+                  {FONT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={activeFieldState?.fontSize || 18}
+                  onChange={(event) => handleStyleChange((block) => ({ ...block, fontSize: Number(event.target.value) }))}
+                  disabled={!selectedDraft}
+                  aria-label={toolbarLabels.fontSize}
+                  title={toolbarLabels.fontSize}
+                >
+                  {FONT_SIZES.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="folder-studio-toolbar-group" role="group" aria-label={toolbarLabels.emphasisGroup}>
+                <WorkspaceToolbarButton active={activeFieldState?.bold} disabled={!selectedDraft} label={toolbarLabels.bold} onClick={() => handleStyleChange((block) => ({ ...block, bold: !block.bold }))}>
+                  <LuBold aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={activeFieldState?.italic} disabled={!selectedDraft} label={toolbarLabels.italic} onClick={() => handleStyleChange((block) => ({ ...block, italic: !block.italic }))}>
+                  <LuItalic aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={activeFieldState?.underline} disabled={!selectedDraft} label={toolbarLabels.underline} onClick={() => handleStyleChange((block) => ({ ...block, underline: !block.underline }))}>
+                  <LuUnderline aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={activeFieldState?.strike} disabled={!selectedDraft} label={toolbarLabels.strike} onClick={() => handleStyleChange((block) => ({ ...block, strike: !block.strike }))}>
+                  <LuStrikethrough aria-hidden="true" />
+                </WorkspaceToolbarButton>
+              </div>
+
+              <div className="folder-studio-toolbar-group is-color-group" role="group" aria-label={toolbarLabels.colorGroup}>
+                {TEXT_COLOR_OPTIONS.map((color) => (
+                  <WorkspaceColorButton
+                    key={color}
+                    active={activeTextColor === color}
+                    color={color}
+                    disabled={!selectedDraft}
+                    icon={LuPalette}
+                    label={`${toolbarLabels.textColor}: ${color}`}
+                    onClick={() => handleStyleChange((block) => ({ ...block, textColor: color }))}
+                  />
+                ))}
+                {HIGHLIGHT_COLOR_OPTIONS.map((color) => (
+                  <WorkspaceColorButton
+                    key={color}
+                    active={activeHighlightColor === color}
+                    color={color}
+                    disabled={!selectedDraft}
+                    icon={LuHighlighter}
+                    label={color === DEFAULT_HIGHLIGHT_COLOR ? toolbarLabels.clearHighlight : `${toolbarLabels.highlight}: ${color}`}
+                    onClick={() => handleStyleChange((block) => ({ ...block, highlightColor: color }))}
+                  />
+                ))}
+              </div>
+
+              <div className="folder-studio-toolbar-group" role="group" aria-label={toolbarLabels.alignGroup}>
+                {alignOptions.map(({ key, label, icon: Icon }) => (
+                  <WorkspaceToolbarButton
+                    key={key}
+                    active={activeFieldState?.align === key}
+                    disabled={!selectedDraft}
+                    label={label}
+                    onClick={() => handleStyleChange((block) => ({ ...block, align: key }))}
+                  >
+                    <Icon aria-hidden="true" />
+                  </WorkspaceToolbarButton>
+                ))}
+              </div>
+
+              <div className="folder-studio-toolbar-group" role="group" aria-label={toolbarLabels.listGroup}>
+                <WorkspaceToolbarButton
+                  active={activeListStyle === 'bullet'}
+                  disabled={!selectedDraft || activeField !== 'body'}
+                  label={toolbarLabels.bulletList}
+                  onClick={() => handleListStyleChange(activeListStyle === 'bullet' ? 'none' : 'bullet')}
+                >
+                  <LuList aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton
+                  active={activeListStyle === 'numbered'}
+                  disabled={!selectedDraft || activeField !== 'body'}
+                  label={toolbarLabels.numberedList}
+                  onClick={() => handleListStyleChange(activeListStyle === 'numbered' ? 'none' : 'numbered')}
+                >
+                  <LuListOrdered aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton disabled={!selectedDraft} label={toolbarLabels.outdent} onClick={() => handleIndentChange(-1)}>
+                  <LuIndentDecrease aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton disabled={!selectedDraft} label={toolbarLabels.indent} onClick={() => handleIndentChange(1)}>
+                  <LuIndentIncrease aria-hidden="true" />
+                </WorkspaceToolbarButton>
+              </div>
+
+              <div className="folder-studio-toolbar-group is-select-group" role="group" aria-label={toolbarLabels.spacingGroup}>
+                <select
+                  value={activeLineHeight}
+                  onChange={(event) => handleStyleChange((block) => ({ ...block, lineHeight: Number(event.target.value) }))}
+                  disabled={!selectedDraft}
+                  aria-label={toolbarLabels.lineHeight}
+                  title={toolbarLabels.lineHeight}
+                >
+                  {LINE_HEIGHT_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}x</option>
+                  ))}
+                </select>
+                <WorkspaceToolbarButton active={activeScript === 'superscript'} disabled={!selectedDraft} label={toolbarLabels.superscript} onClick={() => handleScriptChange('superscript')}>
+                  <LuSuperscript aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={activeScript === 'subscript'} disabled={!selectedDraft} label={toolbarLabels.subscript} onClick={() => handleScriptChange('subscript')}>
+                  <LuSubscript aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={Boolean(activeFieldState?.linkUrl)} disabled={!selectedDraft} label={toolbarLabels.link} onClick={handleLinkPrompt}>
+                  <LuLink2 aria-hidden="true" />
+                </WorkspaceToolbarButton>
+              </div>
+
+              <div className="folder-studio-toolbar-group" role="group" aria-label={toolbarLabels.historyGroup}>
+                <WorkspaceToolbarButton disabled={!activeHistory.past.length} label={toolbarLabels.undo} onClick={handleUndo}>
+                  <LuUndo2 aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton disabled={!activeHistory.future.length} label={toolbarLabels.redo} onClick={handleRedo}>
+                  <LuRedo2 aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton disabled={!selectedSlide || !selectedSlideNeedsMedia} label={mediaOpen ? toolbarLabels.hideMedia : toolbarLabels.openMedia} onClick={() => setMediaOpen((current) => !current)}>
+                  {mediaOpen ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
+                </WorkspaceToolbarButton>
+              </div>
+            </div>
+
+            <div className="folder-studio-toolbar is-legacy-hidden" aria-hidden="true">
               <select
                 value={activeFieldState?.fontFamily || 'Lexend'}
                 onChange={(event) => handleStyleChange((block) => ({ ...block, fontFamily: event.target.value }))}
@@ -2306,18 +2700,23 @@ function FolderStudio() {
                     </div>
                   </div>
                 ) : (
-                  <div className="folder-studio-empty">
+                  <div className={`folder-studio-empty tone-${emptyStateCopy.tone}`}>
                     <h3>
-                      {language === 'vi'
-                        ? 'Workspace studio sẵn sàng'
-                        : 'Workspace studio is ready'}
+                      {emptyStateCopy.title}
                     </h3>
 
                     <p>
-                      {language === 'vi'
-                        ? 'Upload nhiều source vào workspace, chọn các source đã Completed, sau đó sinh deck để bắt đầu chỉnh sửa.'
-                        : 'Upload sources, select completed sources, then generate a deck to start editing.'}
+                      {emptyStateCopy.body}
                     </p>
+
+                    <div className="folder-studio-readiness-row" aria-label={language === 'vi' ? 'Trạng thái workspace' : 'Workspace readiness'}>
+                      {workspaceReadinessItems.map((item) => (
+                        <span key={item.key} className={`folder-studio-readiness-chip tone-${item.tone}`}>
+                          <strong>{item.label}</strong>
+                          <span>{item.value}</span>
+                        </span>
+                      ))}
+                    </div>
 
                     <div className="folder-studio-empty-actions">
                       <button
@@ -2325,7 +2724,7 @@ function FolderStudio() {
                         className="button button-primary"
                         onClick={handleUploadClick}
                       >
-                        {language === 'vi' ? 'Thêm nguồn' : 'Add source'}
+                        {emptyStateCopy.primaryLabel}
                       </button>
 
                       <button
@@ -2335,9 +2734,12 @@ function FolderStudio() {
                         disabled={!canGenerate}
                         title={generateDisabledReason || undefined}
                       >
-                        {language === 'vi' ? 'Tạo deck' : 'Generate deck'}
+                        {emptyStateCopy.secondaryLabel}
                       </button>
                     </div>
+                    {generateDisabledReason && (
+                      <div className="folder-studio-generate-hint">{generateDisabledReason}</div>
+                    )}
                   </div>
                 ) 
               ) : (
@@ -2355,6 +2757,7 @@ function FolderStudio() {
                             style={applyTextStyle(selectedDraft.title)}
                             placeholder={slideTitlePlaceholder}
                           />
+                          <WorkspaceLinkAffordance block={selectedDraft.title} label={toolbarLabels.linkedBlock} />
                         </div>
 
                         <div className={`folder-editable-block${activeField === 'subtitle' ? ' active' : ''}`} onClick={() => setActiveField('subtitle')}>
@@ -2367,6 +2770,7 @@ function FolderStudio() {
                             style={applyTextStyle(selectedDraft.subtitle)}
                             placeholder="Subheading / context"
                           />
+                          <WorkspaceLinkAffordance block={selectedDraft.subtitle} label={toolbarLabels.linkedBlock} />
                         </div>
 
                         <div className={`folder-editable-block tone-soft${activeField === 'goal' ? ' active' : ''}`} onClick={() => setActiveField('goal')}>
@@ -2379,6 +2783,7 @@ function FolderStudio() {
                             style={applyTextStyle(selectedDraft.goal)}
                             placeholder={slideGoalPlaceholder}
                           />
+                          <WorkspaceLinkAffordance block={selectedDraft.goal} label={toolbarLabels.linkedBlock} />
                         </div>
 
                         <div className={`folder-editable-block${activeField === 'body' ? ' active' : ''}`} onClick={() => setActiveField('body')}>
@@ -2391,7 +2796,15 @@ function FolderStudio() {
                             style={applyTextStyle(selectedDraft.body)}
                             placeholder={bodyPlaceholder}
                           />
+                          <WorkspaceLinkAffordance block={selectedDraft.body} label={toolbarLabels.linkedBlock} />
                           <small>
+                            {selectedBodyListStyle === 'numbered'
+                              ? toolbarLabels.numberedModeHint
+                              : selectedBodyListStyle === 'bullet'
+                                ? toolbarLabels.bulletModeHint
+                                : toolbarLabels.textModeHint}
+                          </small>
+                          <small className="is-legacy-hidden">
                             {selectedDraft.body.bullet
                               ? (language === 'vi' ? 'Bullet mode đang bật: mỗi dòng sẽ được lưu thành 1 body block.' : 'Bullet mode is on: each line will be saved as one body block.')
                               : (language === 'vi' ? 'Đang ở text mode: nội dung vẫn được lưu theo từng dòng.' : 'Text mode is on: content is still saved line by line.')}
@@ -2445,6 +2858,7 @@ function FolderStudio() {
                         style={applyTextStyle(selectedDraft.notes)}
                         placeholder={notesPlaceholder}
                       />
+                      <WorkspaceLinkAffordance block={selectedDraft.notes} label={toolbarLabels.linkedBlock} />
                     </section>
 
                     {selectedSlideNeedsMedia && (
@@ -2511,8 +2925,9 @@ function FolderStudio() {
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Tạo mới' : 'Create'}</div>
               <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate} title={generateDisabledReason || undefined}>
+                <span className="folder-studio-action-icon"><LuSparkles aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Tạo slide mới từ nội dung' : 'Generate slides from content'}</strong>
+                  <strong>{language === 'vi' ? 'Tạo deck từ nội dung' : 'Generate content deck'}</strong>
                   <span>{generateDisabledReason || (language === 'vi' ? `${selectedReadySources.length} source ready đang được chọn cho workspace` : `${selectedReadySources.length} ready sources selected for this workspace`)}</span>
                 </span>
                 <span className="folder-studio-action-badge">{canGenerate ? 'AI' : 'WAIT'}</span>
@@ -2526,6 +2941,7 @@ function FolderStudio() {
                 onClick={handleGenerateQuestions}
                 disabled={!canGenerateQuestions}
               >
+                <span className="folder-studio-action-icon"><LuBookOpen aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{questionActionTitle}</strong>
                   <span>{questionActionDetail}</span>
@@ -2548,6 +2964,7 @@ function FolderStudio() {
                 onClick={() => navigate(`/study/${selectedSourceDocumentId}`)}
                 disabled={!studyHubEnabled}
               >
+                <span className="folder-studio-action-icon"><LuBookOpen aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{t('slides.studyActions.openStudyHubTitle')}</strong>
                   <span>{t('slides.studyActions.openStudyHubSubtitle')}</span>
@@ -2560,6 +2977,7 @@ function FolderStudio() {
                 onClick={() => navigate(`/study/${selectedSourceDocumentId}/streak`)}
                 disabled={!studyHubEnabled}
               >
+                <span className="folder-studio-action-icon"><LuGamepad2 aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{t('slides.studyActions.streakTitle')}</strong>
                   <span>{t('slides.studyActions.streakSubtitle')}</span>
@@ -2663,36 +3081,24 @@ function FolderStudio() {
             </div>
 
             <div className="folder-studio-action-section">
-              <div className="folder-studio-section-label">{language === 'vi' ? 'Phân tích & Tóm tắt' : 'Analysis & Summary'}</div>
-              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Tóm tắt nội dung' : 'Summarize content'}</strong>
-                  <span>{language === 'vi' ? 'Tổng hợp summary cấp workspace từ các source đã chọn' : 'Build a workspace-level summary from selected sources'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
-              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Phân tích ý chính' : 'Analyze key ideas'}</strong>
-                  <span>{language === 'vi' ? 'Đặt sẵn cho luồng concept extraction cấp workspace' : 'Scaffold for workspace-level concept extraction'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
-              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Xây dựng sơ đồ tư duy' : 'Build a mind map'}</strong>
-                  <span>{language === 'vi' ? 'Nối vào luồng mindmap trong phase tiếp theo' : 'Reserved for the next-phase mindmap flow'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
+              <div className="folder-studio-section-label">{language === 'vi' ? 'Trạng thái demo' : 'Demo readiness'}</div>
+              <div className="folder-studio-readiness-panel">
+                {workspaceReadinessItems.map((item) => (
+                  <div key={item.key} className={`folder-studio-readiness-item tone-${item.tone}`}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Xuất bản & Chia sẻ' : 'Publish & Share'}</div>
               <button type="button" className="folder-studio-action" onClick={handleSaveSlide} disabled={!selectedDraft}>
+                <span className="folder-studio-action-icon"><LuSave aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Lưu slide hiện tại' : 'Save current slide'}</strong>
-                  <span>{language === 'vi' ? 'Persist editorState, body blocks và notes vào deck' : 'Persist editorState, body blocks, and notes into the deck'}</span>
+                  <span>{language === 'vi' ? 'Lưu title, body, notes và trạng thái editor vào deck.' : 'Save title, body, notes, and editor state into the deck.'}</span>
                 </span>
                 <span className="folder-studio-action-badge">Save</span>
               </button>
@@ -2702,6 +3108,7 @@ function FolderStudio() {
                 onClick={handleDownloadHtml}
                 disabled={isExportDisabled}
               >
+                <span className="folder-studio-action-icon"><LuDownload aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Tải HTML' : 'Download HTML'}</strong>
                   <span>{language === 'vi' ? 'Tải deck thành file .html độc lập.' : 'Download the deck as a standalone .html file.'}</span>
@@ -2714,6 +3121,7 @@ function FolderStudio() {
                 onClick={handleOpenPrint}
                 disabled={isExportDisabled}
               >
+                <span className="folder-studio-action-icon"><LuPrinter aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'In / Lưu PDF' : 'Print / Save as PDF'}</strong>
                   <span>{language === 'vi' ? 'Mở bản in thân thiện để lưu PDF từ browser.' : 'Open the print-friendly view for browser PDF saving.'}</span>
@@ -2726,24 +3134,19 @@ function FolderStudio() {
                 onClick={handleDownloadPptx}
                 disabled={isExportDisabled}
               >
+                <span className="folder-studio-action-icon"><LuFileDown aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Tải PPTX' : 'Download PPTX'}</strong>
                   <span>{language === 'vi' ? 'Tải file PowerPoint có title, body và notes cơ bản.' : 'Download a basic PowerPoint file with title, body, and notes.'}</span>
                 </span>
                 <span className="folder-studio-action-badge">{exportingFormat === 'pptx' ? '...' : 'PPTX'}</span>
               </button>
-              <button type="button" className="folder-studio-action folder-studio-action-placeholder" onClick={() => notifySoon(language === 'vi' ? 'Chia sẻ liên kết' : 'Share link')}>
-                <span className="folder-studio-action-copy">
-                  <strong>{language === 'vi' ? 'Chia sẻ liên kết' : 'Share link'}</strong>
-                  <span>{language === 'vi' ? 'Đặt sẵn cho shareable review link' : 'Scaffold for a shareable review link'}</span>
-                </span>
-                <span className="folder-studio-action-badge">Soon</span>
-              </button>
             </div>
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Quản trị' : 'Admin'}</div>
               <button type="button" className="folder-studio-action" onClick={() => loadWorkspace()}>
+                <span className="folder-studio-action-icon"><LuRefreshCw aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Làm mới dữ liệu' : 'Refresh data'}</strong>
                   <span>{language === 'vi' ? 'Tải lại sources, deck, progress và metadata của workspace' : 'Reload sources, deck, progress, and workspace metadata'}</span>
@@ -2751,6 +3154,7 @@ function FolderStudio() {
                 <span className="folder-studio-action-badge">Sync</span>
               </button>
               <button type="button" className="folder-studio-action tone-danger" onClick={handleDeleteFolder}>
+                <span className="folder-studio-action-icon"><LuX aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
                   <strong>{language === 'vi' ? 'Xóa workspace' : 'Delete workspace'}</strong>
                   <span>{language === 'vi' ? 'Thao tác này sẽ xóa workspace và các source bên trong' : 'This action will delete the workspace and all sources inside it'}</span>

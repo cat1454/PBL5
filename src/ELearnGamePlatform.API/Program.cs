@@ -138,6 +138,7 @@ builder.Services.AddScoped<ISlideExportService, SlideExportService>();
 builder.Services.AddScoped<ISlideImagePlannerService, SlideImagePlannerService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
+builder.Services.AddScoped<IWorkspacePayloadService, WorkspacePayloadService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();

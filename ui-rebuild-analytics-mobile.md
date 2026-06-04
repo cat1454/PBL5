@@ -1,0 +1,13 @@
+- generic [active] [ref=e645] [box=0,0,500,3481]:
+  - generic [ref=e647] [box=0,0,500,3481]:
+    - banner [ref=e648] [box=0,0,500,129]:
+      - generic [ref=e1] [box=0,0,500,128]:
+        - generic [ref=e649] [box=14,10,213,44]
+        - generic [ref=e653] [box=14,64,472,54]
+    - main [ref=e657] [box=0,129,500,3352]:
+      - generic [ref=e658] [box=24,153,452,3304]:
+        - region "Chỉ số học tập và vận hành" [ref=e19] [box=24,153,452,761]
+        - generic [ref=e58] [box=24,928,452,658]
+        - generic [ref=e534] [box=24,1600,452,1264]
+        - generic [ref=e627] [box=24,2879,452,579]
+  - img [ref=e644] [cursor=pointer] [box=-16,1124,32,32]

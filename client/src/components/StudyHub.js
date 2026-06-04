@@ -75,6 +75,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   const [generationReadiness, setGenerationReadiness] = useState(null);
   const [metricsLoading, setMetricsLoading] = useState(shouldShowShell);
   const [metricsError, setMetricsError] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const routeModeFromLegacyPath = useMemo(() => {
     if (forcedMode) {
@@ -196,6 +197,10 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
         flashAssessing: 'Đang ghi nhận...',
         streakRecovery: 'Không sao, phiên này vẫn còn nhịp hồi phục. Xem giải thích rồi tiếp tục chuỗi hôm nay.',
         streakTier: 'Combo {{tier}}',
+        showDetails: 'Chi tiết',
+        hideDetails: 'Ẩn chi tiết',
+        doneShort: 'xong',
+        avgShort: 'TB',
       };
     }
 
@@ -299,6 +304,10 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       flashAssessing: 'Recording...',
       streakRecovery: 'No worries, this session still has a recovery rhythm. Review the explanation and continue today.',
       streakTier: 'Combo {{tier}}',
+      showDetails: 'Details',
+      hideDetails: 'Hide details',
+      doneShort: 'done',
+      avgShort: 'Avg',
     };
   }, [language]);
 
@@ -636,11 +645,25 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
                 <p>{getModeHint(activeMode, copy)}</p>
               </div>
             </div>
+            <button
+              type="button"
+              className="button button-secondary study-details-toggle"
+              onClick={() => setDetailsOpen((current) => !current)}
+              aria-expanded={detailsOpen}
+            >
+              {detailsOpen ? copy.hideDetails : copy.showDetails}
+            </button>
           </div>
 
-          <div className="study-main-grid">
+          <div className={`study-main-grid${detailsOpen ? ' study-main-grid-with-details' : ''}`}>
             <div className="study-main-column">
-              <StudyModeSwitcher activeMode={activeMode} onModeChange={handleModeChange} copy={copy} />
+              <StudyModeSwitcher
+                activeMode={activeMode}
+                onModeChange={handleModeChange}
+                copy={copy}
+                progressSummary={progressSummary}
+                questionCount={questionCount}
+              />
               <StudyModePanel
                 documentId={documentId}
                 mode={activeMode}
@@ -650,31 +673,34 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
                 showShell
                 refreshToken={refreshToken}
                 onAttemptRecorded={handleAttemptRecorded}
+                progressSummary={progressSummary}
               />
             </div>
 
-            <StudySidebar
-              copy={copy}
-              documentName={documentName}
-              metaError={metaError}
-              metaLoading={metaLoading}
-              onBack={handleBack}
-              onRegenerate={handleRegenerate}
-              progressError={progressError}
-              progressLoading={progressLoading}
-              progressSummary={progressSummary}
-              metricsError={metricsError}
-              metricsLoading={metricsLoading}
-              questionMetrics={questionMetrics}
-              questionGenerationError={questionGenerationError}
-              questionGenerationProgress={questionGenerationProgress}
-              questionGenerationRecovered={questionGenerationRecovered}
-              questionCount={questionCount}
-              documentStatus={documentStatus}
-              generationReadiness={generationReadiness}
-              regenerateMessage={regenerateMessage}
-              regenerating={isRegenerating}
-            />
+            {detailsOpen && (
+              <StudySidebar
+                copy={copy}
+                documentName={documentName}
+                metaError={metaError}
+                metaLoading={metaLoading}
+                onBack={handleBack}
+                onRegenerate={handleRegenerate}
+                progressError={progressError}
+                progressLoading={progressLoading}
+                progressSummary={progressSummary}
+                metricsError={metricsError}
+                metricsLoading={metricsLoading}
+                questionMetrics={questionMetrics}
+                questionGenerationError={questionGenerationError}
+                questionGenerationProgress={questionGenerationProgress}
+                questionGenerationRecovered={questionGenerationRecovered}
+                questionCount={questionCount}
+                documentStatus={documentStatus}
+                generationReadiness={generationReadiness}
+                regenerateMessage={regenerateMessage}
+                regenerating={isRegenerating}
+              />
+            )}
           </div>
         </>
       )}
@@ -689,13 +715,16 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
           showShell={false}
           refreshToken={refreshToken}
           onAttemptRecorded={handleAttemptRecorded}
+          progressSummary={progressSummary}
         />
       )}
     </div>
   );
 }
 
-function StudyModeSwitcher({ activeMode, onModeChange, copy }) {
+function StudyModeSwitcher({ activeMode, onModeChange, copy, progressSummary, questionCount }) {
+  const tabStats = getStudyModeTabStats(copy, progressSummary, questionCount);
+
   return (
     <div className="study-mode-switcher-wrap">
       <span className="study-mode-label">{copy.modeSwitcher}</span>
@@ -709,9 +738,47 @@ function StudyModeSwitcher({ activeMode, onModeChange, copy }) {
             className={`study-mode-switcher-button${activeMode === mode ? ' active' : ''}`}
             onClick={() => onModeChange(mode)}
           >
-            {getModeTabLabel(mode, copy)}
+            <span>{getModeTabLabel(mode, copy)}</span>
+            <small>{tabStats[mode]}</small>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function getStudyModeTabStats(copy, progressSummary, questionCount) {
+  const total = Number(progressSummary?.totalQuestions || questionCount || 0);
+  const attempted = Number(progressSummary?.attemptedQuestions || 0);
+  const mastered = Number(progressSummary?.masteredCount || 0);
+  const weak = Number(progressSummary?.weakCount || 0);
+  const currentStreak = Number(progressSummary?.currentStreakDays || progressSummary?.currentStreak || 0);
+
+  return {
+    quiz: total > 0 ? `${attempted}/${total}` : '0/0',
+    flashcards: `${mastered} ${copy.doneShort}`,
+    test: weak > 0 ? `${weak} ${copy.weakQuestions}` : `0 ${copy.weakQuestions}`,
+    streak: `${currentStreak}`,
+  };
+}
+
+function StudyMiniProgress({ copy, current, total, progress, progressSummary }) {
+  const mastered = Number(progressSummary?.masteredCount || 0);
+  const averageMastery = progressSummary?.averageMasteryScore === undefined || progressSummary?.averageMasteryScore === null
+    ? 0
+    : Math.round(Number(progressSummary.averageMasteryScore));
+
+  return (
+    <div className="study-mini-progress">
+      <div className="study-mini-progress-main">
+        <strong>{copy.countLabel} {current}/{total}</strong>
+        <div className="study-progress-track">
+          <div className="study-progress-fill" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+      <div className="study-mini-progress-stats">
+        <span>{copy.masteredQuestions} <strong>{mastered}</strong></span>
+        <span>{copy.avgShort} <strong>{averageMastery}%</strong></span>
       </div>
     </div>
   );
@@ -965,7 +1032,7 @@ function WeakQuestionsPanel({ copy, weakQuestions, onReviewWeakQuestions }) {
   );
 }
 
-function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken, onAttemptRecorded }) {
+function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken, onAttemptRecorded, progressSummary }) {
   if (mode === 'flashcards') {
     return (
       <FlashcardsPane
@@ -990,11 +1057,12 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
       refreshToken={refreshToken}
       showShell={showShell}
       onAttemptRecorded={onAttemptRecorded}
+      progressSummary={progressSummary}
     />
   );
 }
 
-function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
+function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell, onAttemptRecorded, progressSummary }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1595,7 +1663,12 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
             </button>
             {quality.score !== undefined && quality.score !== null && (
               <span className={`quality-chip ${quality.isLowConfidence ? 'low' : 'good'}`}>
-                Verifier {quality.score}/100
+                {quality.isLowConfidence ? t('quiz.reviewNeeded') : 'Verifier'} {quality.score}/100
+              </span>
+            )}
+            {quality.isUnknown && (
+              <span className="quality-chip low">
+                {t('quiz.noVerifier')}
               </span>
             )}
           </div>
@@ -1612,11 +1685,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
             t={t}
             copy={copy}
           />
-        ) : (
-          <div className="study-progress-track">
-            <div className="study-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
-        )}
+        ) : null}
 
         <QuestionCard
           currentQuestion={currentQuestion}
@@ -1630,6 +1699,14 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
           isStreakMode={isStreakMode}
           currentStreak={currentStreak}
           copy={copy}
+        />
+
+        <StudyMiniProgress
+          copy={copy}
+          current={activeQuestionIndex + 1}
+          total={questions.length}
+          progress={progress}
+          progressSummary={progressSummary}
         />
 
         <div className="study-action-row">
@@ -1974,17 +2051,6 @@ function QuestionCard({
     <div className={`question-card study-question-card${isStreakMode ? ' streak-question-card' : ''}`}>
       <StudyTopicChips topicDisplay={topicDisplay} />
       <h2>{currentQuestion.questionText}</h2>
-
-      {(quality.isLowConfidence || quality.isUnknown) && (
-        <div className="alert alert-info quality-warning">
-          <strong>{quality.isLowConfidence ? t('quiz.reviewNeeded') : t('quiz.noVerifier')}</strong>
-          <p>
-            {quality.isLowConfidence
-              ? t('quiz.lowConfidenceBody', { score: quality.score })
-              : t('quiz.noVerifierBody')}
-          </p>
-        </div>
-      )}
 
       <div className="options study-options">
         {currentQuestion.options.map((option) => (

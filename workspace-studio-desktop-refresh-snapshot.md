@@ -1,0 +1,56 @@
+- generic [active] [ref=e1] [box=0,0,1425,930]:
+  - generic [ref=e3] [box=0,0,1425,930]:
+    - banner [ref=e4] [box=0,0,1425,74]:
+      - generic [ref=e5] [box=52,0,1320,74]:
+        - generic [ref=e6] [box=76,15,796,44]:
+          - button "Open navigation menu" [ref=e7] [cursor=pointer] [box=76,15,40,44]:
+            - img [ref=e8] [box=86,26,21,21]
+          - link "AI Teaching AI learning workspace" [ref=e309] [cursor=pointer] [box=132,15,209,44]:
+            - /url: /
+            - img [ref=e11] [box=144,29,15,15]
+            - generic [ref=e310] [box=180,17,161,39]
+          - navigation "Main navigation menu" [ref=e313] [box=366,17,507,40]:
+            - link "Dashboard" [ref=e314] [cursor=pointer] [box=366,17,137,40]:
+              - /url: /
+            - link "Workspaces" [ref=e318] [cursor=pointer] [box=507,17,145,40]:
+              - /url: /workspaces
+            - link "Analytics" [ref=e321] [cursor=pointer] [box=655,17,123,40]:
+              - /url: /analytics
+            - button "Help" [ref=e325] [cursor=pointer] [box=783,17,90,40]
+        - generic [ref=e14] [box=1093,10,255,54]:
+          - generic "Language" [ref=e15] [box=1093,10,103,54]:
+            - button "VI" [ref=e16] [cursor=pointer] [box=1098,15,43,44]
+            - button "EN" [ref=e17] [cursor=pointer] [box=1145,15,47,44]
+          - button "P Pi Pi Learner" [ref=e329] [cursor=pointer] [box=1211,10,137,54]:
+            - generic [ref=e20] [box=1220,19,36,36]: P
+            - generic [ref=e330] [box=1268,17,42,40]
+            - img [ref=e21] [box=1322,29,16,16]
+    - main [ref=e24] [box=0,74,1425,856]:
+      - generic [ref=e32] [box=20,74,1385,832]:
+        - generic [ref=e33] [box=21,75,1383,74]:
+          - button "Back to workspaces" [ref=e34] [cursor=pointer] [box=36,90,43,44]:
+            - img [ref=e35] [box=48,104,17,17]
+          - generic [ref=e37] [box=90,93,734,39]:
+            - strong [ref=e38] [box=90,93,734,20]: My Workspace
+            - generic [ref=e39] [box=90,117,734,15]
+          - generic [ref=e44] [box=836,90,553,44]:
+            - button "Refresh" [ref=e45] [cursor=pointer] [box=836,90,102,44]
+            - button "Add source" [ref=e52] [cursor=pointer] [box=946,90,127,44]
+            - button "Generate deck" [disabled] [ref=e57] [box=1081,90,158,44]
+            - button "Hide action panel" [ref=e61] [cursor=pointer] [box=1247,90,142,44]
+        - generic [ref=e65] [box=21,161,1383,744]:
+          - complementary [ref=e66] [box=21,161,320,744]:
+            - generic [ref=e67] [box=22,162,318,36]: Content navigation
+            - generic [ref=e68] [box=22,198,318,54]
+            - generic [ref=e71] [box=22,252,318,652]
+          - generic [ref=e115] [box=355,161,675,744]:
+            - generic [ref=e116] [box=356,172,674,77]
+            - generic [ref=e135] [box=356,239,674,666]
+          - complementary [ref=e167] [box=1044,161,360,744]:
+            - generic [ref=e168] [box=1045,162,343,36]: Studio / Actions
+            - generic [ref=e169] [box=1045,210,343,514]
+            - generic [ref=e204] [box=1045,736,343,740]
+            - generic [ref=e234] [box=1045,1488,343,187]
+            - generic [ref=e246] [box=1045,1687,343,437]
+            - generic [ref=e287] [box=1045,2136,343,259]
+  - img [ref=e31] [cursor=pointer] [box=-16,919,32,32]

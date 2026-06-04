@@ -104,6 +104,18 @@ public class SlideItem
     [Column("accent_tone")]
     public string? AccentTone { get; set; }
 
+    [NotMapped]
+    public string? Rhythm { get; set; }
+
+    [NotMapped]
+    public string? VisualRole { get; set; }
+
+    [NotMapped]
+    public string? ChartIntent { get; set; }
+
+    [NotMapped]
+    public bool NeedsChartReview { get; set; }
+
     [Column("verifier_score")]
     public int? VerifierScore { get; set; }
 

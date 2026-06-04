@@ -1,0 +1,30 @@
+.app-frame :focus-visible,
+.app-auth-layout :focus-visible,
+.sys-button:focus-visible,
+.sys-icon-button:focus-visible,
+.sys-segmented-control button:focus-visible,
+.sys-tab-list button:focus-visible {
+  outline: none;
+  box-shadow: var(--sys-focus);
+}
+
+.app-frame button,
+.app-frame a,
+.app-frame input,
+.app-frame select,
+.app-frame textarea,
+.sys-button,
+.sys-icon-button {
+  min-width: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-frame *,
+  .app-auth-layout *,
+  .sys-spinner {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
+}

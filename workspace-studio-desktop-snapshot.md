@@ -1,0 +1,104 @@
+- generic [active] [ref=e1] [box=0,0,1900,1246]:
+  - generic [ref=e9] [box=0,0,1900,1246]:
+    - banner [ref=e10] [box=0,0,1900,86]:
+      - generic [ref=e11] [box=350,0,1200,86]:
+        - generic [ref=e12] [box=374,15,870,57]:
+          - button "Mở menu điều hướng" [ref=e13] [cursor=pointer] [box=374,21,44,44]:
+            - img [ref=e14] [box=385,33,21,21]
+          - link "AI AI Teaching Không gian học tập với AI" [ref=e15] [cursor=pointer] [box=434,21,191,44]:
+            - /url: /
+            - generic [ref=e16] [box=434,23,40,40]: AI
+            - generic [ref=e17] [box=484,23,141,39]:
+              - strong [ref=e18] [box=484,23,141,18]: AI Teaching
+              - generic [ref=e19] [box=484,46,141,17]: Không gian học tập với AI
+          - navigation "Menu điều hướng chính" [ref=e20] [box=649,15,596,57]:
+            - link "Bảng điều khiển" [ref=e21] [cursor=pointer] [box=649,15,107,57]:
+              - /url: /
+              - img [ref=e22] [box=664,35,17,17]
+              - text: Bảng điều khiển
+            - link "Workspaces" [ref=e25] [cursor=pointer] [box=766,21,145,44]:
+              - /url: /workspaces
+              - img [ref=e26] [box=781,35,17,17]
+              - text: Workspaces
+            - link "Thống kê" [ref=e28] [cursor=pointer] [box=921,21,103,44]:
+              - /url: /analytics
+              - img [ref=e29] [box=936,35,17,17]
+              - text: Thống kê
+            - link "Quản trị" [ref=e32] [cursor=pointer] [box=1034,21,96,44]:
+              - /url: /admin
+              - img [ref=e33] [box=1049,35,17,17]
+              - text: Quản trị
+            - button "Hướng dẫn" [ref=e36] [cursor=pointer] [box=1139,21,105,44]:
+              - img [ref=e37] [box=1155,35,17,17]
+              - text: Hướng dẫn
+        - generic [ref=e40] [box=1260,0,266,86]:
+          - generic "Ngôn ngữ" [ref=e41] [box=1260,16,102,54]:
+            - button "VI" [ref=e42] [cursor=pointer] [box=1265,21,44,44]
+            - button "EN" [ref=e43] [cursor=pointer] [box=1313,21,44,44]
+          - button "S System Admin Quản trị viên" [ref=e45] [cursor=pointer] [box=1377,0,149,86]:
+            - generic [ref=e46] [box=1386,25,25,36]: S
+            - generic [ref=e47] [box=1423,7,69,72]:
+              - generic [ref=e48] [box=1423,11,69,36]: System Admin
+              - generic [ref=e49] [box=1423,51,69,28]: Quản trị viên
+            - img [ref=e50] [box=1504,35,11,16]
+    - main [ref=e53] [box=0,86,1900,1160]:
+      - generic [ref=e143] [box=20,86,1860,1136]:
+        - generic [ref=e144] [box=21,87,1858,62]:
+          - button "Quay lại Workspaces" [ref=e145] [cursor=pointer] [box=40,96,44,44]:
+            - img [ref=e146] [box=53,109,18,18]
+          - generic [ref=e148] [box=94,99,1082,38]:
+            - strong [ref=e149] [box=94,99,1082,19]: Codex UX Review 2026-05-29
+            - generic [ref=e150] [box=94,122,1082,15]:
+              - generic [ref=e151] [box=94,122,47,15]: 0 nguồn
+              - generic [ref=e152] [box=150,122,113,15]: 0 source được chọn
+              - generic [ref=e153] [box=270,122,79,15]: Chưa có deck
+              - generic [ref=e154] [box=357,122,129,15]: "Cập nhật: 1 phút trước"
+          - generic [ref=e155] [box=1186,96,673,44]:
+            - button "Mở điều khiển" [ref=e156] [cursor=pointer] [box=1186,96,121,44]
+            - button "Làm mới" [ref=e157] [cursor=pointer] [box=1317,96,111,44]:
+              - img [ref=e158] [box=1330,109,18,18]
+              - text: Làm mới
+            - button "Thêm nguồn" [ref=e163] [cursor=pointer] [box=1438,96,136,44]:
+              - img [ref=e164] [box=1451,109,18,18]
+              - text: Thêm nguồn
+            - generic [ref=e165] [box=1584,103,30,30]: GV
+            - button "HTML" [disabled] [ref=e166] [cursor=pointer] [box=1624,96,70,44]
+            - button "In PDF" [disabled] [ref=e167] [cursor=pointer] [box=1704,96,78,44]
+            - button "PPTX" [disabled] [ref=e168] [cursor=pointer] [box=1792,96,67,44]
+        - generic [ref=e169] [box=21,167,1858,1054]:
+          - complementary [ref=e170] [box=21,167,290,1054]:
+            - generic [ref=e171] [box=22,168,288,37]: Điều hướng nội dung
+            - generic [ref=e172] [box=22,205,288,54]:
+              - button "Cấu trúc slide" [ref=e173] [cursor=pointer] [box=36,215,126,44]
+              - button "Nguồn tài liệu" [ref=e174] [cursor=pointer] [box=170,215,126,44]
+            - generic [ref=e175] [box=22,259,288,54]:
+              - generic [ref=e176] [box=35,268,1,1]: Tìm nguồn tài liệu
+              - textbox "Tìm nguồn tài liệu" [ref=e177] [box=36,269,208,44]:
+                - /placeholder: Tìm trong tên file hoặc summary
+              - button "Xóa tìm kiếm" [ref=e178] [cursor=pointer] [box=252,269,44,44]
+            - button "Thêm source vào workspace" [ref=e183] [cursor=pointer] [box=36,323,260,44]:
+              - img [ref=e184] [box=68,336,18,18]
+              - generic [ref=e185] [box=86,338,178,15]: Thêm source vào workspace
+            - generic [ref=e186] [box=22,367,288,34]: Cấu trúc slide
+            - generic [ref=e187] [box=22,401,288,34]: Phạm vi nội dung
+            - generic [ref=e189] [box=22,435,288,69]: Chưa có source nào để chọn phạm vi nội dung.
+            - generic [ref=e191] [box=36,528,260,69]: Chưa có deck. Chọn source xong rồi bấm "Tạo slide mới từ nội dung".
+          - generic [ref=e192] [box=329,167,1212,1054]:
+            - generic [ref=e193] [box=329,177,1212,166]:
+              - combobox [disabled] [ref=e194] [box=344,186,1181,44]
+              - combobox [disabled] [ref=e195] [box=344,238,1181,44]
+              - button "In đậm" [disabled] [ref=e197] [box=353,290,44,44]
+              - button "In nghiêng" [disabled] [ref=e199] [box=405,290,44,44]
+              - button "Gạch chân" [disabled] [ref=e201] [box=457,290,44,44]
+              - button "Trái" [disabled] [ref=e204] [box=518,290,64,44]
+              - button "Giữa" [disabled] [ref=e205] [box=590,290,64,44]
+              - button "Phải" [disabled] [ref=e206] [box=662,290,64,44]
+              - button "Bullet" [disabled] [ref=e207] [box=734,290,65,44]
+              - button "Hoàn tác" [disabled] [ref=e209] [box=816,290,88,44]
+              - button "Làm lại" [disabled] [ref=e210] [box=912,290,76,44]
+              - button "Mở media" [disabled] [ref=e211] [box=996,290,93,44]
+            - generic [ref=e213] [box=625,354,620,215]:
+              - heading "Workspace studio sẵn sàng" [level=3] [ref=e214] [box=658,404,554,20]
+              - paragraph [ref=e215] [box=658,440,554,34]: Upload nhiều source vào workspace, chọn các source đã Completed, sau đó sinh deck để bắt đầu chỉnh sửa.
+              - generic [ref=e216] [box=658,493,554,44]
+  - img [ref=e8] [cursor=pointer] [box=-16,1199,32,32]

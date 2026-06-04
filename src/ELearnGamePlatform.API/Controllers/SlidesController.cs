@@ -608,6 +608,10 @@ public class SlidesController : AuthenticatedControllerBase
                 item.VerifierScore = content.VerifierScore;
                 item.SetVerifierIssues(content.VerifierIssues);
                 item.SetEvidenceDebug(content.EvidenceDebug);
+                item.Rhythm = content.EvidenceDebug?.Rhythm ?? content.Rhythm;
+                item.VisualRole = content.EvidenceDebug?.VisualRole ?? content.VisualRole;
+                item.ChartIntent = content.EvidenceDebug?.ChartIntent ?? content.ChartIntent;
+                item.NeedsChartReview = content.EvidenceDebug?.NeedsChartReview ?? content.NeedsChartReview;
                 item.SetBodyBlocks(content.BodyBlocks);
                 item.SetEditorState(item.BuildDefaultEditorState());
                 RefreshImageScaffold(item);
@@ -904,6 +908,7 @@ public class SlidesController : AuthenticatedControllerBase
         var imageCandidates = NormalizeImageCandidates(item.GetImageCandidates(), item.SelectedImageKey);
         var selectedImage = ResolveSelectedImage(imageCandidates, item.SelectedImageKey);
         var imageState = BuildImageState(item, imagePlan, imageCandidates, selectedImage);
+        var evidenceDebug = item.GetEvidenceDebug();
 
         return new
         {
@@ -925,7 +930,11 @@ public class SlidesController : AuthenticatedControllerBase
             selectedImage,
             imageCandidates,
             quality = BuildQualityPayload(item.VerifierScore, item.GetVerifierIssues()),
-            evidenceDebug = item.GetEvidenceDebug(),
+            rhythm = evidenceDebug?.Rhythm ?? item.Rhythm,
+            visualRole = evidenceDebug?.VisualRole ?? item.VisualRole,
+            chartIntent = evidenceDebug?.ChartIntent ?? item.ChartIntent,
+            needsChartReview = evidenceDebug?.NeedsChartReview ?? item.NeedsChartReview,
+            evidenceDebug,
             item.CreatedAt,
             item.UpdatedAt
         };
@@ -1735,10 +1744,14 @@ public class SlidesController : AuthenticatedControllerBase
     private static SlideImagePlan BuildDefaultImagePlan(SlideItem item)
     {
         var needsImage = item.SlideType is not (SlideItemType.SectionDivider or SlideItemType.Quote);
+        var evidenceDebug = item.GetEvidenceDebug();
         var heading = SanitizeImageText(item.Heading, 160) ?? $"Slide {item.SlideIndex}";
         var subheading = SanitizeImageText(item.Subheading, 220);
         var goal = SanitizeImageText(item.Goal, 180);
-        var visualRole = needsImage ? ResolveVisualRole(item.SlideType) : "none";
+        var visualRole = needsImage
+            ? FirstNonEmpty(evidenceDebug?.VisualRole, item.VisualRole, ResolveVisualRole(item.SlideType)) ?? "supporting"
+            : "none";
+        var chartIntent = FirstNonEmpty(evidenceDebug?.ChartIntent, item.ChartIntent);
         var descriptor = string.Join(", ", new[] { heading, goal }.Where(value => !string.IsNullOrWhiteSpace(value)));
         var searchQueries = new List<string>();
 
@@ -1764,6 +1777,20 @@ public class SlidesController : AuthenticatedControllerBase
                 ? "Default scaffold before Qwen image planning runs."
                 : "Default scaffold keeps this slide text-only before Qwen image planning runs.",
             VisualRole = visualRole,
+            ImageRendering = visualRole.Contains("diagram", StringComparison.OrdinalIgnoreCase) || visualRole.Contains("process", StringComparison.OrdinalIgnoreCase)
+                ? "diagrammatic-illustration"
+                : "vector-illustration",
+            ImagePalette = item.NeedsChartReview || evidenceDebug?.NeedsChartReview == true
+                ? "neutral-review"
+                : "academic-blue",
+            SourceEvidence = string.Join(" | ", new[]
+            {
+                heading,
+                goal ?? string.Empty,
+                chartIntent == null ? string.Empty : $"chart intent: {chartIntent}"
+            }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Take(3)),
             AltText = needsImage
                 ? $"Minh hoa cho slide {item.SlideIndex}: {heading}"
                 : $"Slide {item.SlideIndex} uu tien text-only",
@@ -1799,6 +1826,9 @@ public class SlidesController : AuthenticatedControllerBase
             _ => "supporting"
         };
     }
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     private static List<SlideImageCandidate> NormalizeImageCandidates(
         IReadOnlyCollection<SlideImageCandidate> candidates,

@@ -39,9 +39,9 @@
 .documents-hero-copy h2 {
   margin: 14px 0 10px;
   color: #0f172a;
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: 2.6rem;
   line-height: 0.98;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .documents-hero-copy p,
@@ -105,7 +105,7 @@
   color: #1d4ed8;
   font-size: 2rem;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .documents-stat-label {
@@ -293,7 +293,7 @@
   color: #0f172a;
   font-size: 1.4rem;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .documents-progress-summary {

@@ -1,0 +1,22 @@
+- generic [active] [ref=e1] [box=0,0,500,3049]:
+  - generic [ref=e9] [box=0,0,500,3049]:
+    - banner [ref=e10] [box=0,0,500,132]:
+      - generic [ref=e11] [box=0,0,500,132]:
+        - generic [ref=e12] [box=16,12,217,44]:
+          - button "Mở menu điều hướng" [ref=e13] [cursor=pointer] [box=16,12,44,44]
+          - link "AI AI Teaching" [ref=e219] [cursor=pointer] [box=76,12,157,44]:
+            - /url: /
+        - generic [ref=e40] [box=16,66,468,54]:
+          - generic "Ngôn ngữ" [ref=e41] [box=16,66,102,54]
+          - button "S" [ref=e220] [cursor=pointer] [box=400,68,84,50]
+    - main [ref=e53] [box=0,132,500,2917]:
+      - generic [ref=e143] [box=12,132,476,2897]:
+        - generic [ref=e144] [box=13,133,474,458]:
+          - button "Quay lại Workspaces" [ref=e145] [cursor=pointer] [box=26,134,448,44]
+          - generic [ref=e148] [box=26,188,448,38]
+          - generic [ref=e155] [box=338,236,136,354]
+        - generic [ref=e169] [box=13,609,474,2419]:
+          - complementary [ref=e170] [box=13,609,474,408]
+          - generic [ref=e192] [box=13,1029,474,390]
+          - complementary [ref=e221] [box=13,1431,474,1597]
+  - img [ref=e8] [cursor=pointer] [box=-16,1124,32,32]

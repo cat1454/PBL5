@@ -49,9 +49,9 @@
 
 .studio-outline-item.active,
 .studio-filmstrip-card.active {
-  border-color: #7c5cff !important;
-  background: #f4f0ff !important;
-  box-shadow: inset 0 0 0 1px #7c5cff, 0 0 0 4px rgba(124, 92, 255, 0.12) !important;
+  border-color: var(--gamma-accent) !important;
+  background: var(--gamma-accent-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--gamma-accent), 0 0 0 4px rgba(37, 99, 235, 0.1) !important;
 }
 
 .studio-outline-item.active::before,
@@ -62,12 +62,12 @@
   top: 0;
   width: 4px;
   height: 100%;
-  background: #7c5cff;
+  background: var(--gamma-accent);
   border-radius: 4px 0 0 4px;
 }
 
 .studio-outline-item.active .studio-outline-number {
-  background: #7c5cff;
+  background: var(--gamma-accent);
 }
 
 @media (max-width: 1440px) {

@@ -135,6 +135,7 @@ public class DocumentKnowledgeMapBuilder : IDocumentKnowledgeMapBuilder
                 Quality = payload?.Quality,
                 Pages = payload?.Pages ?? new List<PageUnderstandingResult>(),
                 Regions = payload?.Regions ?? new List<DocumentRegion>(),
+                PresentationContract = payload?.PresentationContract,
                 Warnings = payload?.Warnings ?? ParseFailureReasons(run.FailureReasonsJson)
             };
 
@@ -178,13 +179,18 @@ Safety rules for analysis:
 {BulletLines(warnings.Take(12))}"));
         }
 
+        if (result.PresentationContract != null)
+        {
+            blocks.Add(Block(2, RenderPresentationContract(result.PresentationContract)));
+        }
+
         var tableRegions = regions
             .Where(region => region.RegionType is DocumentRegionTypes.TableLikeText or DocumentRegionTypes.TableLowConfidence)
             .Take(12)
             .ToList();
         if (tableRegions.Count > 0)
         {
-            blocks.Add(Block(2, $@"## Tables
+            blocks.Add(Block(3, $@"## Tables
 {string.Join(Environment.NewLine, tableRegions.Select(RenderTableRegion))}"));
         }
 
@@ -194,18 +200,21 @@ Safety rules for analysis:
             .ToList();
         if (formulaRegions.Count > 0)
         {
-            blocks.Add(Block(3, $@"## Formula Candidates
+            blocks.Add(Block(4, $@"## Formula Candidates
 Use formula candidates only as raw evidence. Do not repair notation or create exact calculation questions unless the source is independently clear.
 {string.Join(Environment.NewLine, formulaRegions.Select(RenderFormulaRegion))}"));
         }
 
         var visualRegions = regions
-            .Where(region => region.RegionType is DocumentRegionTypes.FigureCandidate or DocumentRegionTypes.DiagramCandidate)
+            .Where(region => region.RegionType is DocumentRegionTypes.FigureCandidate
+                or DocumentRegionTypes.DiagramCandidate
+                or DocumentRegionTypes.ProcessCandidate
+                or DocumentRegionTypes.ChartCandidate)
             .Take(16)
             .ToList();
         if (visualRegions.Count > 0)
         {
-            blocks.Add(Block(4, $@"## Figure And Diagram Descriptions
+            blocks.Add(Block(5, $@"## Figure And Diagram Descriptions
 {string.Join(Environment.NewLine, visualRegions.Select(RenderVisualRegion))}"));
         }
 
@@ -215,13 +224,13 @@ Use formula candidates only as raw evidence. Do not repair notation or create ex
             .ToList();
         if (titleAndTextRegions.Count > 0)
         {
-            blocks.Add(Block(5, $@"## Key Text Blocks
+            blocks.Add(Block(6, $@"## Key Text Blocks
 {string.Join(Environment.NewLine, titleAndTextRegions.Select(RenderTextRegion))}"));
         }
 
         if (pages.Count > 0)
         {
-            blocks.Add(Block(6, $@"## Page Sections
+            blocks.Add(Block(7, $@"## Page Sections
 {string.Join(Environment.NewLine, pages.Take(30).Select(RenderPage))}"));
         }
 
@@ -302,6 +311,70 @@ Use formula candidates only as raw evidence. Do not repair notation or create ex
   uncertainty: {SafeLine(region.UncertaintyReason)}";
     }
 
+    private static string RenderPresentationContract(PresentationExtractionContract contract)
+    {
+        var grounding = contract.SourceGrounding
+            .Take(12)
+            .Select(item => $"- section={SafeLine(item.SectionId)}; pages={string.Join(", ", item.PageNumbers.Take(5))}; chunks={string.Join(", ", item.ChunkIds.Take(5))}; confidence={FormatConfidence(item.Confidence)}; missing={string.Join(" | ", item.MissingEvidenceWarnings.Take(3).DefaultIfEmpty("none"))}; evidence={Excerpt(item.EvidenceExcerpt, 220)}");
+        var flowMap = contract.PresentationFlow.SectionToSlideMap
+            .Take(12)
+            .Select(item => $"- slide={item.SuggestedSlideIndex}; section={SafeLine(item.SectionId)}; heading={SafeLine(item.Heading)}; role={SafeLine(item.SuggestedRole)}");
+        var transitions = contract.PresentationFlow.TransitionPoints.Take(6).Select(item => $"- {SafeLine(item)}");
+        var recaps = contract.PresentationFlow.RecapPoints.Take(4).Select(item => $"- {SafeLine(item)}");
+        var affordances = contract.SlideAffordances
+            .Take(12)
+            .Select(item => $"- section={SafeLine(item.SectionId)}; page={item.PageNumber}; layout={SafeLine(item.SuggestedLayout)}; rhythm={SafeLine(item.Rhythm)}; visual={SafeLine(item.VisualRole)}; chart={SafeLine(item.ChartIntent)}; density={SafeLine(item.Density)}; slideability={FormatConfidence(item.SlideabilityScore)}; actions={string.Join(", ", item.SuggestedQuickActions.Take(4).DefaultIfEmpty("none"))}");
+        var sections = contract.SectionPlan
+            .Take(12)
+            .Select(section => $"- section={SafeLine(section.SectionId)}; heading={SafeLine(section.Heading)}; rhythm={SafeLine(section.Rhythm)}; role={SafeLine(section.TeachingRole)}; chunks={string.Join(", ", section.PreferredChunkIds.Take(5))}; evidence={Excerpt(section.EvidenceSummary, 220)}");
+        var visuals = contract.VisualOpportunities
+            .Take(10)
+            .Select(visual => $"- page={visual.PageNumber}; section={SafeLine(visual.SectionId)}; role={SafeLine(visual.VisualRole)}; rendering={SafeLine(visual.ImageRendering)}; palette={SafeLine(visual.ImagePalette)}; needsReview={visual.NeedsReview}; evidence={Excerpt(visual.EvidenceText, 220)}");
+        var charts = contract.ChartCandidates
+            .Take(10)
+            .Select(chart => $"- page={chart.PageNumber}; section={SafeLine(chart.SectionId)}; type={SafeLine(chart.ChartType)}; hasScale={chart.HasExplicitScale}; hasSeries={chart.HasNumericSeries}; needsReview={chart.NeedsReview}; reason={SafeLine(chart.ReviewReason)}; evidence={Excerpt(chart.EvidenceText, 260)}");
+        var hints = contract.UxReviewHints
+            .Take(12)
+            .Select(hint => $"- severity={SafeLine(hint.Severity)}; type={SafeLine(hint.HintType)}; page={hint.PageNumber}; section={SafeLine(hint.SectionId)}; action={SafeLine(hint.SuggestedAction)}; message={SafeLine(hint.Message)}");
+        var warnings = contract.Warnings.Take(10).Select(warning => $"- {SafeLine(warning)}");
+
+        return $@"## Presentation Extraction Contract
+- version: {SafeLine(contract.Version)}
+- sourceSummary: {Excerpt(contract.SourceSummary, 360)}
+- audience: level={SafeLine(contract.AudienceProfile.Level)}; readingDifficulty={SafeLine(contract.AudienceProfile.ReadingDifficulty)}; jargon={string.Join(", ", contract.AudienceProfile.JargonTerms.Take(8).DefaultIfEmpty("none"))}
+- metrics: sections={contract.QualityMetrics.SectionCount}; visuals={contract.QualityMetrics.VisualOpportunityCount}; charts={contract.QualityMetrics.ChartCandidateCount}; reviewOnly={contract.QualityMetrics.ReviewOnlyEvidenceCount}; uxHints={contract.QualityMetrics.UxReviewHintCount}; dense={contract.QualityMetrics.DenseSectionCount}; slideability={FormatConfidence(contract.QualityMetrics.AverageSlideabilityScore)}; confidence={FormatConfidence(contract.QualityMetrics.ExtractionConfidence)}
+
+### Evidence And Grounding
+{string.Join(Environment.NewLine, grounding.DefaultIfEmpty("- none"))}
+
+### Presentation Flow
+- opening: {SafeLine(contract.PresentationFlow.SuggestedOpening)}
+Flow map:
+{string.Join(Environment.NewLine, flowMap.DefaultIfEmpty("- none"))}
+Transitions:
+{string.Join(Environment.NewLine, transitions.DefaultIfEmpty("- none"))}
+Recaps:
+{string.Join(Environment.NewLine, recaps.DefaultIfEmpty("- none"))}
+
+### Slide Affordances
+{string.Join(Environment.NewLine, affordances.DefaultIfEmpty("- none"))}
+
+### Presentation Sections
+{string.Join(Environment.NewLine, sections.DefaultIfEmpty("- none"))}
+
+### Visual Opportunities
+{string.Join(Environment.NewLine, visuals.DefaultIfEmpty("- none"))}
+
+### Chart Candidates
+{string.Join(Environment.NewLine, charts.DefaultIfEmpty("- none"))}
+
+### UX Review Warnings
+{string.Join(Environment.NewLine, hints.DefaultIfEmpty("- none"))}
+
+### Contract Warnings
+{string.Join(Environment.NewLine, warnings.DefaultIfEmpty("- none"))}";
+    }
+
     private static KnowledgeMapBlock Block(int priority, string text)
     {
         var title = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -345,8 +418,11 @@ Use formula candidates only as raw evidence. Do not repair notation or create ex
             DocumentRegionTypes.TableLikeText => 1,
             DocumentRegionTypes.TableLowConfidence => 2,
             DocumentRegionTypes.FormulaCandidate => 3,
-            DocumentRegionTypes.DiagramCandidate => 4,
-            DocumentRegionTypes.FigureCandidate => 5,
+            DocumentRegionTypes.ChartCandidate => 4,
+            DocumentRegionTypes.NumericEvidence => 5,
+            DocumentRegionTypes.ProcessCandidate => 6,
+            DocumentRegionTypes.DiagramCandidate => 7,
+            DocumentRegionTypes.FigureCandidate => 8,
             DocumentRegionTypes.Text => 6,
             _ => 9
         };
@@ -385,6 +461,7 @@ Use formula candidates only as raw evidence. Do not repair notation or create ex
     {
         public List<PageUnderstandingResult>? Pages { get; set; }
         public List<DocumentRegion>? Regions { get; set; }
+        public PresentationExtractionContract? PresentationContract { get; set; }
         public List<string>? Warnings { get; set; }
         public DocumentQualityScoreResult? Quality { get; set; }
     }

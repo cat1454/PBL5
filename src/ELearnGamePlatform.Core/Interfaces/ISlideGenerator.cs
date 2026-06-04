@@ -45,6 +45,7 @@ public class SlideOutlineResult
     public string Title { get; set; } = string.Empty;
     public string? Subtitle { get; set; }
     public string ThemeKey { get; set; } = "editorial-sunrise";
+    public string? PresentationContractVersion { get; set; }
     public SlideDeckBrief? Brief { get; set; }
     public List<SlideOutlineSlide> Slides { get; set; } = new();
 }
@@ -58,6 +59,10 @@ public class SlideOutlineSlide
     public string Goal { get; set; } = string.Empty;
     public string? KeyMessage { get; set; }
     public List<string> PreferredChunkIds { get; set; } = new();
+    public string? Rhythm { get; set; }
+    public string? VisualRole { get; set; }
+    public string? ChartIntent { get; set; }
+    public bool NeedsChartReview { get; set; }
 }
 
 public class SlideContentResult
@@ -70,6 +75,10 @@ public class SlideContentResult
     public string? EvidenceFromText { get; set; }
     public string? SpeakerNotes { get; set; }
     public string? AccentTone { get; set; }
+    public string? Rhythm { get; set; }
+    public string? VisualRole { get; set; }
+    public string? ChartIntent { get; set; }
+    public bool NeedsChartReview { get; set; }
     public int? VerifierScore { get; set; }
     public List<string> VerifierIssues { get; set; } = new();
     public SlideEvidenceDebugMetadata? EvidenceDebug { get; set; }

@@ -8,7 +8,7 @@
   overflow-x: hidden;
 }
 
-.App-header {
+.App-header:not(.app-shell-header) {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 20px 0;
@@ -22,7 +22,7 @@
 
 .app-shell-header {
   min-height: 64px;
-  background: linear-gradient(90deg, #6366f1 0%, #4338ca 100%); /* MÃ u tÃ­m Gradient */
+  background: linear-gradient(90deg, #6366f1 0%, #4338ca 100%); /* Purple gradient */
   color: white;
   display: flex;
   align-items: center;
@@ -209,7 +209,7 @@
   letter-spacing: 0.3px;
   text-decoration: none;            
   color: #475467;                    
-  transition: all 0.3s ease;         
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
 }
 
 .app-sidebar-link:hover {
