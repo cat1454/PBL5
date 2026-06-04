@@ -33,6 +33,14 @@ import { useAnimatedProgress } from '../hooks/useAnimatedProgress';
 import { useToast } from './common/ToastProvider';
 import { useLanguage } from '../context/LanguageContext';
 import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
+import SlideCanvas from './slide-studio/SlideCanvas';
+import PropertiesPanel from './slide-studio/PropertiesPanel';
+import {
+  buildSlideFromEditorState,
+  findEditorElement,
+  normalizeEditorState as normalizeSlideEditorState,
+  patchEditorElement,
+} from './slide-studio/editorState';
 
 const normalizeTextToken = (value) => {
   if (typeof value !== 'string') {
@@ -191,6 +199,10 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [selectedSlideId, setSelectedSlideId] = useState(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [canvasZoom, setCanvasZoom] = useState('fit');
+  const [canvasMode, setCanvasMode] = useState('preview');
+  const [selectedElementId, setSelectedElementId] = useState(null);
+  const [layoutDirtySlideIds, setLayoutDirtySlideIds] = useState([]);
+  const [layoutSavingSlideId, setLayoutSavingSlideId] = useState(null);
   const [exportingFormat, setExportingFormat] = useState('');
 
   const audienceOptions = t('slides.options.audiences');
@@ -402,6 +414,7 @@ function SlideStudio({ documentId: propDocumentId }) {
   };
 
   const handleEdit = useCallback((item) => {
+    setCanvasMode('preview');
     setEditingSlideId(item.id);
     setSelectedSlideId(item.id);
     setIsInspectorOpen(true);
@@ -658,6 +671,18 @@ function SlideStudio({ documentId: propDocumentId }) {
     }
   };
 
+  const getCanvasScale = (zoomValue) => {
+    switch (zoomValue) {
+      case '75':
+        return 0.75;
+      case '100':
+        return 1;
+      case 'fit':
+      default:
+        return 0.675;
+    }
+  };
+
   const canGenerate = documentMeta?.status === 3;
   const outlineSlides = deck?.outline?.slides || [];
   const activeProgress = progress || (deck?.generationProgress ? normalizeProgressState(deck.generationProgress) : null);
@@ -719,11 +744,109 @@ function SlideStudio({ documentId: propDocumentId }) {
   const selectedSlideBadges = selectedSlide ? buildSlideBadges(selectedSlide, selectedImageVm, t) : [];
   const sourceReviewHints = sourceUnderstanding?.presentation?.uxReviewHints || [];
   const highSeveritySourceHints = sourceReviewHints.filter((hint) => String(hint.severity || '').toLowerCase() === 'high');
+  const selectedEditorState = selectedSlide ? normalizeSlideEditorState(selectedSlide) : null;
+  const selectedElement = selectedEditorState ? findEditorElement(selectedEditorState, selectedElementId) : null;
+  const isLayoutEditMode = canvasMode === 'layout';
+  const isLayoutDirty = selectedSlide ? layoutDirtySlideIds.includes(selectedSlide.id) : false;
+  const isSavingLayout = selectedSlide ? layoutSavingSlideId === selectedSlide.id : false;
+  const canvasScale = getCanvasScale(canvasZoom);
+  const canvasLabels = {
+    emptyText: t('slides.canvas.emptyText'),
+    imageAlt: selectedSlide?.heading || t('slides.canvas.imageAlt'),
+    imagePlaceholderTitle: t('slides.canvas.imagePlaceholderTitle'),
+    imagePlaceholderBody: t('slides.canvas.imagePlaceholderBody'),
+  };
+  const propertyLabels = {
+    title: t('slides.canvas.propertiesTitle'),
+    empty: t('slides.canvas.propertiesEmpty'),
+    text: t('slides.canvas.text'),
+    fontSize: t('slides.canvas.fontSize'),
+    color: t('slides.canvas.color'),
+    style: t('slides.canvas.style'),
+    bold: t('slides.canvas.bold'),
+    alignLeft: t('slides.canvas.alignLeft'),
+    alignCenter: t('slides.canvas.alignCenter'),
+    alignRight: t('slides.canvas.alignRight'),
+    lock: t('slides.canvas.lock'),
+    unlock: t('slides.canvas.unlock'),
+    roles: {
+      title: t('slides.canvas.roles.title'),
+      subtitle: t('slides.canvas.roles.subtitle'),
+      goal: t('slides.canvas.roles.goal'),
+      body: t('slides.canvas.roles.body'),
+      notes: t('slides.canvas.roles.notes'),
+      image: t('slides.canvas.roles.image'),
+    },
+  };
 
   const handleSelectSlide = (item) => {
     setSelectedSlideId(item.id);
+    setSelectedElementId(null);
     if (slideRefs.current[item.id]) {
       slideRefs.current[item.id].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  };
+
+  const handleSetCanvasMode = (mode) => {
+    setCanvasMode(mode);
+    if (mode === 'layout' && selectedSlide) {
+      setEditingSlideId(null);
+      setIsInspectorOpen(true);
+      const firstElement = selectedEditorState?.elements?.[0];
+      setSelectedElementId((current) => current || firstElement?.id || null);
+    }
+  };
+
+  const handlePatchElement = (elementId, patch) => {
+    if (!selectedSlide || !selectedEditorState) {
+      return;
+    }
+
+    const nextEditorState = patchEditorElement(selectedEditorState, elementId, patch);
+    const nextSlide = buildSlideFromEditorState(selectedSlide, nextEditorState);
+
+    setDeck((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: current.items.map((slide) => (slide.id === selectedSlide.id ? nextSlide : slide)),
+      };
+    });
+    setSelectedElementId(elementId);
+    setLayoutDirtySlideIds((current) => (
+      current.includes(selectedSlide.id) ? current : [...current, selectedSlide.id]
+    ));
+  };
+
+  const handleSaveLayout = async () => {
+    if (!deck || !selectedSlide || !selectedEditorState) {
+      return;
+    }
+
+    try {
+      setLayoutSavingSlideId(selectedSlide.id);
+      const updated = await slideService.updateSlideItem(deck.id, selectedSlide.id, {
+        editorState: selectedEditorState,
+        accentTone: selectedSlide.accentTone,
+      });
+
+      setDeck((current) => ({
+        ...current,
+        items: current.items.map((slide) => (slide.id === selectedSlide.id ? updated : slide)),
+      }));
+      setLayoutDirtySlideIds((current) => current.filter((slideId) => slideId !== selectedSlide.id));
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.layoutSaved'),
+      });
+    } catch (err) {
+      console.error(err);
+      setError(getApiErrorMessage(err, t('slides.errors.saveLayout')));
+    } finally {
+      setLayoutSavingSlideId(null);
     }
   };
 
@@ -1043,6 +1166,23 @@ function SlideStudio({ documentId: propDocumentId }) {
             </div>
 
             <div className="studio-toolbar-actions">
+              <div className="studio-mode-toggle" role="group" aria-label={t('slides.canvas.modeLabel')}>
+                <button
+                  type="button"
+                  className={`studio-zoom-button${!isLayoutEditMode ? ' active' : ''}`}
+                  onClick={() => handleSetCanvasMode('preview')}
+                >
+                  {t('slides.canvas.previewMode')}
+                </button>
+                <button
+                  type="button"
+                  className={`studio-zoom-button${isLayoutEditMode ? ' active' : ''}`}
+                  onClick={() => handleSetCanvasMode('layout')}
+                  disabled={!selectedSlide}
+                >
+                  {t('slides.canvas.layoutMode')}
+                </button>
+              </div>
               <div className="studio-zoom-group" role="group" aria-label={t('slides.zoomLabel')}>
                 {['fit', '75', '100'].map((zoomOption) => (
                   <button
@@ -1056,10 +1196,22 @@ function SlideStudio({ documentId: propDocumentId }) {
                 ))}
               </div>
               {selectedSlide && (
-                <button className="button button-secondary" onClick={() => handleEdit(selectedSlide)}>
-                  <LuPencil aria-hidden="true" />
-                  <span>{t('slides.editSlide')}</span>
-                </button>
+                <>
+                  {isLayoutEditMode && (
+                    <button
+                      className="button"
+                      onClick={handleSaveLayout}
+                      disabled={isSavingLayout || !isLayoutDirty}
+                    >
+                      <LuCheck aria-hidden="true" />
+                      <span>{isSavingLayout ? t('slides.canvas.savingLayout') : t('slides.canvas.saveLayout')}</span>
+                    </button>
+                  )}
+                  <button className="button button-secondary" onClick={() => handleEdit(selectedSlide)}>
+                    <LuPencil aria-hidden="true" />
+                    <span>{t('slides.editSlide')}</span>
+                  </button>
+                </>
               )}
             </div>
           </section>
@@ -1092,7 +1244,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
             {selectedSlide ? (
               <div className="studio-canvas-stage" style={getZoomStyle(canvasZoom)}>
-                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideIsTextOnly ? ' text-only-slide' : ''}`}>
+                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideIsTextOnly ? ' text-only-slide' : ''}${isLayoutEditMode ? ' layout-edit-slide' : ''}`}>
                   <div className="studio-slide-meta">
                     <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                     <div className="quality-toolbar">
@@ -1108,51 +1260,63 @@ function SlideStudio({ documentId: propDocumentId }) {
                     </div>
                   </div>
 
-                  <div className={`studio-slide-content${selectedSlideIsTextOnly ? ' text-only-layout' : ''}`}>
-                    <div className="studio-slide-text">
-                      <h3>{selectedSlide.heading}</h3>
-                      {selectedSlide.subheading && <p className="studio-slide-subheading">{selectedSlide.subheading}</p>}
-                      {selectedSlideKeyMessage && <div className="studio-slide-goal studio-slide-key-message">{selectedSlideKeyMessage}</div>}
-                      {selectedSlideBodyBlocks.length > 0 ? (
-                        selectedSlideIsTextOnly ? (
-                          <ul className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)} slide-body-list`}>
-                            {selectedSlideBodyBlocks.map((block, index) => (
-                              <li key={index}>{block}</li>
-                            ))}
-                          </ul>
+                  {isLayoutEditMode ? (
+                    <SlideCanvas
+                      editorState={selectedEditorState}
+                      imageVm={selectedImageVm}
+                      labels={canvasLabels}
+                      scale={canvasScale}
+                      selectedElementId={selectedElementId}
+                      onPatchElement={handlePatchElement}
+                      onSelectElement={setSelectedElementId}
+                    />
+                  ) : (
+                    <div className={`studio-slide-content${selectedSlideIsTextOnly ? ' text-only-layout' : ''}`}>
+                      <div className="studio-slide-text">
+                        <h3>{selectedSlide.heading}</h3>
+                        {selectedSlide.subheading && <p className="studio-slide-subheading">{selectedSlide.subheading}</p>}
+                        {selectedSlideKeyMessage && <div className="studio-slide-goal studio-slide-key-message">{selectedSlideKeyMessage}</div>}
+                        {selectedSlideBodyBlocks.length > 0 ? (
+                          selectedSlideIsTextOnly ? (
+                            <ul className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)} slide-body-list`}>
+                              {selectedSlideBodyBlocks.map((block, index) => (
+                                <li key={index}>{block}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)}`}>
+                              {selectedSlideBodyBlocks.map((block, index) => (
+                                <div key={index} className="studio-slide-bullet">{block}</div>
+                              ))}
+                            </div>
+                          )
                         ) : (
-                          <div className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)}`}>
-                            {selectedSlideBodyBlocks.map((block, index) => (
-                              <div key={index} className="studio-slide-bullet">{block}</div>
-                            ))}
-                          </div>
-                        )
-                      ) : (
-                        <div className="slide-skeleton">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                      )}
-                      {selectedSlide.speakerNotes && <p className="studio-slide-notes">{selectedSlide.speakerNotes}</p>}
-                    </div>
-
-                    {selectedSlideNeedsMedia && (
-                      <div className={`studio-media-frame tone-${selectedImageVm?.badgeTone || 'muted'}${selectedImageVm?.selectedImage ? ' has-image' : ''}`}>
-                        {selectedImageVm?.selectedImage?.localAssetUrl ? (
-                          <img
-                            src={selectedImageVm.selectedImage.localAssetUrl}
-                            alt={selectedImageVm.selectedImage.altText || selectedSlide.heading || t('slides.slideLabel', { index: selectedSlide.slideIndex })}
-                          />
-                        ) : (
-                          <div className="studio-media-placeholder">
-                            <strong>{selectedImageVm?.badgeLabel}</strong>
-                            <span>{selectedImageVm?.statusLabel}</span>
+                          <div className="slide-skeleton">
+                            <span></span>
+                            <span></span>
+                            <span></span>
                           </div>
                         )}
+                        {selectedSlide.speakerNotes && <p className="studio-slide-notes">{selectedSlide.speakerNotes}</p>}
                       </div>
-                    )}
-                  </div>
+
+                      {selectedSlideNeedsMedia && (
+                        <div className={`studio-media-frame tone-${selectedImageVm?.badgeTone || 'muted'}${selectedImageVm?.selectedImage ? ' has-image' : ''}`}>
+                          {selectedImageVm?.selectedImage?.localAssetUrl ? (
+                            <img
+                              src={selectedImageVm.selectedImage.localAssetUrl}
+                              alt={selectedImageVm.selectedImage.altText || selectedSlide.heading || t('slides.slideLabel', { index: selectedSlide.slideIndex })}
+                            />
+                          ) : (
+                            <div className="studio-media-placeholder">
+                              <strong>{selectedImageVm?.badgeLabel}</strong>
+                              <span>{selectedImageVm?.statusLabel}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {(selectedSlide.quality?.isLowConfidence || selectedSlide.quality?.isUnknown) && (
                     <div className="quality-warning compact">
@@ -1260,6 +1424,14 @@ function SlideStudio({ documentId: propDocumentId }) {
                   </div>
                 ) : (
                   <div className="studio-inspector-stack">
+                    {isLayoutEditMode && (
+                      <PropertiesPanel
+                        element={selectedElement}
+                        labels={propertyLabels}
+                        onPatch={handlePatchElement}
+                      />
+                    )}
+
                     <div className="studio-inspector-block">
                       <span className="studio-kicker">{t('slides.selectedSlide')}</span>
                       <strong>{selectedSlide.heading || t('slides.untitledSlide')}</strong>
