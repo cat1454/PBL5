@@ -20,14 +20,3 @@
 @import "./styles/utilities.css";
 @import "./styles/pages/question-studio.css";
 @import "./styles/pages/analytics.css";
-@import "./styles/premium-edtech.css";
-@import "./styles/v2/tokens.css";
-@import "./styles/v2/layout.css";
-@import "./styles/v2/components.css";
-@import "./styles/v2/dashboard.css";
-@import "./styles/system/tokens.css";
-@import "./styles/system/reset.css";
-@import "./styles/system/layout.css";
-@import "./styles/system/components.css";
-@import "./styles/system/accessibility.css";
-@import "./styles/system/route-overrides.css";

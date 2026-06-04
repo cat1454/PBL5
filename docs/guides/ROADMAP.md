@@ -158,7 +158,7 @@ Cap nhat: 2026-03-23
   - Dung design tokens va component base.
   - Chuan hoa button, badge, card, progress, modal, empty state.
 - Ngay 3:
-  - Lam lai workspace dashboard/list va source cards.
+  - Lam lai `DocumentList` va dashboard tai lieu.
   - Them AI timeline va action chinh ro rang.
 - Ngay 4:
   - Lam lai flow generate question.

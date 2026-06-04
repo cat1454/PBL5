@@ -533,7 +533,7 @@
   border: 1.5px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
-  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .folder-studio-source-check.checked span {
@@ -753,33 +753,6 @@
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
-.folder-studio-toolbar-polished {
-  align-items: stretch;
-  gap: 8px;
-  padding: 10px 12px;
-  background: #fbfcff;
-}
-
-.folder-studio-toolbar-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  padding: 4px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 12px;
-  background: #ffffff;
-}
-
-.folder-studio-toolbar-group.is-select-group {
-  gap: 6px;
-}
-
-.folder-studio-toolbar-group.is-color-group {
-  max-width: 292px;
-  flex-wrap: wrap;
-}
-
 .folder-studio-toolbar-sep {
   width: 1px;
   height: 18px;
@@ -794,65 +767,6 @@
 
 .folder-studio-toolbar-btn-word {
   min-width: 62px;
-}
-
-.folder-studio-toolbar-polished .folder-studio-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 0;
-  border-radius: 9px;
-}
-
-.folder-studio-toolbar-polished .folder-studio-toolbar-btn svg {
-  width: 17px;
-  height: 17px;
-}
-
-.folder-studio-toolbar-color {
-  position: relative;
-}
-
-.folder-studio-color-swatch {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 9px;
-  height: 9px;
-  border: 1px solid rgba(15, 23, 42, 0.22);
-  border-radius: 999px;
-}
-
-.folder-slide-link-affordance {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 7px 9px;
-  border-radius: 10px;
-  background: #eef2ff;
-  color: #3730a3;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.folder-slide-link-affordance svg {
-  flex: 0 0 auto;
-}
-
-.folder-slide-link-affordance span {
-  font-weight: 800;
-}
-
-.folder-slide-link-affordance strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
 }
 
 .folder-studio-canvas {
@@ -903,62 +817,6 @@
   justify-content: center;
   gap: 10px;
   margin-top: 18px;
-}
-
-.folder-studio-readiness-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 18px;
-  text-align: left;
-}
-
-.folder-studio-readiness-chip,
-.folder-studio-readiness-item {
-  min-width: 0;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #f8fafc;
-}
-
-.folder-studio-readiness-chip {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 14px;
-}
-
-.folder-studio-readiness-chip strong,
-.folder-studio-readiness-item span {
-  color: #667085;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.folder-studio-readiness-chip span,
-.folder-studio-readiness-item strong {
-  color: #0f172a;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.folder-studio-readiness-chip.tone-ready,
-.folder-studio-readiness-item.tone-ready {
-  border-color: rgba(5, 150, 105, 0.18);
-  background: #ecfdf3;
-}
-
-.folder-studio-readiness-chip.tone-working,
-.folder-studio-readiness-item.tone-working {
-  border-color: rgba(217, 119, 6, 0.18);
-  background: #fff7ed;
-}
-
-.folder-studio-readiness-chip.tone-blocked,
-.folder-studio-readiness-item.tone-blocked {
-  border-color: rgba(100, 116, 139, 0.14);
-  background: #f8fafc;
 }
 
 @keyframes folder-studio-progress-shimmer {
@@ -1045,7 +903,7 @@
   min-height: 84px;
   font-size: 34px;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
 }
 
 .folder-slide-subtitle-input,
@@ -1220,20 +1078,6 @@
   gap: 8px;
 }
 
-.folder-studio-readiness-panel {
-  display: grid;
-  gap: 8px;
-}
-
-.folder-studio-readiness-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-}
-
 .folder-studio-job-status {
   display: grid;
   gap: 6px;
@@ -1400,10 +1244,6 @@
   .folder-card-actions {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .folder-studio-readiness-row {
-    grid-template-columns: 1fr;
   }
 }
 .folder-studio-scope-card {

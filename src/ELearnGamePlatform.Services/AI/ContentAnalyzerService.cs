@@ -97,7 +97,6 @@ public class ContentAnalyzerService : IContentAnalyzer
 
             ReportAnalysisProgress(progress, "building-local-analysis", "Lap coverage map", "Dang tao tom tat va y chinh tu evidence cuc bo", cleanCoverageMap.Count, cleanCoverageMap.Count, "chunk", 85);
             var localResult = BuildLocalProcessedContent(normalizedText, coverageMapWithBudgetSelection);
-            localResult.PresentationContract = ResolvePresentationContract(understandingSource);
             var refineCandidates = selectedCoverageMap.Any() ? selectedCoverageMap : cleanCoverageMap;
 
             if (ShouldRunAnalysisRefine(normalizedText, cleanCoverageMap, out aiRefineSkippedReason))
@@ -201,31 +200,6 @@ public class ContentAnalyzerService : IContentAnalyzer
             _logger.LogWarning(ex, "Knowledge Map build failed; falling back to legacy extracted text.");
             return new AnalysisContextSelection(legacyText, "KnowledgeMapFallback", null, ex.Message);
         }
-    }
-
-    private static PresentationExtractionContract? ResolvePresentationContract(object? understandingSource)
-    {
-        if (understandingSource is DocumentUnderstandingResult result)
-        {
-            return result.PresentationContract;
-        }
-
-        if (understandingSource is DocumentUnderstandingRun run && !string.IsNullOrWhiteSpace(run.ResultJson))
-        {
-            try
-            {
-                var payload = System.Text.Json.JsonSerializer.Deserialize<UnderstandingContractPayload>(
-                    run.ResultJson,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return payload?.PresentationContract;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return null;
     }
 
     public async Task<string> SummarizeTextAsync(string text)
@@ -1488,11 +1462,6 @@ Respond in JSON format:
         string Path,
         int? KnowledgeMapTokens,
         string? Reason);
-
-    private sealed class UnderstandingContractPayload
-    {
-        public PresentationExtractionContract? PresentationContract { get; set; }
-    }
 
     private static void ReportAnalysisProgress(
         IProgress<DocumentProcessingProgressUpdate>? progress,

@@ -92,7 +92,7 @@ Tài liệu này tóm tắt trạng thái thực tế hiện tại của PBL5 đ
 
 ### Upload -> OCR -> Analysis
 
-1. Frontend upload file qua `documentService` cho document-level flow hoặc `workspaceService` cho public Workspace/Source flow.
+1. Frontend upload file qua `documentService`, `folderService`, hoặc `workspaceService`.
 2. API lưu file vào `uploads`.
 3. API chọn processor theo loại file.
 4. `PdfProcessor`, `DocxProcessor`, `ImageProcessor` lấy text; PDF scan có thể đi qua `pdftoppm` + Tesseract.
@@ -125,9 +125,9 @@ Nguồn tra cứu nhanh:
 
 ### Workspace / Folder
 
-1. Workspace là public flow chính trên frontend hiện tại.
-2. Public terminology là Workspace/Source; internal/backward-compatible code vẫn có FolderProject/Document và `/api/folders`.
-3. Frontend route chính là `/workspaces` và `/workspaces/:workspaceId`; `/documents` và `/folders` chỉ là legacy redirect.
+1. Workspace là flow chính trên frontend hiện tại.
+2. Folder/project và workspace đều có source upload, source selection, và slide deck liên quan.
+3. Frontend route chính đang ưu tiên `/workspaces`.
 
 Nguồn tra cứu nhanh:
 
@@ -142,7 +142,7 @@ Nguồn tra cứu nhanh:
 2. `SlidesController` điều phối generation và lưu deck/items.
 3. `SlideGeneratorService` tạo outline, slide content, HTML preview.
 4. `SlideImageService` xử lý image candidates, select/refresh, local asset storage.
-5. Frontend preview/editor routed chạy qua `SlideStudio`; legacy slide screen đã retire.
+5. Frontend preview/editor chạy qua `SlideStudio` và `SlideStudioScreen`.
 
 Nguồn tra cứu nhanh:
 
@@ -151,11 +151,11 @@ Nguồn tra cứu nhanh:
 - `src/ELearnGamePlatform.Infrastructure/Repositories/SlideDeckRepository.cs`
 - `src/ELearnGamePlatform.Services/AI/SlideGeneratorService.cs`
 - `client/src/components/SlideStudio.js`
-- `client/src/components/SlideStudio.js`
+- `client/src/components/SlideStudioScreen.js`
 
 ## Điều không nên giả định
 
 - Đừng giả định repo có test suite chuẩn; hiện chưa có test project ổn định mặc định.
 - Đừng tin docs cũ nói MongoDB hoặc .NET 8 nếu code hiện tại nói khác.
-- Đừng giả định auth còn dùng hardcoded demo identity; runtime hiện đã có auth flow và bearer token.
+- Đừng giả định auth còn dùng `demo-user`; runtime hiện đã có auth flow và bearer token.
 - Đừng sửa một phía của contract rồi cho rằng phía còn lại tự khớp.

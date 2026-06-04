@@ -1,7 +1,5 @@
 namespace ELearnGamePlatform.Core.Entities;
 
-using ELearnGamePlatform.Core.Models;
-
 /// <summary>
 /// Represents analyzed content from a document
 /// Used as a DTO for content analysis, not persisted directly to database
@@ -18,5 +16,4 @@ public class ProcessedContent
     public List<DocumentSectionDescriptor> Structure { get; set; } = new();
     public List<ExcludedContentDescriptor> ExcludedContent { get; set; } = new();
     public List<DocumentCoverageChunk> CoverageMap { get; set; } = new();
-    public PresentationExtractionContract? PresentationContract { get; set; }
 }

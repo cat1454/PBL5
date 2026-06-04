@@ -77,14 +77,6 @@ public class SlideImagePlannerService : ISlideImagePlannerService
     {
         var body = string.Join("\n", item.GetBodyBlocks().Take(8));
         var topic = FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item.Heading, "Academic document");
-        var evidenceDebug = item.GetEvidenceDebug();
-        var contractVisualRole = NormalizeText(evidenceDebug?.VisualRole, 80);
-        var chartIntent = NormalizeText(evidenceDebug?.ChartIntent, 120);
-        var rhythm = NormalizeText(evidenceDebug?.Rhythm, 40);
-        var needsChartReview = evidenceDebug?.NeedsChartReview == true;
-        var rendering = ResolveImageRendering(contractVisualRole);
-        var palette = ResolveImagePalette(needsChartReview, contractVisualRole);
-        var sourceEvidence = FirstNonEmpty(item.EvidenceFromText, item.KeyMessage, body, item.Heading);
 
         return $$"""
 You are an image planning assistant for academic presentation slides.
@@ -96,9 +88,6 @@ Return JSON only:
   "needsImage": true/false,
   "reason": "...",
   "visualRole": "conceptual | process | diagram | object | background | none",
-  "imageRendering": "...",
-  "imagePalette": "...",
-  "sourceEvidence": "...",
   "generationPrompt": "... or null",
   "negativePrompt": "... or null",
   "altText": "... or null",
@@ -111,9 +100,7 @@ Decision rules:
 - For conceptual/process/system/workflow slides, prefer a generated image prompt.
 - Do not create search queries unless the slide is about a real person, place, object, species, or historical entity.
 - If generating an image, the prompt must describe a 16:9 academic presentation illustration.
-- Use this contract guidance instead of a fixed style: rhythm={{Limit(rhythm, 80)}}, visualRole={{Limit(contractVisualRole, 120)}}, chartIntent={{Limit(chartIntent, 160)}}, imageRendering={{rendering}}, imagePalette={{palette}}, needsChartReview={{needsChartReview}}.
-- Ground the visual subject in source evidence: {{Limit(sourceEvidence, 500)}}.
-- If needsChartReview is true, do not draw exact chart axes, scales, or values; use an abstract review-safe chart/diagram composition.
+- Style: clean modern education technology, white background, navy and purple accents, rounded cards, soft shadows.
 - Do not request readable text inside the image.
 - No logos, no watermark, no fake UI paragraphs.
 
@@ -169,9 +156,8 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
             return BuildInvalidPlan(item);
         }
 
-        var evidenceDebug = item.GetEvidenceDebug();
         var needsImage = response.NeedsImage;
-        var role = NormalizeRole(response.VisualRole, needsImage, evidenceDebug?.VisualRole);
+        var role = NormalizeRole(response.VisualRole, needsImage);
         var reason = NormalizeText(response.Reason, 400)
             ?? (needsImage
                 ? "Qwen determined that this slide benefits from a generated visual."
@@ -184,9 +170,6 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
                 NeedsImage = false,
                 Reason = reason,
                 VisualRole = "none",
-                ImageRendering = ResolveImageRendering(evidenceDebug?.VisualRole),
-                ImagePalette = ResolveImagePalette(evidenceDebug?.NeedsChartReview == true, evidenceDebug?.VisualRole),
-                SourceEvidence = NormalizeText(response.SourceEvidence, 500) ?? NormalizeText(item.EvidenceFromText ?? item.KeyMessage, 500),
                 GenerationPrompt = null,
                 NegativePrompt = null,
                 AltText = null,
@@ -201,9 +184,6 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
             NeedsImage = true,
             Reason = reason,
             VisualRole = role,
-            ImageRendering = NormalizeText(response.ImageRendering, 80) ?? ResolveImageRendering(evidenceDebug?.VisualRole ?? role),
-            ImagePalette = NormalizeText(response.ImagePalette, 80) ?? ResolveImagePalette(evidenceDebug?.NeedsChartReview == true, evidenceDebug?.VisualRole ?? role),
-            SourceEvidence = NormalizeText(response.SourceEvidence, 500) ?? NormalizeText(item.EvidenceFromText ?? item.KeyMessage, 500),
             GenerationPrompt = NormalizeText(response.GenerationPrompt, 1200),
             NegativePrompt = NormalizeText(response.NegativePrompt, 600) ?? "No readable text, no logos, no watermark, no fake UI paragraphs.",
             AltText = NormalizeText(response.AltText, 260) ?? $"Illustration for slide {item.SlideIndex}: {item.Heading}",
@@ -263,7 +243,7 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
         };
     }
 
-    private static string NormalizeRole(string? role, bool needsImage, string? fallbackRole = null)
+    private static string NormalizeRole(string? role, bool needsImage)
     {
         if (!needsImage)
         {
@@ -271,47 +251,9 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
         }
 
         var normalized = NormalizeText(role, 40);
-        if (normalized != null && AllowedRoles.Contains(normalized) && !string.Equals(normalized, "none", StringComparison.OrdinalIgnoreCase))
-        {
-            return normalized.ToLowerInvariant();
-        }
-
-        var fallback = NormalizeText(fallbackRole, 40);
-        return fallback != null && AllowedRoles.Contains(fallback) && !string.Equals(fallback, "none", StringComparison.OrdinalIgnoreCase)
-            ? fallback.ToLowerInvariant()
+        return normalized != null && AllowedRoles.Contains(normalized) && !string.Equals(normalized, "none", StringComparison.OrdinalIgnoreCase)
+            ? normalized.ToLowerInvariant()
             : "conceptual";
-    }
-
-    private static string ResolveImageRendering(string? visualRole)
-    {
-        var normalized = NormalizeText(visualRole, 80)?.ToLowerInvariant() ?? string.Empty;
-        if (normalized.Contains("process") || normalized.Contains("diagram") || normalized.Contains("workflow"))
-        {
-            return "diagrammatic-illustration";
-        }
-
-        if (normalized.Contains("background") || normalized.Contains("hero"))
-        {
-            return "ambient-education-illustration";
-        }
-
-        return "vector-illustration";
-    }
-
-    private static string ResolveImagePalette(bool needsChartReview, string? visualRole)
-    {
-        if (needsChartReview)
-        {
-            return "neutral-review";
-        }
-
-        var normalized = NormalizeText(visualRole, 80)?.ToLowerInvariant() ?? string.Empty;
-        if (normalized.Contains("process") || normalized.Contains("diagram"))
-        {
-            return "blue-green-academic";
-        }
-
-        return "academic-blue";
     }
 
     private static string? NormalizeText(string? value, int maxLength)
@@ -341,15 +283,6 @@ Document topic: {{Limit(FirstNonEmpty(documentTopic, item.SlideDeck?.Title, item
 
         [JsonPropertyName("visualRole")]
         public string? VisualRole { get; set; }
-
-        [JsonPropertyName("imageRendering")]
-        public string? ImageRendering { get; set; }
-
-        [JsonPropertyName("imagePalette")]
-        public string? ImagePalette { get; set; }
-
-        [JsonPropertyName("sourceEvidence")]
-        public string? SourceEvidence { get; set; }
 
         [JsonPropertyName("generationPrompt")]
         public string? GenerationPrompt { get; set; }

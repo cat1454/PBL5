@@ -64,14 +64,6 @@ public class ExcludedContentDescriptor
 public class SlideEvidenceDebugMetadata
 {
     public List<SlideEvidenceDebugChunk> SelectedChunks { get; set; } = new();
-    public string? Rhythm { get; set; }
-    public string? VisualRole { get; set; }
-    public string? ChartIntent { get; set; }
-    public bool NeedsChartReview { get; set; }
-    public string? GroundingStatus { get; set; }
-    public double? GroundingConfidence { get; set; }
-    public List<string> ReviewWarnings { get; set; } = new();
-    public List<string> SuggestedActions { get; set; } = new();
 }
 
 public class SlideEvidenceDebugChunk

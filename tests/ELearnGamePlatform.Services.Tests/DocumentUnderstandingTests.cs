@@ -250,56 +250,6 @@ public class DocumentUnderstandingTests
     }
 
     [Fact]
-    public void HeuristicLayoutAnalyzer_DetectsPresentationChartTimelineAndNumericEvidence()
-    {
-        var analyzer = new HeuristicLayoutAnalyzer();
-        var text = string.Join(Environment.NewLine, new[]
-        {
-            "[Page 1]",
-            "Revenue by quarter",
-            "Q1 120 24%",
-            "Q2 180 36%",
-            "Q3 210 42%",
-            "2024 -> collect data -> train model -> evaluate results",
-            "Accuracy = 91%"
-        });
-
-        var page = Assert.Single(analyzer.Analyze("chart.pdf", text));
-
-        Assert.Contains(page.Regions, region => region.RegionType == DocumentRegionTypes.ChartCandidate);
-        Assert.Contains(page.Regions, region => region.RegionType == DocumentRegionTypes.ProcessCandidate);
-        Assert.Contains(page.Regions, region => region.RegionType == DocumentRegionTypes.NumericEvidence);
-    }
-
-    [Fact]
-    public async Task NoOpOrchestrator_BuildsPresentationContractWithReviewOnlyChartEvidence()
-    {
-        var orchestrator = CreateOrchestrator(enableLayoutAnalysis: true);
-        var text = string.Join(Environment.NewLine, new[]
-        {
-            "[Page 1]",
-            "MODEL PERFORMANCE",
-            "Metric | Value | Note",
-            "Accuracy | 91",
-            "Recall | 88 | measured | extra",
-            "Q1 120 24%",
-            "Q2 180 36%",
-            "Formula: F1 = 2 * precision * recall / (precision + recall)",
-            "Input -> Model -> Output"
-        });
-
-        var result = await orchestrator.UnderstandAsync(22, "metrics.pdf", text);
-
-        Assert.NotNull(result.PresentationContract);
-        Assert.NotEmpty(result.PresentationContract.SectionPlan);
-        Assert.NotEmpty(result.PresentationContract.ChartCandidates);
-        Assert.Contains(result.PresentationContract.ChartCandidates, chart => chart.NeedsReview);
-        Assert.Contains(result.PresentationContract.VisualOpportunities, visual => visual.VisualRole == "process");
-        Assert.True(result.PresentationContract.QualityMetrics.ReviewOnlyEvidenceCount > 0);
-        Assert.Contains(result.PresentationContract.Warnings, warning => warning.Contains("review", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
     public async Task NoOpOrchestrator_WhenVisionDisabled_DoesNotCallVisionDescriber()
     {
         var vision = new FakeVisionRegionDescriber();

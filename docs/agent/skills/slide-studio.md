@@ -15,6 +15,7 @@
 - `src/ELearnGamePlatform.Core/Entities/SlideEditorState.cs`
 - `src/ELearnGamePlatform.Services/AI/SlideGeneratorService.cs`
 - `client/src/components/SlideStudio.js`
+- `client/src/components/SlideStudioScreen.js`
 - `client/src/services/api.js`
 
 ## Điều cấm
@@ -30,7 +31,7 @@
 - Đọc `SlidesController` entrypoint tương ứng.
 - Đọc `SlideGeneratorService` hoặc `SlideImageService` nếu logic nằm ở generation/image.
 - Đọc `SlideDeckRepository` và entity nếu task có persisted shape.
-- Đọc `SlideStudio` để thấy frontend consume payload như thế nào. Legacy slide screen đã retire.
+- Đọc `SlideStudio` hoặc `SlideStudioScreen` để thấy frontend consume payload như thế nào.
 
 ## Checklist sau khi sửa
 

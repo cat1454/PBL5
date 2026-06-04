@@ -116,11 +116,6 @@ public class NoOpDocumentUnderstandingOrchestrator : IDocumentUnderstandingOrche
             regions.Count,
             string.Join(" | ", warnings.Take(5)));
 
-        var presentationContract = PresentationExtractionContractBuilder.Build(
-            _options.EnableLayoutAnalysis ? layoutPages : new List<PageUnderstandingResult>(),
-            regions,
-            quality);
-
         var result = new DocumentUnderstandingResult
         {
             DocumentId = documentId,
@@ -129,7 +124,6 @@ public class NoOpDocumentUnderstandingOrchestrator : IDocumentUnderstandingOrche
             Status = quality.Status,
             Quality = quality,
             Regions = regions,
-            PresentationContract = presentationContract,
             Pages = _options.EnableLayoutAnalysis
                 ? layoutPages
                 : regions.Count == 0

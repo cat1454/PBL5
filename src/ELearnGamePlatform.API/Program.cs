@@ -12,7 +12,6 @@ using ELearnGamePlatform.Infrastructure.Data;
 using ELearnGamePlatform.Infrastructure.Repositories;
 using ELearnGamePlatform.Infrastructure.Services;
 using ELearnGamePlatform.API.Configuration;
-using ELearnGamePlatform.API.Hubs;
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Services.AI;
 using ELearnGamePlatform.Services.DocumentProcessing;
@@ -94,24 +93,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/slide-editor"))
-                {
-                    context.Token = accessToken;
-                }
-
-                return Task.CompletedTask;
-            }
-        };
     });
 builder.Services.AddAuthorization();
-builder.Services.AddSignalR();
 
 // Register HttpClient for Ollama
 builder.Services.AddHttpClient<IOllamaService, OllamaService>();
@@ -155,7 +138,6 @@ builder.Services.AddScoped<ISlideExportService, SlideExportService>();
 builder.Services.AddScoped<ISlideImagePlannerService, SlideImagePlannerService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
-builder.Services.AddScoped<IWorkspacePayloadService, WorkspacePayloadService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
@@ -246,7 +228,6 @@ app.UseStaticFiles(new StaticFileOptions
 });
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapHub<SlideEditorHub>("/hubs/slide-editor");
 app.MapControllers();
 
 app.Run();

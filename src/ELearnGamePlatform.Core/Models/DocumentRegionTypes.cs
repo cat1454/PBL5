@@ -7,9 +7,6 @@ public static class DocumentRegionTypes
     public const string TableLikeText = "TableLikeText";
     public const string TableLowConfidence = "TableLowConfidence";
     public const string FormulaCandidate = "FormulaCandidate";
-    public const string ChartCandidate = "ChartCandidate";
-    public const string ProcessCandidate = "ProcessCandidate";
-    public const string NumericEvidence = "NumericEvidence";
     public const string FigureCandidate = "FigureCandidate";
     public const string DiagramCandidate = "DiagramCandidate";
     public const string HeaderFooterCandidate = "HeaderFooterCandidate";

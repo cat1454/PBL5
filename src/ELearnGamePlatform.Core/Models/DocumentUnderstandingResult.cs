@@ -11,6 +11,5 @@ public class DocumentUnderstandingResult
     public DocumentQualityScoreResult? Quality { get; set; }
     public List<PageUnderstandingResult> Pages { get; set; } = new();
     public List<DocumentRegion> Regions { get; set; } = new();
-    public PresentationExtractionContract? PresentationContract { get; set; }
     public List<string> Warnings { get; set; } = new();
 }

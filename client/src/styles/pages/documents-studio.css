@@ -447,7 +447,7 @@
   color: #0f172a;
   font-size: 23px;
   line-height: 1.25;
-  letter-spacing: 0;
+  letter-spacing: -0.03em;
 }
 
 .documents-preview-summary {

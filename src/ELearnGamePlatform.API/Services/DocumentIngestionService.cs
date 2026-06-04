@@ -600,7 +600,6 @@ public class DocumentIngestionService : IDocumentIngestionService
             {
                 result.Pages,
                 result.Regions,
-                result.PresentationContract,
                 result.Warnings,
                 result.Quality
             }),

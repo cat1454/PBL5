@@ -5,9 +5,6 @@ public class SlideImagePlan
     public bool NeedsImage { get; set; } = true;
     public string? Reason { get; set; }
     public string? VisualRole { get; set; }
-    public string? ImageRendering { get; set; }
-    public string? ImagePalette { get; set; }
-    public string? SourceEvidence { get; set; }
     public string? AltText { get; set; }
     public string? RedactedPrompt { get; set; }
     public List<string> SearchQueries { get; set; } = new();

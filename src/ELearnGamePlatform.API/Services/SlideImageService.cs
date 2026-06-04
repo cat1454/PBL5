@@ -331,13 +331,9 @@ public class SlideImageService : ISlideImageService
     private string? ResolveOpenAiApiKey()
     {
         var environmentApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        var apiKey = string.IsNullOrWhiteSpace(environmentApiKey)
+        return string.IsNullOrWhiteSpace(environmentApiKey)
             ? _settings.Generation.ApiKey
             : environmentApiKey;
-
-        return string.IsNullOrWhiteSpace(apiKey)
-            ? null
-            : apiKey.Trim();
     }
 
     private void EnsureHttpClientAllowsConfiguredGenerationTimeout()

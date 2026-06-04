@@ -5,9 +5,8 @@
 Frontend should now focus on the main demo flow:
 
 0. Register or log in
-1. Open `/workspaces` or `/workspaces/:workspaceId`
-2. Upload a source into the workspace
-3. Show source/document progress clearly
+1. Upload document
+2. Show document progress clearly
 3. Generate questions
 4. Play Quiz / Flashcards
 5. Generate and edit slides
@@ -42,15 +41,11 @@ Useful optional fields:
 
 ## 3. Endpoints to wire
 
-### Auth and source/document
+### Document
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
-- `GET /api/workspaces/user/{userId}`
-- `GET /api/workspaces/{workspaceId}`
-- `POST /api/workspaces/{workspaceId}/sources/upload`
-- `GET /api/workspaces/{workspaceId}/sources`
 - `POST /api/documents/upload`
 - `GET /api/documents/{id}`
 - `GET /api/documents/{id}/progress`
@@ -81,10 +76,9 @@ Useful optional fields:
 - Add `documentService.getDocumentProgress(documentId)`
 - Keep question/slide polling logic aligned with the new progress shape
 
-2. Update `client/src/components/FolderProjects.js` and `client/src/components/FolderStudio.js`
+2. Update `client/src/components/DocumentList.js`
 
-- Keep `/workspaces` and `/workspaces/:workspaceId` as the public entrypoints
-- Use Workspace/Source language in UI copy
+- Use one progress renderer for document, question, and slide cards
 - Surface `stageLabel`, `message`, `detail`, and `error`
 - Prefer the document progress endpoint instead of guessing status from document entity only
 
@@ -101,7 +95,7 @@ Useful optional fields:
 
 ## 5. Good UI priority order
 
-1. Dashboard / workspace list
+1. Dashboard / document list
 2. Unified progress card
 3. Quiz / flashcard polish
 4. Slide Studio polish
