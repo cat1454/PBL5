@@ -1,0 +1,18 @@
+.app-frame *,
+.app-auth-layout *,
+.sys-panel,
+.sys-button,
+.sys-icon-button {
+  box-sizing: border-box;
+}
+
+.app-frame button,
+.app-frame input,
+.app-frame textarea,
+.app-frame select {
+  font: inherit;
+}
+
+.app-frame a {
+  color: inherit;
+}

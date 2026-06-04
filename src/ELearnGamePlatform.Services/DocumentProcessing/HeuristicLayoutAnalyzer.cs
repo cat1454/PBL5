@@ -12,6 +12,9 @@ public class HeuristicLayoutAnalyzer : ILayoutAnalyzer
     private static readonly Regex MultiSpaceColumnRegex = new(@"\S\s{2,}\S\s{2,}\S", RegexOptions.Compiled);
     private static readonly Regex HeaderFooterRegex = new(@"^(?:page|trang)\s+\d{1,4}(?:\s*/\s*\d{1,4})?$|^\d{1,4}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex WordRegex = new(@"\b[\p{L}\p{N}]+\b", RegexOptions.Compiled);
+    private static readonly Regex NumericValueRegex = new(@"(?<!\w)[-+]?\d+(?:[.,]\d+)?\s*(?:%|k|m|b|tr|ty|tỷ|triệu|million|billion)?\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex ChartKeywordRegex = new(@"\b(?:chart|graph|axis|trend|compare|comparison|metric|score|accuracy|recall|precision|revenue|growth|rate|kpi|bar|line|pie|donut|bieu\s*do|doanh\s*thu|tang\s*truong|ti\s*le|ty\s*le)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TimelineKeywordRegex = new(@"\b(?:timeline|roadmap|process|pipeline|workflow|step|phase|stage|giai\s*doan|quy\s*trinh|buoc|moc|nam|year)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex FormulaKeywordRegex = new(@"\b(?:formula|equation|calculate|calculation|where|cong\s*thuc|phuong\s*trinh|tinh)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex MathSymbolRegex = new(@"[=+\-*/^√∑∫≈≠≤≥<>]|\\(?:frac|sum|int|sqrt|alpha|beta|gamma|Delta|theta)", RegexOptions.Compiled);
     private static readonly Regex VariableDigitMixRegex = new(@"\b[A-Za-z]\w*\s*(?:=|≈|<=|>=|<|>)\s*[-+]?\d|\d\s*(?:[A-Za-z]\w*|\^)|[A-Za-z]\w*\s*\^\s*\d", RegexOptions.Compiled);
@@ -46,6 +49,7 @@ public class HeuristicLayoutAnalyzer : ILayoutAnalyzer
         AddHeaderFooterRegions(pageNumber, lines, regions);
         AddTitleRegion(pageNumber, lines, regions);
         AddTableRegions(pageNumber, lines, regions);
+        AddChartAndNumericRegions(pageNumber, lines, regions);
         AddFormulaRegions(pageNumber, lines, regions);
         AddDiagramRegions(pageNumber, lines, regions);
         AddFigureCandidate(filePath, pageNumber, pageText, report, regions);
@@ -216,6 +220,49 @@ public class HeuristicLayoutAnalyzer : ILayoutAnalyzer
         formulaLines.Clear();
     }
 
+    private static void AddChartAndNumericRegions(
+        int pageNumber,
+        IReadOnlyList<string> lines,
+        ICollection<DocumentRegion> regions)
+    {
+        var numericLines = lines
+            .Where(line => NumericValueRegex.Matches(line).Count >= 2)
+            .Take(12)
+            .ToList();
+        if (numericLines.Count == 0)
+        {
+            return;
+        }
+
+        var chartSignals = numericLines.Count(line => ChartKeywordRegex.IsMatch(line))
+            + lines.Take(6).Count(line => ChartKeywordRegex.IsMatch(line));
+        var chartText = string.Join(Environment.NewLine, numericLines);
+        var hasExplicitScale = lines.Any(HasScaleOrAxisCue);
+
+        if (numericLines.Count >= 2 && (chartSignals > 0 || numericLines.Count >= 3))
+        {
+            regions.Add(CreateRegion(
+                pageNumber,
+                DocumentRegionTypes.ChartCandidate,
+                chartText,
+                rawText: chartText,
+                layoutConfidence: hasExplicitScale ? 0.76d : 0.58d,
+                needsReview: !hasExplicitScale,
+                reviewTags: hasExplicitScale
+                    ? new[] { "ChartCandidate", "NumericSeries" }
+                    : new[] { "ChartCandidate", "NumericSeries", "ScaleMissing", "NeedsReview" }));
+        }
+
+        regions.Add(CreateRegion(
+            pageNumber,
+            DocumentRegionTypes.NumericEvidence,
+            chartText,
+            rawText: chartText,
+            layoutConfidence: 0.64d,
+            needsReview: numericLines.Any(LooksLikeFormulaLine),
+            reviewTags: new[] { "NumericEvidence" }));
+    }
+
     private static void AddDiagramRegions(
         int pageNumber,
         IReadOnlyList<string> lines,
@@ -225,6 +272,16 @@ public class HeuristicLayoutAnalyzer : ILayoutAnalyzer
         if (diagramLines.Count > 0)
         {
             regions.Add(CreateRegion(pageNumber, DocumentRegionTypes.DiagramCandidate, string.Join(Environment.NewLine, diagramLines)));
+            if (diagramLines.Any(line => TimelineKeywordRegex.IsMatch(line) || CountArrowTokens(line) >= 2))
+            {
+                regions.Add(CreateRegion(
+                    pageNumber,
+                    DocumentRegionTypes.ProcessCandidate,
+                    string.Join(Environment.NewLine, diagramLines.Take(6)),
+                    rawText: string.Join(Environment.NewLine, diagramLines),
+                    layoutConfidence: 0.72d,
+                    reviewTags: new[] { "ProcessOrTimeline" }));
+            }
         }
     }
 
@@ -465,6 +522,21 @@ public class HeuristicLayoutAnalyzer : ILayoutAnalyzer
             || trimmed.Contains('\u2193')
             || trimmed.Contains('\u2191');
     }
+
+    private static bool HasScaleOrAxisCue(string line)
+    {
+        var lowered = line.ToLowerInvariant();
+        return lowered.Contains("axis", StringComparison.Ordinal)
+            || lowered.Contains("scale", StringComparison.Ordinal)
+            || lowered.Contains("range", StringComparison.Ordinal)
+            || lowered.Contains("0%", StringComparison.Ordinal)
+            || lowered.Contains("100%", StringComparison.Ordinal)
+            || lowered.Contains("truc", StringComparison.Ordinal)
+            || lowered.Contains("thang", StringComparison.Ordinal);
+    }
+
+    private static int CountArrowTokens(string line)
+        => Regex.Matches(line, @"(?:->|=>|<-|<=|\u2192|\u21d2|\u2193|\u2191)").Count;
 
     private static int CountWords(string text)
         => WordRegex.Matches(text).Count;

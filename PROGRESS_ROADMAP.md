@@ -30,7 +30,7 @@ Cap nhat: 2026-04-18
 | Slide media pipeline | 55% | Da co image scaffold, refresh/select candidate, nhung thong diep va code van cho phase tiep theo |
 | Game modes mo rong | 25% | Moi co quiz + flashcards, chua co streak / match pairs / weakness mode |
 | Slide templates san de demo nhanh | 45% | Da co theme/brief picker, nhung chua thanh bo template demo dung nghia |
-| Reliability / production hardening | 35% | Van in-memory job store, `Task.Run`, `demo-user`, chua co test he thong |
+| Reliability / production hardening | 35% | Van in-memory job store, `Task.Run`, legacy hardcoded identity copy, chua co test he thong |
 
 ## 3. Trang thai chi tiet
 
@@ -90,7 +90,7 @@ Cap nhat: 2026-04-18
   - `Match Pairs`
   - `Weakness Mode`
 - Auth that su:
-  - frontend van dung `demo-user`
+  - runtime da co auth/JWT; mot so copy/docs cu van can duoc chuan hoa khoi hardcoded identity wording
   - settings page moi la placeholder
 - Reliability:
   - job store van in-memory
@@ -146,7 +146,7 @@ Muc tieu: noi backend cho cac nut da dat san.
 Muc tieu: giam no ky thuat va san sang mo rong.
 
 - Chuyen job state sang persistent store
-- Bo `demo-user`, them auth / ownership
+- Hoan thien auth / ownership va hardcoded identity cleanup
 - Them logging va health checks ro rang
 - Them smoke test / integration test cho:
   - upload -> processed

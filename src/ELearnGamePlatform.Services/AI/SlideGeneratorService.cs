@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Core.Models;
 using ELearnGamePlatform.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
@@ -363,6 +364,9 @@ Document analysis:
 Section summaries:
 {BuildSectionPlanBlock(sectionPlans)}
 
+Presentation extraction contract:
+{BuildPresentationContractBlock(processedContent?.PresentationContract)}
+
 Requirements:
 1. Return one JSON object only.
 2. Write visible text in Vietnamese with proper diacritics.
@@ -378,11 +382,13 @@ Requirements:
 12. If mode=summary, prioritize concise synthesis and retention.
 13. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
 14. If mode=timeline, emphasize chronology, turning points, and period transitions.
+15. Use rhythm, visualRole, chartIntent, and needsChartReview when the contract suggests them.
 
 Return JSON:
 {{
   ""title"": ""ten deck"",
   ""subtitle"": ""mo ta ngan"",
+  ""presentationContractVersion"": ""{PresentationExtractionContract.CurrentVersion}"",
   ""themeKey"": ""editorial-sunrise"",
   ""slides"": [
     {{
@@ -392,7 +398,11 @@ Return JSON:
       ""subheading"": ""phu de"",
       ""goal"": ""muc tieu ngan"",
       ""keyMessage"": ""mot y chinh ro rang"",
-      ""preferredChunkIds"": [""C01""]
+      ""preferredChunkIds"": [""C01""],
+      ""rhythm"": ""dense"",
+      ""visualRole"": ""process"",
+      ""chartIntent"": ""bar_chart"",
+      ""needsChartReview"": false
     }}
   ]
 }}";
@@ -420,6 +430,12 @@ SOURCE_TEXT:
 Relevant sections:
 {BuildRelevantSectionPlanBlock(sectionPlans, outlineSlide.PreferredChunkIds)}
 
+Presentation guidance:
+- rhythm: {outlineSlide.Rhythm ?? "dense"}
+- visualRole: {outlineSlide.VisualRole ?? "none"}
+- chartIntent: {outlineSlide.ChartIntent ?? "none"}
+- needsChartReview: {outlineSlide.NeedsChartReview}
+
 Requirements:
 - Use only information from SOURCE_TEXT.
 - Do not add outside knowledge.
@@ -431,6 +447,7 @@ Requirements:
 - Body blocks must be short and concrete.
 - Keep the content inside the selected section scope and preserve the local teaching sequence of that chapter/section.
 - For lecture mode, explain like a teacher guiding learners through a chapter, not like a generic summary.
+- If needsChartReview=true, do not invent exact chart geometry or unsupported numeric claims; mention review in verifier issues if needed.
 
 Return JSON:
 {{
@@ -475,7 +492,11 @@ Return JSON:
                 Subheading = NormalizeLine(raw.Subheading, 200),
                 Goal = NormalizeLine(raw.Goal, 180) ?? BuildLessonGoal(slides.Count, heading),
                 KeyMessage = NormalizeLine(raw.KeyMessage, 220),
-                PreferredChunkIds = NormalizePreferredChunkIds(raw.PreferredChunkIds, chunks, slides.Count)
+                PreferredChunkIds = NormalizePreferredChunkIds(raw.PreferredChunkIds, chunks, slides.Count),
+                Rhythm = NormalizeRhythm(raw.Rhythm),
+                VisualRole = NormalizeLine(raw.VisualRole, 80),
+                ChartIntent = NormalizeLine(raw.ChartIntent, 120),
+                NeedsChartReview = raw.NeedsChartReview
             });
         }
 
@@ -484,6 +505,7 @@ Return JSON:
             return BuildFallbackOutline(processedContent, brief, chunks, targetCount);
         }
 
+        ApplyPresentationContractHints(slides, processedContent?.PresentationContract);
         ApplyNarrativeRhythm(slides);
         slides = RebalanceSlidesForPrimarySections(slides, chunks);
 
@@ -510,7 +532,11 @@ Return JSON:
                     Subheading = fallbackSlide.Subheading,
                     Goal = fallbackSlide.Goal,
                     KeyMessage = fallbackSlide.KeyMessage,
-                    PreferredChunkIds = fallbackSlide.PreferredChunkIds
+                    PreferredChunkIds = fallbackSlide.PreferredChunkIds,
+                    Rhythm = fallbackSlide.Rhythm,
+                    VisualRole = fallbackSlide.VisualRole,
+                    ChartIntent = fallbackSlide.ChartIntent,
+                    NeedsChartReview = fallbackSlide.NeedsChartReview
                 });
             }
         }
@@ -520,6 +546,7 @@ Return JSON:
             Title = NormalizeLine(draft.Title, 160) ?? processedContent?.MainTopics.FirstOrDefault() ?? slides[0].Heading,
             Subtitle = NormalizeLine(draft.Subtitle, 260) ?? brief?.NarrativeGoal ?? processedContent?.Summary ?? "Bo slide duoc sinh tu tai lieu upload.",
             ThemeKey = NormalizeThemeKey(string.IsNullOrWhiteSpace(draft.ThemeKey) ? brief?.ThemeKey : draft.ThemeKey),
+            PresentationContractVersion = processedContent?.PresentationContract?.Version ?? NormalizeLine(draft.PresentationContractVersion, 80),
             Brief = NormalizeBrief(brief),
             Slides = slides.Take(targetCount).ToList()
         };
@@ -554,6 +581,10 @@ Return JSON:
                 ?? NormalizeLine(BuildBodyBlockSpeakerNotes(sourceBlocks), 520)
                 ?? BuildSpeakerNotes(outlineSlide, evidence),
             AccentTone = NormalizeAccentTone(draft?.AccentTone, brief, outlineSlide.SlideType),
+            Rhythm = outlineSlide.Rhythm,
+            VisualRole = outlineSlide.VisualRole,
+            ChartIntent = outlineSlide.ChartIntent,
+            NeedsChartReview = outlineSlide.NeedsChartReview,
             SuggestedStatus = SlideItemStatus.Completed,
             UsedFallback = false
         };
@@ -1184,6 +1215,14 @@ Return JSON only:
                     .ToList());
         }
 
+        StampPresentationDebug(content, evidence);
+
+        if (content.NeedsChartReview)
+        {
+            mergedIssues.Add("Chart evidence needs review before using exact axis, scale, or numeric geometry.");
+            content.VerifierScore = Math.Min(content.VerifierScore ?? 80, 80);
+        }
+
         content.VerifierIssues = mergedIssues;
     }
 
@@ -1576,7 +1615,7 @@ Return JSON only:
 
         content.VerifierScore = Math.Clamp(score, 0, 100);
         content.VerifierIssues = warnings;
-        content.EvidenceDebug = BuildEvidenceDebugMetadata(evidence);
+        StampPresentationDebug(content, evidence);
     }
 
     private static SlideEvidenceDebugMetadata BuildEvidenceDebugMetadata(IReadOnlyCollection<DocumentChunk> evidence)
@@ -1595,6 +1634,56 @@ Return JSON only:
                 })
                 .ToList()
         };
+    }
+
+    private static void StampPresentationDebug(SlideContentResult content, IReadOnlyCollection<DocumentChunk> evidence)
+    {
+        content.EvidenceDebug ??= BuildEvidenceDebugMetadata(evidence);
+        content.EvidenceDebug.Rhythm = NormalizeRhythm(content.Rhythm);
+        content.EvidenceDebug.VisualRole = NormalizeLine(content.VisualRole, 80);
+        content.EvidenceDebug.ChartIntent = NormalizeLine(content.ChartIntent, 120);
+        content.EvidenceDebug.NeedsChartReview = content.NeedsChartReview;
+        content.EvidenceDebug.GroundingConfidence = evidence.Count == 0
+            ? 0d
+            : Math.Round(evidence.Average(chunk => Math.Clamp(chunk.TeachabilityScore / 100d, 0d, 1d)), 3);
+        var verifierScore = content.VerifierScore ?? 0;
+        content.EvidenceDebug.GroundingStatus = content.NeedsChartReview || verifierScore < 70
+            ? "needs-review"
+            : content.EvidenceDebug.GroundingConfidence >= 0.72d
+                ? "good"
+                : "weak";
+        content.EvidenceDebug.ReviewWarnings = content.VerifierIssues
+            .Where(issue => !string.IsNullOrWhiteSpace(issue))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+        content.EvidenceDebug.SuggestedActions = BuildSlideDebugActions(content);
+    }
+
+    private static List<string> BuildSlideDebugActions(SlideContentResult content)
+    {
+        var actions = new List<string>();
+        if (content.BodyBlocks.Count >= 4 || string.Equals(content.Rhythm, "dense", StringComparison.OrdinalIgnoreCase))
+        {
+            actions.Add("split-dense-slide");
+        }
+
+        if (!string.IsNullOrWhiteSpace(content.ChartIntent))
+        {
+            actions.Add(content.NeedsChartReview ? "remove-unsupported-chart-numbers" : "use-chart");
+        }
+
+        if (string.Equals(content.VisualRole, "process", StringComparison.OrdinalIgnoreCase))
+        {
+            actions.Add("convert-to-process");
+        }
+
+        if ((content.VerifierScore ?? 0) < 70)
+        {
+            actions.Add("review-weak-evidence");
+        }
+
+        return actions.Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList();
     }
 
     private static bool LooksLikeFileName(string? value)
@@ -1945,6 +2034,7 @@ Return JSON only:
                 PreferredChunkIds = new List<string> { chunk.ChunkId }
             });
         }
+        ApplyPresentationContractHints(slides, processedContent?.PresentationContract);
         ApplyNarrativeRhythm(slides);
         slides = RebalanceSlidesForPrimarySections(slides, chunks);
 
@@ -1953,6 +2043,7 @@ Return JSON only:
             Title = BuildLessonTitle(processedContent, brief),
             Subtitle = BuildLessonSubtitle(processedContent, brief) ?? "Bài giảng ngắn được tạo từ các ý chính trong tài liệu.",
             ThemeKey = NormalizeThemeKey(brief?.ThemeKey),
+            PresentationContractVersion = processedContent?.PresentationContract?.Version,
             Brief = NormalizeBrief(brief),
             Slides = slides.Take(targetCount).ToList()
         };
@@ -1996,6 +2087,10 @@ Return JSON only:
                 ?? "Khong du du kien grounded",
             SpeakerNotes = BuildSpeakerNotes(outlineSlide, evidence),
             AccentTone = NormalizeAccentTone(null, brief, outlineSlide.SlideType),
+            Rhythm = outlineSlide.Rhythm,
+            VisualRole = outlineSlide.VisualRole,
+            ChartIntent = outlineSlide.ChartIntent,
+            NeedsChartReview = outlineSlide.NeedsChartReview,
             SuggestedStatus = SlideItemStatus.NeedsReview,
             UsedFallback = true
         };
@@ -2157,6 +2252,54 @@ Return JSON only:
             .Take(6);
 
         return $"- Language: {processedContent.Language}\n- Document type: {processedContent.DocumentType}\n- Title: {processedContent.Title}\n- Main content start page: {processedContent.MainContentStartPage}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
+    }
+
+    private static string BuildPresentationContractBlock(PresentationExtractionContract? contract)
+    {
+        if (contract == null)
+        {
+            return "- No presentation extraction contract. Use coverage map only.";
+        }
+
+        var sections = contract.SectionPlan
+            .Take(PromptCoverageChunkLimit)
+            .Select(section => $"- section={NormalizeLine(section.SectionId, 60) ?? "unknown"} | heading={NormalizeLine(section.Heading, 90) ?? "unknown"} | rhythm={NormalizeRhythm(section.Rhythm)} | role={NormalizeLine(section.TeachingRole, 80) ?? "explanation"} | evidence={NormalizeLine(section.EvidenceSummary, 140) ?? "none"}");
+        var affordances = contract.SlideAffordances
+            .Take(8)
+            .Select(item => $"- section={NormalizeLine(item.SectionId, 60) ?? "unknown"} | layout={NormalizeLine(item.SuggestedLayout, 60) ?? "content"} | rhythm={NormalizeRhythm(item.Rhythm)} | visualRole={NormalizeLine(item.VisualRole, 60) ?? "none"} | chartIntent={NormalizeLine(item.ChartIntent, 80) ?? "none"} | density={NormalizeLine(item.Density, 40) ?? "medium"} | slideability={item.SlideabilityScore:0.###} | actions={string.Join(",", item.SuggestedQuickActions.Take(4))}");
+        var grounding = contract.SourceGrounding
+            .Take(8)
+            .Select(item => $"- section={NormalizeLine(item.SectionId, 60) ?? "unknown"} | chunks={string.Join(",", item.ChunkIds.Take(5))} | pages={string.Join(",", item.PageNumbers.Take(5))} | confidence={item.Confidence:0.###} | missing={string.Join(";", item.MissingEvidenceWarnings.Take(3))} | evidence={NormalizeLine(item.EvidenceExcerpt, 140) ?? "none"}");
+        var visuals = contract.VisualOpportunities
+            .Take(6)
+            .Select(visual => $"- page={visual.PageNumber} | section={NormalizeLine(visual.SectionId, 60) ?? "unknown"} | visualRole={NormalizeLine(visual.VisualRole, 60) ?? "conceptual"} | rendering={NormalizeLine(visual.ImageRendering, 60) ?? "vector-illustration"} | palette={NormalizeLine(visual.ImagePalette, 60) ?? "academic-blue"} | review={visual.NeedsReview} | evidence={NormalizeLine(visual.EvidenceText, 140) ?? "none"}");
+        var charts = contract.ChartCandidates
+            .Take(6)
+            .Select(chart => $"- page={chart.PageNumber} | section={NormalizeLine(chart.SectionId, 60) ?? "unknown"} | chartIntent={NormalizeLine(chart.ChartType, 80) ?? "chart"} | needsReview={chart.NeedsReview} | reason={NormalizeLine(chart.ReviewReason, 120) ?? "none"} | evidence={NormalizeLine(chart.EvidenceText, 160) ?? "none"}");
+        var warnings = contract.Warnings.Take(6).Select(warning => $"- {NormalizeLine(warning, 160)}");
+        var hints = contract.UxReviewHints
+            .Take(8)
+            .Select(hint => $"- severity={NormalizeLine(hint.Severity, 40) ?? "medium"} | type={NormalizeLine(hint.HintType, 80) ?? "review"} | page={hint.PageNumber} | section={NormalizeLine(hint.SectionId, 60) ?? "unknown"} | action={NormalizeLine(hint.SuggestedAction, 140) ?? "review"} | message={NormalizeLine(hint.Message, 160) ?? "review"}");
+
+        return $@"- Contract version: {contract.Version}
+- Source summary: {NormalizeLine(contract.SourceSummary, 240) ?? "none"}
+- Audience: level={NormalizeLine(contract.AudienceProfile.Level, 60) ?? "introductory"}; readingDifficulty={NormalizeLine(contract.AudienceProfile.ReadingDifficulty, 60) ?? "medium"}; jargon={string.Join(", ", contract.AudienceProfile.JargonTerms.Take(8))}
+- Flow opening: {NormalizeLine(contract.PresentationFlow.SuggestedOpening, 180) ?? "none"}
+- Metrics: sections={contract.QualityMetrics.SectionCount}; visuals={contract.QualityMetrics.VisualOpportunityCount}; charts={contract.QualityMetrics.ChartCandidateCount}; reviewOnly={contract.QualityMetrics.ReviewOnlyEvidenceCount}; uxHints={contract.QualityMetrics.UxReviewHintCount}; dense={contract.QualityMetrics.DenseSectionCount}; slideability={contract.QualityMetrics.AverageSlideabilityScore:0.###}; confidence={contract.QualityMetrics.ExtractionConfidence:0.###}
+Sections:
+{string.Join("\n", sections.DefaultIfEmpty("- none"))}
+Slide affordances:
+{string.Join("\n", affordances.DefaultIfEmpty("- none"))}
+Source grounding:
+{string.Join("\n", grounding.DefaultIfEmpty("- none"))}
+Visual opportunities:
+{string.Join("\n", visuals.DefaultIfEmpty("- none"))}
+Chart candidates:
+{string.Join("\n", charts.DefaultIfEmpty("- none"))}
+UX review hints:
+{string.Join("\n", hints.DefaultIfEmpty("- none"))}
+Warnings:
+{string.Join("\n", warnings.DefaultIfEmpty("- none"))}";
     }
 
     private static string BuildBriefBlock(SlideDeckBrief? brief)
@@ -2390,6 +2533,14 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
 #pragma warning restore CS0162
     }
 
+    private static string NormalizeRhythm(string? rhythm)
+    {
+        var normalized = NormalizeLine(rhythm, 40)?.ToLowerInvariant();
+        return normalized is "anchor" or "dense" or "breathing"
+            ? normalized
+            : "dense";
+    }
+
     private static List<DocumentChunk> SelectEvidenceChunks(List<DocumentChunk> chunks, SlideOutlineSlide outlineSlide)
     {
         if (!chunks.Any())
@@ -2462,7 +2613,7 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             return SlideItemStatus.Failed;
         }
 
-        if (content.UsedFallback || HasBadVisibleSlideArtifacts(content))
+        if (content.NeedsChartReview || content.UsedFallback || HasBadVisibleSlideArtifacts(content))
         {
             return SlideItemStatus.NeedsReview;
         }
@@ -2745,6 +2896,67 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         for (var index = 0; index < slides.Count; index++)
         {
             slides[index].SlideIndex = index + 1;
+        }
+    }
+
+    private static void ApplyPresentationContractHints(List<SlideOutlineSlide> slides, PresentationExtractionContract? contract)
+    {
+        if (contract == null || slides.Count == 0)
+        {
+            foreach (var slide in slides)
+            {
+                slide.Rhythm = NormalizeRhythm(slide.Rhythm);
+            }
+
+            return;
+        }
+
+        var sectionHints = contract.SectionPlan
+            .SelectMany(section => section.PreferredChunkIds.DefaultIfEmpty(section.SectionId)
+                .Select(chunkId => new { ChunkId = chunkId, Section = section }))
+            .Where(item => !string.IsNullOrWhiteSpace(item.ChunkId))
+            .GroupBy(item => item.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().Section, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var slide in slides)
+        {
+            var section = slide.PreferredChunkIds
+                .Select(chunkId => sectionHints.TryGetValue(chunkId, out var match) ? match : null)
+                .FirstOrDefault(match => match != null);
+
+            if (section != null)
+            {
+                slide.Rhythm = string.IsNullOrWhiteSpace(slide.Rhythm) ? section.Rhythm : slide.Rhythm;
+            }
+
+            var affordance = contract.SlideAffordances.FirstOrDefault(item =>
+                section != null && string.Equals(item.SectionId, section.SectionId, StringComparison.OrdinalIgnoreCase));
+            if (affordance != null)
+            {
+                slide.Rhythm = string.IsNullOrWhiteSpace(slide.Rhythm) ? affordance.Rhythm : slide.Rhythm;
+                slide.VisualRole = string.IsNullOrWhiteSpace(slide.VisualRole) ? affordance.VisualRole : slide.VisualRole;
+                slide.ChartIntent = string.IsNullOrWhiteSpace(slide.ChartIntent) ? affordance.ChartIntent : slide.ChartIntent;
+                slide.NeedsChartReview = slide.NeedsChartReview
+                    || string.Equals(affordance.SuggestedLayout, "chart-review", StringComparison.OrdinalIgnoreCase)
+                    || affordance.SuggestedQuickActions.Any(action => action.Contains("unsupported-chart", StringComparison.OrdinalIgnoreCase));
+            }
+
+            var visual = contract.VisualOpportunities.FirstOrDefault(item =>
+                section != null && string.Equals(item.SectionId, section.SectionId, StringComparison.OrdinalIgnoreCase));
+            if (visual != null)
+            {
+                slide.VisualRole = string.IsNullOrWhiteSpace(slide.VisualRole) ? visual.VisualRole : slide.VisualRole;
+            }
+
+            var chart = contract.ChartCandidates.FirstOrDefault(item =>
+                section != null && string.Equals(item.SectionId, section.SectionId, StringComparison.OrdinalIgnoreCase));
+            if (chart != null)
+            {
+                slide.ChartIntent = string.IsNullOrWhiteSpace(slide.ChartIntent) ? chart.ChartType : slide.ChartIntent;
+                slide.NeedsChartReview = slide.NeedsChartReview || chart.NeedsReview;
+            }
+
+            slide.Rhythm = NormalizeRhythm(slide.Rhythm);
         }
     }
 
@@ -3093,6 +3305,7 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         public string? Title { get; set; }
         public string? Subtitle { get; set; }
         public string? ThemeKey { get; set; }
+        public string? PresentationContractVersion { get; set; }
         public List<SlideOutlineSlideDraft>? Slides { get; set; }
     }
 
@@ -3105,6 +3318,10 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         public string? Goal { get; set; }
         public string? KeyMessage { get; set; }
         public List<string>? PreferredChunkIds { get; set; }
+        public string? Rhythm { get; set; }
+        public string? VisualRole { get; set; }
+        public string? ChartIntent { get; set; }
+        public bool NeedsChartReview { get; set; }
     }
 
     private sealed class SlideContentDraft

@@ -69,6 +69,45 @@ public class SlideImagePlannerServiceTests
     }
 
     [Fact]
+    public async Task PlanAsync_UsesPresentationContractMetadataInPromptAndPlan()
+    {
+        var ollama = new QueueOllamaService("""
+{
+  "needsImage": true,
+  "reason": "The contract suggests a review-safe chart visual.",
+  "visualRole": "diagram",
+  "imageRendering": "diagrammatic-illustration",
+  "imagePalette": "neutral-review",
+  "sourceEvidence": "Accuracy values are present but axis scale is missing.",
+  "generationPrompt": "Create a 16:9 academic presentation slide illustration showing an abstract review-safe chart diagram with connected evidence cards and no readable text.",
+  "negativePrompt": "No readable text, no logos, no watermark.",
+  "altText": "Review-safe chart diagram.",
+  "searchQueries": []
+}
+""");
+        var planner = CreatePlanner(ollama);
+        var item = CreateSlideItem(SlideItemType.Stat, new[] { "Accuracy 0.91", "Recall 0.84" });
+        item.EvidenceFromText = "Accuracy and recall values were extracted, but the chart axis scale is missing.";
+        item.SetEvidenceDebug(new SlideEvidenceDebugMetadata
+        {
+            Rhythm = "dense",
+            VisualRole = "diagram",
+            ChartIntent = "bar_chart",
+            NeedsChartReview = true
+        });
+
+        var plan = await planner.PlanAsync(item);
+
+        Assert.Contains("visualRole=diagram", ollama.LastPrompt);
+        Assert.Contains("chartIntent=bar_chart", ollama.LastPrompt);
+        Assert.Contains("needsChartReview=True", ollama.LastPrompt);
+        Assert.Contains("axis scale is missing", ollama.LastPrompt);
+        Assert.Equal("diagrammatic-illustration", plan.ImageRendering);
+        Assert.Equal("neutral-review", plan.ImagePalette);
+        Assert.Contains("axis scale", plan.SourceEvidence);
+    }
+
+    [Fact]
     public async Task PlanAsync_InvalidPromptRepairsOnceThenFallsBackToInvalidPlan()
     {
         var ollama = new QueueOllamaService(
@@ -351,9 +390,13 @@ public class SlideImagePlannerServiceTests
         }
 
         public int StructuredCallCount { get; private set; }
+        public string LastPrompt { get; private set; } = string.Empty;
 
         public Task<string> GenerateResponseAsync(string prompt, string? systemPrompt = null, OllamaModelProfile profile = OllamaModelProfile.Generation)
-            => Task.FromResult(_responses.Dequeue());
+        {
+            LastPrompt = prompt;
+            return Task.FromResult(_responses.Dequeue());
+        }
 
         public async Task<T?> GenerateStructuredResponseAsync<T>(string prompt, string? systemPrompt = null, OllamaModelProfile profile = OllamaModelProfile.Generation) where T : class
         {

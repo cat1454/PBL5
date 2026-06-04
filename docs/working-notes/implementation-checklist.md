@@ -1,5 +1,7 @@
 # Implementation Checklist: Slide System
 
+Historical note: this working note predates the workspace-first route pivot. Treat `/documents` references below as legacy design context; the active public surfaces are `/workspaces`, `/workspaces/:workspaceId`, and `/slides/:documentId`.
+
 Tai lieu nay bien `design.md` thanh checklist co the implement theo pha. Muc tieu la giao hang tung buoc, tranh mo rong pham vi qua som, va giu frontend/backend di cung mot huong.
 
 ## Phase 1 - UI scaffolding an toan voi backend hien tai
@@ -14,7 +16,7 @@ Checklist:
 
 - [x] Tao checklist implementation tach rieng khoi `design.md`
 - [x] Tao utility normalize `slide image state`, `selected image`, `image candidates`
-- [x] Hien image badge + media placeholder trong `DocumentList.js`
+- [x] Hien image badge + media placeholder trong legacy document-list screen
 - [x] Hien media block + candidate tray scaffold trong `SlideStudio.js`
 - [x] Them CSS cho image shell, source badge, attribution, candidate tray
 - [x] Chay sanity check frontend sau khi sua

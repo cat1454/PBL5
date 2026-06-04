@@ -49,7 +49,7 @@ PBL5 là MVP `.NET + React` cho ingest tài liệu, OCR, AI analysis, question g
 
 - Dùng `.local-agent-rules/*.md` như lớp hướng dẫn chi tiết bổ sung.
 - Luôn xem `ECC/` như thư mục tham chiếu mặc định để tối ưu workflow, skill, rule, MCP, prompt, và agent pattern trước khi làm task đáng kể.
-- Khi dùng `ECC/`, chỉ áp dụng có chọn lọc phần phù hợp với repo hiện tại; không copy nguyên xi rule, hook, installer, global config, package, hoặc credential nếu user chưa yêu cầu rõ.
+- Khi dùng `ECC/`, có thể copy hoặc chuyển đổi phần hữu ích nếu task cần, nhưng phải đi qua lớp adapter PBL5 trong `docs/agent/ECC_ADAPTER_POLICY.md`: giữ stack `.NET + React + PostgreSQL + Ollama`, kiểm tra API/persisted/frontend consumer, và không copy nguyên installer, hook, global config, MCP config, package, credential, hoặc runtime external trái scope.
 - Nếu rule local mâu thuẫn với `AGENTS.md` hoặc source runtime hiện tại, ưu tiên `AGENTS.md` và code.
 - Sau mỗi task có thay đổi đáng kể, append `.local-agent-rules/CHANGELOG.md` và giữ file này local-only.
 
@@ -58,3 +58,4 @@ PBL5 là MVP `.NET + React` cho ingest tài liệu, OCR, AI analysis, question g
 - Bối cảnh dự án: `docs/agent/PROJECT_CONTEXT.md`
 - Chỉ mục skill: `docs/agent/SKILL_INDEX.md`
 - Rule chọn skill: `docs/agent/SKILL_SELECTION_RULES.md`
+- Adapter policy cho ECC: `docs/agent/ECC_ADAPTER_POLICY.md`

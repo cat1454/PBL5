@@ -5,7 +5,7 @@ const STATUS_TONES = {
   ExtractionFailed: 'failed',
 };
 
-const FIGURE_REGION_TYPES = new Set(['FigureCandidate', 'DiagramCandidate']);
+const FIGURE_REGION_TYPES = new Set(['FigureCandidate', 'DiagramCandidate', 'ProcessCandidate', 'ChartCandidate']);
 const FAILED_STATUSES = new Set(['ExtractionFailed', 'Rejected', 'Failed', 'Error']);
 const REVIEW_STATUSES = new Set(['NeedsReview', 'AcceptedWithWarnings', 'SummaryOnlyRecommended']);
 const GOOD_STATUSES = new Set(['AutoGenerateAllowed', 'Accepted', 'Good']);
@@ -126,6 +126,112 @@ function normalizePages(result) {
   }));
 }
 
+function normalizePresentationContract(result) {
+  const contract = read(result, 'presentationContract', 'PresentationContract');
+  if (!contract || typeof contract !== 'object') {
+    return null;
+  }
+
+  const metrics = read(contract, 'qualityMetrics', 'QualityMetrics') || {};
+  const audienceProfile = read(contract, 'audienceProfile', 'AudienceProfile') || {};
+  const presentationFlow = read(contract, 'presentationFlow', 'PresentationFlow') || {};
+  const chartCandidates = asArray(read(contract, 'chartCandidates', 'ChartCandidates')).map((chart) => ({
+    pageNumber: read(chart, 'pageNumber', 'PageNumber'),
+    sectionId: read(chart, 'sectionId', 'SectionId') || '',
+    chartType: read(chart, 'chartType', 'ChartType') || 'chart',
+    evidenceText: read(chart, 'evidenceText', 'EvidenceText') || '',
+    hasExplicitScale: Boolean(read(chart, 'hasExplicitScale', 'HasExplicitScale')),
+    hasNumericSeries: Boolean(read(chart, 'hasNumericSeries', 'HasNumericSeries')),
+    needsReview: Boolean(read(chart, 'needsReview', 'NeedsReview')),
+    reviewReason: read(chart, 'reviewReason', 'ReviewReason') || '',
+  }));
+  const visualOpportunities = asArray(read(contract, 'visualOpportunities', 'VisualOpportunities')).map((visual) => ({
+    pageNumber: read(visual, 'pageNumber', 'PageNumber'),
+    sectionId: read(visual, 'sectionId', 'SectionId') || '',
+    visualRole: read(visual, 'visualRole', 'VisualRole') || 'conceptual',
+    evidenceText: read(visual, 'evidenceText', 'EvidenceText') || '',
+    imageRendering: read(visual, 'imageRendering', 'ImageRendering') || '',
+    imagePalette: read(visual, 'imagePalette', 'ImagePalette') || '',
+    needsReview: Boolean(read(visual, 'needsReview', 'NeedsReview')),
+    reviewReason: read(visual, 'reviewReason', 'ReviewReason') || '',
+  }));
+  const sectionPlan = asArray(read(contract, 'sectionPlan', 'SectionPlan')).map((section) => ({
+    sectionId: read(section, 'sectionId', 'SectionId') || '',
+    heading: read(section, 'heading', 'Heading') || '',
+    startPage: read(section, 'startPage', 'StartPage'),
+    endPage: read(section, 'endPage', 'EndPage'),
+    rhythm: read(section, 'rhythm', 'Rhythm') || 'dense',
+    teachingRole: read(section, 'teachingRole', 'TeachingRole') || '',
+    preferredChunkIds: asArray(read(section, 'preferredChunkIds', 'PreferredChunkIds')),
+    evidenceSummary: read(section, 'evidenceSummary', 'EvidenceSummary') || '',
+  }));
+  const slideAffordances = asArray(read(contract, 'slideAffordances', 'SlideAffordances')).map((affordance) => ({
+    sectionId: read(affordance, 'sectionId', 'SectionId') || '',
+    pageNumber: read(affordance, 'pageNumber', 'PageNumber'),
+    suggestedLayout: read(affordance, 'suggestedLayout', 'SuggestedLayout') || 'content',
+    rhythm: read(affordance, 'rhythm', 'Rhythm') || 'dense',
+    visualRole: read(affordance, 'visualRole', 'VisualRole') || 'none',
+    chartIntent: read(affordance, 'chartIntent', 'ChartIntent') || '',
+    density: read(affordance, 'density', 'Density') || 'medium',
+    slideabilityScore: asNumber(read(affordance, 'slideabilityScore', 'SlideabilityScore')),
+    suggestedQuickActions: asArray(read(affordance, 'suggestedQuickActions', 'SuggestedQuickActions')),
+  }));
+  const sourceGrounding = asArray(read(contract, 'sourceGrounding', 'SourceGrounding')).map((grounding) => ({
+    sectionId: read(grounding, 'sectionId', 'SectionId') || '',
+    chunkIds: asArray(read(grounding, 'chunkIds', 'ChunkIds')),
+    pageNumbers: asArray(read(grounding, 'pageNumbers', 'PageNumbers')).map(Number).filter(Number.isFinite),
+    confidence: asNumber(read(grounding, 'confidence', 'Confidence')),
+    evidenceExcerpt: read(grounding, 'evidenceExcerpt', 'EvidenceExcerpt') || '',
+    missingEvidenceWarnings: asArray(read(grounding, 'missingEvidenceWarnings', 'MissingEvidenceWarnings')),
+  }));
+  const uxReviewHints = asArray(read(contract, 'uxReviewHints', 'UxReviewHints')).map((hint) => ({
+    severity: read(hint, 'severity', 'Severity') || 'medium',
+    hintType: read(hint, 'hintType', 'HintType') || 'review',
+    pageNumber: read(hint, 'pageNumber', 'PageNumber'),
+    sectionId: read(hint, 'sectionId', 'SectionId') || '',
+    message: read(hint, 'message', 'Message') || '',
+    suggestedAction: read(hint, 'suggestedAction', 'SuggestedAction') || '',
+  })).filter((hint) => hint.message || hint.suggestedAction);
+  const warnings = uniqueStrings([
+    ...asArray(read(contract, 'warnings', 'Warnings')),
+    ...chartCandidates
+      .filter((chart) => chart.needsReview)
+      .map((chart) => chart.reviewReason || 'Chart candidate needs review'),
+  ]);
+
+  return {
+    version: read(contract, 'version', 'Version'),
+    sourceSummary: read(contract, 'sourceSummary', 'SourceSummary') || '',
+    audienceProfile: {
+      level: read(audienceProfile, 'level', 'Level') || '',
+      prerequisiteConcepts: asArray(read(audienceProfile, 'prerequisiteConcepts', 'PrerequisiteConcepts')),
+      jargonTerms: asArray(read(audienceProfile, 'jargonTerms', 'JargonTerms')),
+      readingDifficulty: read(audienceProfile, 'readingDifficulty', 'ReadingDifficulty') || '',
+    },
+    presentationFlow: {
+      suggestedOpening: read(presentationFlow, 'suggestedOpening', 'SuggestedOpening') || '',
+      transitionPoints: asArray(read(presentationFlow, 'transitionPoints', 'TransitionPoints')),
+      recapPoints: asArray(read(presentationFlow, 'recapPoints', 'RecapPoints')),
+      sectionToSlideMap: asArray(read(presentationFlow, 'sectionToSlideMap', 'SectionToSlideMap')),
+    },
+    sectionPlan,
+    visualOpportunities,
+    chartCandidates,
+    slideAffordances,
+    sourceGrounding,
+    uxReviewHints,
+    sectionCount: asNumber(read(metrics, 'sectionCount', 'SectionCount')) ?? sectionPlan.length,
+    visualCount: asNumber(read(metrics, 'visualOpportunityCount', 'VisualOpportunityCount')) ?? visualOpportunities.length,
+    chartCount: asNumber(read(metrics, 'chartCandidateCount', 'ChartCandidateCount')) ?? chartCandidates.length,
+    chartReviewCount: chartCandidates.filter((chart) => chart.needsReview).length,
+    reviewHintCount: asNumber(read(metrics, 'uxReviewHintCount', 'UxReviewHintCount')) ?? uxReviewHints.length,
+    denseSectionCount: asNumber(read(metrics, 'denseSectionCount', 'DenseSectionCount')) ?? slideAffordances.filter((item) => item.density === 'high').length,
+    averageSlideabilityScore: asNumber(read(metrics, 'averageSlideabilityScore', 'AverageSlideabilityScore')),
+    extractionConfidence: asNumber(read(metrics, 'extractionConfidence', 'ExtractionConfidence')),
+    warnings,
+  };
+}
+
 function normalizeStatus({ status, confidence, needsReview }) {
   if (FAILED_STATUSES.has(status)) {
     return 'ExtractionFailed';
@@ -171,6 +277,7 @@ export function normalizeDocumentUnderstanding(raw) {
   );
   const pages = normalizePages(result);
   const regions = collectRegions(result);
+  const presentation = normalizePresentationContract(result);
   const reviewRegions = regions.filter((region) => region.needsReview || region.uncertaintyReason || region.reviewTags.length > 0);
   const figureDescriptions = regions.filter((region) => FIGURE_REGION_TYPES.has(region.regionType) && (
     region.description || region.extractedLabels.length > 0 || region.relationships.length > 0
@@ -198,6 +305,7 @@ export function normalizeDocumentUnderstanding(raw) {
     regions,
     reviewRegions,
     figureDescriptions,
+    presentation,
     failureReasons,
     createdAt: read(latestRun, 'createdAt', 'CreatedAt'),
   };

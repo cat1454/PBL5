@@ -1,7 +1,6 @@
 using ELearnGamePlatform.API.Contracts;
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
-using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +17,7 @@ public class WorkspacesController : AuthenticatedControllerBase
     private readonly IDocumentProcessingJobStore _documentJobStore;
     private readonly IDocumentIngestionService _documentIngestionService;
     private readonly IWorkspaceService _workspaceService;
-    private readonly IDocumentGenerationReadinessService _generationReadinessService;
+    private readonly IWorkspacePayloadService _workspacePayloadService;
     private readonly ILogger<WorkspacesController> _logger;
 
     public WorkspacesController(
@@ -27,7 +26,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         IDocumentProcessingJobStore documentJobStore,
         IDocumentIngestionService documentIngestionService,
         IWorkspaceService workspaceService,
-        IDocumentGenerationReadinessService generationReadinessService,
+        IWorkspacePayloadService workspacePayloadService,
         ILogger<WorkspacesController> logger)
     {
         _folderProjectRepository = folderProjectRepository;
@@ -35,7 +34,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         _documentJobStore = documentJobStore;
         _documentIngestionService = documentIngestionService;
         _workspaceService = workspaceService;
-        _generationReadinessService = generationReadinessService;
+        _workspacePayloadService = workspacePayloadService;
         _logger = logger;
     }
 
@@ -59,7 +58,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             UploadedBy = CurrentUserIdAsString,
         });
 
-        return Ok(BuildWorkspacePayload(workspace));
+        return Ok(_workspacePayloadService.BuildWorkspacePayload(workspace));
     }
 
     [HttpGet("user/{userId}")]
@@ -76,7 +75,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         await _workspaceService.AttachOrphanDocumentsAsync(currentUserId, defaultWorkspace.Id);
 
         var workspaces = await _folderProjectRepository.GetByUserAsync(currentUserId);
-        var payload = workspaces.Select(BuildWorkspacePayload).ToList();
+        var payload = workspaces.Select(_workspacePayloadService.BuildWorkspacePayload).ToList();
         return Ok(payload);
     }
 
@@ -92,7 +91,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         var currentUserId = CurrentUserIdAsString;
         var workspace = await _workspaceService.EnsureDefaultWorkspaceAsync(currentUserId);
         await _workspaceService.AttachOrphanDocumentsAsync(currentUserId, workspace.Id);
-        return Ok(BuildWorkspacePayload(workspace));
+        return Ok(_workspacePayloadService.BuildWorkspacePayload(workspace));
     }
 
     [HttpGet("{id}")]
@@ -110,7 +109,7 @@ public class WorkspacesController : AuthenticatedControllerBase
             return authResult;
         }
 
-        return Ok(BuildWorkspacePayload(workspace));
+        return Ok(_workspacePayloadService.BuildWorkspacePayload(workspace));
     }
 
     [HttpDelete("{id}")]
@@ -171,7 +170,7 @@ public class WorkspacesController : AuthenticatedControllerBase
 
             return Ok(new
             {
-                source = await BuildSourcePayloadAsync(createdDocument, 0),
+                source = await _workspacePayloadService.BuildSourcePayloadAsync(createdDocument, 0),
                 workspaceId = id,
                 message = "Source uploaded successfully. Processing started.",
                 progressUrl = $"/api/documents/{createdDocument.Id}/progress",
@@ -203,13 +202,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         }
 
         var sources = await _documentRepository.GetByFolderProjectIdAsync(id);
-        var payload = new List<object>();
-        foreach (var source in sources)
-        {
-            payload.Add(await BuildSourcePayloadAsync(source, source.Questions.Count));
-        }
-
-        return Ok(payload);
+        return Ok(await _workspacePayloadService.BuildSourcePayloadsAsync(sources));
     }
 
     [HttpPut("{id}/sources/{sourceId}/slide-selection")]
@@ -232,99 +225,7 @@ public class WorkspacesController : AuthenticatedControllerBase
         await _documentRepository.UpdateAsync(source.Id, source);
         await _folderProjectRepository.TouchAsync(id);
 
-        return Ok(await BuildSourcePayloadAsync(source, source.Questions.Count));
-    }
-
-    private object BuildWorkspacePayload(FolderProject workspace)
-    {
-        var sources = (workspace.Documents ?? Array.Empty<Document>())
-            .OrderBy(source => source.FolderSourceOrder)
-            .ThenBy(source => source.CreatedAt)
-            .ToList();
-        var deck = (workspace.SlideDecks ?? Array.Empty<SlideDeck>())
-            .OrderByDescending(item => item.CreatedAt)
-            .FirstOrDefault();
-        var readySourceCount = sources.Count(source => source.Status == DocumentStatus.Completed);
-        var selectedSourceCount = sources.Count(source => source.IncludeInFolderSlides);
-        var latestDeckUpdatedAt = deck?.UpdatedAt ?? deck?.CompletedAt;
-        var isStale = deck != null && latestDeckUpdatedAt.HasValue && sources.Any(source =>
-            source.CreatedAt > latestDeckUpdatedAt.Value || source.UpdatedAt > latestDeckUpdatedAt.Value);
-
-        return new
-        {
-            id = workspace.Id,
-            name = workspace.Name,
-            description = workspace.Description,
-            uploadedBy = workspace.UploadedBy,
-            createdAt = workspace.CreatedAt,
-            updatedAt = workspace.UpdatedAt,
-            sourceCount = sources.Count,
-            readySourceCount,
-            selectedSourceCount,
-            isDefault = workspace.Name == _workspaceService.DefaultWorkspaceName,
-            latestDeck = deck == null
-                ? null
-                : new
-                {
-                    id = deck.Id,
-                    folderProjectId = deck.FolderProjectId,
-                    status = deck.Status.ToString(),
-                    title = deck.Title,
-                    subtitle = deck.Subtitle,
-                    slideCount = deck.Items?.Count ?? 0,
-                    updatedAt = deck.UpdatedAt,
-                    completedAt = deck.CompletedAt,
-                    isStale,
-                },
-        };
-    }
-
-    private async Task<object> BuildSourcePayloadAsync(Document source, int questionsCount)
-    {
-        _documentJobStore.TryGetJob(source.Id, out var progressState);
-        var metadata = source.GetProcessingMetadata();
-        var generationReadiness = source.Status == DocumentStatus.Completed
-            ? await _generationReadinessService.GetReadinessAsync(source)
-            : null;
-
-        return new
-        {
-            id = source.Id,
-            workspaceId = source.FolderProjectId,
-            folderProjectId = source.FolderProjectId,
-            fileName = source.FileName,
-            fileType = source.FileType,
-            filePath = source.FilePath,
-            fileSize = source.FileSize,
-            extractedText = source.ExtractedText,
-            mainTopics = source.GetMainTopics(),
-            keyPoints = source.GetKeyPoints(),
-            coverageChunkCount = source.GetCoverageMap().Count,
-            summary = source.Summary,
-            language = source.Language,
-            documentType = metadata.DocumentType,
-            title = metadata.Title,
-            mainContentStartPage = metadata.MainContentStartPage,
-            structure = metadata.Structure,
-            excludedContent = metadata.ExcludedContent,
-            isStructureReady = metadata.Structure?.Count > 0,
-            structureAnalysisStatus = source.Status == DocumentStatus.Completed
-                ? "ready"
-                : source.Status == DocumentStatus.Failed
-                    ? "failed"
-                    : "processing",
-            status = source.Status,
-            uploadedBy = source.UploadedBy,
-            createdAt = source.CreatedAt,
-            updatedAt = source.UpdatedAt,
-            includeInWorkspaceSlides = source.IncludeInFolderSlides,
-            includeInFolderSlides = source.IncludeInFolderSlides,
-            workspaceSourceOrder = source.FolderSourceOrder,
-            folderSourceOrder = source.FolderSourceOrder,
-            questionsCount,
-            generationReadiness,
-            processingProgress = JobProgressPayloadFactory.BuildDocument(progressState, source),
-        };
+        return Ok(await _workspacePayloadService.BuildSourcePayloadAsync(source, source.Questions.Count));
     }
 }
 

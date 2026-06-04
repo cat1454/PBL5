@@ -1,4 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  LuCircleCheck,
+  LuClock3,
+  LuEllipsis,
+  LuExternalLink,
+  LuFolderOpen,
+  LuPlus,
+  LuRefreshCw,
+  LuSearch,
+  LuTrash2,
+  LuX,
+} from 'react-icons/lu';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage, workspaceService } from '../services/api';
@@ -18,6 +30,10 @@ function FolderProjects() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortMode, setSortMode] = useState('updated');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -80,6 +96,21 @@ function FolderProjects() {
     return 'other';
   };
 
+  const getDeckStatusTone = (deck) => {
+    const key = getDeckStatusKey(deck);
+    if (key === 'ready') {
+      return ' ready';
+    }
+    if (key === 'stale' || key === 'failed') {
+      return ' stale';
+    }
+    if (key === 'generating') {
+      return ' generating';
+    }
+
+    return '';
+  };
+
   const loadFolders = useCallback(async () => {
     try {
       setError('');
@@ -114,6 +145,7 @@ function FolderProjects() {
         description: form.description.trim(),
       });
       setForm({ name: '', description: '' });
+      setCreateModalOpen(false);
       showToast({
         type: 'success',
         message: t('workspaces.feedback.created'),
@@ -128,13 +160,12 @@ function FolderProjects() {
   };
 
   const handleDelete = async (folderId) => {
-    if (!window.confirm(t('workspaces.confirmDelete'))) {
-      return;
-    }
-
     try {
       setActionError('');
+      setDeletingId(folderId);
       await workspaceService.remove(folderId);
+      setConfirmDeleteId(null);
+      setOpenMenuId(null);
       showToast({
         type: 'success',
         message: t('workspaces.feedback.deleted'),
@@ -143,6 +174,8 @@ function FolderProjects() {
     } catch (err) {
       console.error(err);
       setActionError(getApiErrorMessage(err, t('workspaces.errors.deleteFailed')));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -171,6 +204,54 @@ function FolderProjects() {
       });
   }, [folders, searchQuery, sortMode, statusFilter]);
 
+  const summaryMetrics = useMemo(() => {
+    return folders.reduce((summary, folder) => {
+      const deckKey = getDeckStatusKey(folder.latestDeck);
+      const sourceCount = Number(folder.sourceCount || 0);
+      const readySourceCount = Number(folder.readySourceCount || 0);
+
+      return {
+        totalWorkspaces: summary.totalWorkspaces + 1,
+        totalSources: summary.totalSources + sourceCount,
+        deckReady: summary.deckReady + (deckKey === 'ready' ? 1 : 0),
+        needsProcessing: summary.needsProcessing + (
+          !folder.latestDeck
+          || deckKey === 'stale'
+          || deckKey === 'generating'
+          || deckKey === 'failed'
+          || readySourceCount <= 0
+            ? 1
+            : 0
+        ),
+      };
+    }, {
+      totalWorkspaces: 0,
+      totalSources: 0,
+      deckReady: 0,
+      needsProcessing: 0,
+    });
+  }, [folders]);
+
+  const hasActiveFilters = searchQuery.trim().length > 0 || statusFilter !== 'all';
+  const getStatHelp = (key, count) => t(`workspaces.statsHelp.${key}`, { count: Number(count || 0) });
+  const openCreateModal = () => {
+    setFormError('');
+    setActionError('');
+    setCreateModalOpen(true);
+  };
+  const closeCreateModal = () => {
+    if (creating) {
+      return;
+    }
+    setFormError('');
+    setCreateModalOpen(false);
+  };
+  const resetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setSortMode('updated');
+  };
+
   if (loading) {
     return (
       <div className="loading">
@@ -182,45 +263,96 @@ function FolderProjects() {
 
   return (
     <div className="folders-page">
-      <section className="folders-hero card">
+      <section className="folders-hero card" aria-labelledby="workspaces-hub-title">
         <div className="folders-hero-copy">
-          <span className="folders-eyebrow">{t('workspaces.heroEyebrow')}</span>
-          <h2>{t('workspaces.heroTitle')}</h2>
+          <div className="folders-hero-head">
+            <span className="folders-eyebrow">{t('workspaces.heroEyebrow')}</span>
+            <button type="button" className="button folders-new-button" onClick={openCreateModal}>
+              <LuPlus aria-hidden="true" />
+              {t('workspaces.newWorkspace')}
+            </button>
+          </div>
+          <h2 id="workspaces-hub-title">{t('workspaces.heroTitle')}</h2>
           <p>{t('workspaces.heroBody')}</p>
-        </div>
 
-        <form className="folders-create-card" onSubmit={handleCreate}>
-          <strong>{t('workspaces.createTitle')}</strong>
-          <label className="folders-field-label">
-            <span>{t('workspaces.createNameLabel')}</span>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(event) => {
-                setFormError('');
-                setForm((current) => ({ ...current, name: event.target.value }));
-              }}
-              placeholder={t('workspaces.createNamePlaceholder')}
-            />
-          </label>
-          <label className="folders-field-label">
-            <span>{t('workspaces.createDescriptionLabel')}</span>
-            <textarea
-              rows={3}
-              value={form.description}
-              onChange={(event) => {
-                setFormError('');
-                setForm((current) => ({ ...current, description: event.target.value }));
-              }}
-              placeholder={t('workspaces.createDescriptionPlaceholder')}
-            />
-          </label>
-          {formError && <div className="alert alert-error">{formError}</div>}
-          <button type="submit" className="button" disabled={creating}>
-            {creating ? t('workspaces.creating') : t('workspaces.createButton')}
-          </button>
-        </form>
+          <div className="folders-summary-grid" aria-label={t('workspaces.summary.label')}>
+            <div className="folders-summary-card">
+              <span className="folders-summary-icon"><LuFolderOpen aria-hidden="true" /></span>
+              <strong>{summaryMetrics.totalWorkspaces}</strong>
+              <span>{t('workspaces.summary.workspaces')}</span>
+            </div>
+            <div className="folders-summary-card">
+              <span className="folders-summary-icon"><LuSearch aria-hidden="true" /></span>
+              <strong>{summaryMetrics.totalSources}</strong>
+              <span>{t('workspaces.summary.sources')}</span>
+            </div>
+            <div className="folders-summary-card is-ready">
+              <span className="folders-summary-icon"><LuCircleCheck aria-hidden="true" /></span>
+              <strong>{summaryMetrics.deckReady}</strong>
+              <span>{t('workspaces.summary.deckReady')}</span>
+            </div>
+            <div className="folders-summary-card is-attention">
+              <span className="folders-summary-icon"><LuClock3 aria-hidden="true" /></span>
+              <strong>{summaryMetrics.needsProcessing}</strong>
+              <span>{t('workspaces.summary.needsProcessing')}</span>
+            </div>
+          </div>
+        </div>
       </section>
+
+      {createModalOpen && (
+        <div className="folders-modal-backdrop" role="presentation" onMouseDown={closeCreateModal}>
+          <form
+            className="folders-create-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-create-title"
+            onSubmit={handleCreate}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="folders-modal-head">
+              <strong id="workspace-create-title">{t('workspaces.createTitle')}</strong>
+              <button type="button" className="folders-icon-button" onClick={closeCreateModal} aria-label={t('workspaces.closeCreate')}>
+                <LuX aria-hidden="true" />
+              </button>
+            </div>
+            <label className="folders-field-label">
+              <span>{t('workspaces.createNameLabel')}</span>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(event) => {
+                  setFormError('');
+                  setForm((current) => ({ ...current, name: event.target.value }));
+                }}
+                placeholder={t('workspaces.createNamePlaceholder')}
+                autoFocus
+              />
+            </label>
+            <label className="folders-field-label">
+              <span>{t('workspaces.createDescriptionLabel')}</span>
+              <textarea
+                rows={3}
+                value={form.description}
+                onChange={(event) => {
+                  setFormError('');
+                  setForm((current) => ({ ...current, description: event.target.value }));
+                }}
+                placeholder={t('workspaces.createDescriptionPlaceholder')}
+              />
+            </label>
+            {formError && <div className="alert alert-error">{formError}</div>}
+            <div className="folders-modal-actions">
+              <button type="button" className="button button-secondary" onClick={closeCreateModal} disabled={creating}>
+                {t('workspaces.cancelCreate')}
+              </button>
+              <button type="submit" className="button" disabled={creating}>
+                {creating ? t('workspaces.creating') : t('workspaces.createButton')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {error && <div className="alert alert-error">{error}</div>}
       {actionError && <div className="alert alert-error">{actionError}</div>}
@@ -228,12 +360,15 @@ function FolderProjects() {
       <section className="folders-toolbar card" aria-label={t('workspaces.filters.label')}>
         <label className="folders-field-label folders-search-field">
           <span>{t('workspaces.filters.searchLabel')}</span>
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={t('workspaces.filters.searchPlaceholder')}
-          />
+          <span className="folders-input-wrap">
+            <LuSearch aria-hidden="true" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t('workspaces.filters.searchPlaceholder')}
+            />
+          </span>
         </label>
         <label className="folders-field-label">
           <span>{t('workspaces.filters.statusLabel')}</span>
@@ -271,6 +406,12 @@ function FolderProjects() {
           <div className="folders-empty card">
             <h3>{t('workspaces.filters.emptyTitle')}</h3>
             <p>{t('workspaces.filters.emptyBody')}</p>
+            {hasActiveFilters && (
+              <button type="button" className="button button-secondary" onClick={resetFilters}>
+                <LuRefreshCw aria-hidden="true" />
+                {t('workspaces.filters.reset')}
+              </button>
+            )}
           </div>
         )}
 
@@ -282,25 +423,25 @@ function FolderProjects() {
                 <h3>{folder.name}</h3>
                 <p>{folder.description || t('workspaces.noDescription')}</p>
               </div>
-              <span className={`folder-deck-pill${folder.latestDeck?.isStale ? ' stale' : ''}`}>
+              <span className={`folder-deck-pill${getDeckStatusTone(folder.latestDeck)}`}>
                 {getDeckStatusLabel(folder.latestDeck)}
               </span>
             </div>
 
             <div className="folder-stats-row">
-              <div>
+              <div title={getStatHelp('sources', folder.sourceCount)} aria-label={getStatHelp('sources', folder.sourceCount)}>
                 <strong>{folder.sourceCount || 0}</strong>
                 <span>{t('workspaces.stats.sources')}</span>
               </div>
-              <div>
+              <div title={getStatHelp('ready', folder.readySourceCount)} aria-label={getStatHelp('ready', folder.readySourceCount)}>
                 <strong>{folder.readySourceCount || 0}</strong>
                 <span>{t('workspaces.stats.ready')}</span>
               </div>
-              <div>
+              <div title={getStatHelp('selected', folder.selectedSourceCount)} aria-label={getStatHelp('selected', folder.selectedSourceCount)}>
                 <strong>{folder.selectedSourceCount || 0}</strong>
                 <span>{t('workspaces.stats.selected')}</span>
               </div>
-              <div>
+              <div title={getStatHelp('slides', folder.latestDeck?.slideCount)} aria-label={getStatHelp('slides', folder.latestDeck?.slideCount)}>
                 <strong>{folder.latestDeck?.slideCount || 0}</strong>
                 <span>{t('workspaces.stats.slides')}</span>
               </div>
@@ -313,12 +454,54 @@ function FolderProjects() {
 
             <div className="folder-card-actions">
               <button type="button" className="button" onClick={() => navigate(`/workspaces/${folder.id}`)}>
+                <LuExternalLink aria-hidden="true" />
                 {t('workspaces.open')}
               </button>
-              <button type="button" className="button button-secondary" onClick={() => handleDelete(folder.id)}>
-                {t('workspaces.delete')}
-              </button>
+              <div className="folder-card-menu">
+                <button
+                  type="button"
+                  className="folders-icon-button"
+                  aria-label={t('workspaces.moreActions', { name: folder.name })}
+                  aria-expanded={openMenuId === folder.id}
+                  onClick={() => {
+                    setConfirmDeleteId(null);
+                    setOpenMenuId((current) => (current === folder.id ? null : folder.id));
+                  }}
+                >
+                  <LuEllipsis aria-hidden="true" />
+                </button>
+                {openMenuId === folder.id && (
+                  <div className="folder-overflow-menu" role="menu">
+                    <button
+                      type="button"
+                      className="folder-overflow-item danger"
+                      role="menuitem"
+                      onClick={() => {
+                        setConfirmDeleteId(folder.id);
+                        setOpenMenuId(null);
+                      }}
+                    >
+                      <LuTrash2 aria-hidden="true" />
+                      {t('workspaces.delete')}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {confirmDeleteId === folder.id && (
+              <div className="folders-inline-confirm" role="alert">
+                <span>{t('workspaces.inlineDeleteConfirm', { name: folder.name })}</span>
+                <div>
+                  <button type="button" className="button button-secondary" onClick={() => setConfirmDeleteId(null)} disabled={deletingId === folder.id}>
+                    {t('workspaces.cancelDelete')}
+                  </button>
+                  <button type="button" className="button folders-delete-button" onClick={() => handleDelete(folder.id)} disabled={deletingId === folder.id}>
+                    {deletingId === folder.id ? t('workspaces.deleting') : t('workspaces.deleteShort')}
+                  </button>
+                </div>
+              </div>
+            )}
           </article>
         ))}
       </section>

@@ -5,6 +5,7 @@
 - Ưu tiên skill theo nơi bug hoặc yêu cầu bắt đầu xuất hiện, không theo nơi lỗi cuối cùng lộ ra.
 - Nếu task chạm nhiều lớp, đi theo call path thật của PBL5 thay vì đổi lung tung ở nhiều đầu.
 - Nếu rule external mâu thuẫn với PBL5, bỏ rule external và ghi rõ trong báo cáo.
+- Nếu task yêu cầu dùng, copy, hoặc chuyển đổi từ `ECC/`, đọc `docs/agent/ECC_ADAPTER_POLICY.md` trước. Copy được phép khi hữu ích, nhưng phải adapter về runtime, API, persisted shape, frontend consumer, i18n, và fallback hiện có của PBL5.
 
 ## Chọn skill theo điểm bắt đầu
 
@@ -111,11 +112,12 @@ Không sửa riêng backend hoặc frontend của slide nếu chưa đọc phía
 - Frontend + slide: `react-frontend` -> `slide-studio`
 - AI/OCR + UI progress: `ai-ocr` -> `react-frontend`
 - Slide full-flow: `slide-studio` + `dotnet-backend` + `react-frontend`
+- Presentation Extraction + UI/UX: `ai-ocr` -> `slide-studio` -> `dotnet-backend` -> `react-frontend`; thêm `postgres-efcore` nếu đổi `document_understanding_runs.result`, entity, migration, hoặc repository query; dùng `docs/agent/ECC_ADAPTER_POLICY.md` nếu lấy pattern từ ECC.
 - Mọi task trước khi chốt: thêm `testing-checklist`
 
 ## Khi phải dừng lại và báo rõ
 
 - Task đòi đổi API contract hoặc persisted shape nhưng user chưa chốt phạm vi.
 - Task kéo theo migration/schema change ngoài phạm vi được phép.
-- Hướng giải quyết duy nhất là copy rule, installer, hook, hoặc workflow external trái với PBL5.
+- Hướng giải quyết duy nhất là copy nguyên installer, hook, global config, MCP config, credential, package/runtime requirement, hoặc workflow external trái với PBL5.
 - Có nhiều đường sửa với trade-off lớn mà không thể khóa bằng context repo.

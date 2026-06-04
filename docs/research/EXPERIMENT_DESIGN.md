@@ -30,7 +30,6 @@ Mục tiêu của bản thiết kế là phục vụ **demo NCKH tối thiểu**
   - `src/ELearnGamePlatform.API/Controllers/SlidesController.cs`
   - `client/src/components/FolderStudio.js`
   - `client/src/components/SlideStudio.js`
-  - `client/src/components/SlideStudioScreen.js`
 - Tổ chức nguồn học liệu theo workspace:
   - `src/ELearnGamePlatform.API/Controllers/WorkspacesController.cs`
   - `src/ELearnGamePlatform.API/Services/WorkspaceService.cs`

@@ -9,6 +9,7 @@ function resolveApiBaseUrl() {
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
+const API_ORIGIN = API_BASE_URL.replace(/\/api$/, '');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -44,6 +45,14 @@ let onUnauthorized = null;
 
 export function setApiAuthToken(token) {
   authToken = token || '';
+}
+
+export function getApiAuthToken() {
+  return authToken;
+}
+
+export function getApiOrigin() {
+  return API_ORIGIN;
 }
 
 export function setApiUnauthorizedHandler(handler) {
@@ -234,60 +243,6 @@ export const documentService = {
 
   deleteDocument: async (id) => {
     await apiClient.delete(`/documents/${id}`);
-  },
-};
-
-export const folderService = {
-  createFolder: async ({ name, description }) => {
-    const response = await apiClient.post('/folders', {
-      name,
-      description,
-    });
-    return response.data;
-  },
-
-  getUserFolders: async (userId) => {
-    const response = await apiClient.get(`/folders/user/${userId}`);
-    return response.data;
-  },
-
-  getFolder: async (id) => {
-    const response = await apiClient.get(`/folders/${id}`);
-    return response.data;
-  },
-
-  deleteFolder: async (id) => {
-    await apiClient.delete(`/folders/${id}`);
-  },
-
-  uploadSource: async (folderId, file, onProgress) => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await apiClient.post(`/folders/${folderId}/sources/upload`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (onProgress) {
-          onProgress(percentCompleted);
-        }
-      },
-    });
-    return response.data;
-  },
-
-  getSources: async (folderId) => {
-    const response = await apiClient.get(`/folders/${folderId}/sources`);
-    return response.data;
-  },
-
-  updateSourceSelection: async (folderId, sourceId, includeInFolderSlides) => {
-    const response = await apiClient.put(`/folders/${folderId}/sources/${sourceId}/slide-selection`, {
-      includeInFolderSlides,
-    });
-    return response.data;
   },
 };
 
@@ -540,6 +495,13 @@ export const analyticsService = {
     const response = await apiClient.post('/analytics/events', {
       events,
     });
+    return response.data;
+  },
+};
+
+export const dashboardService = {
+  getHome: async () => {
+    const response = await apiClient.get('/dashboard/home');
     return response.data;
   },
 };

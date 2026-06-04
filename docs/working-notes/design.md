@@ -1,10 +1,12 @@
 # Design Spec: Full Slide System
 
+Historical note: this working note predates the workspace-first route pivot. Treat `/documents` references below as legacy design context; the active public surfaces are `/workspaces`, `/workspaces/:workspaceId`, and `/slides/:documentId`.
+
 ## 1. Mục tiêu
 
 Tài liệu này chốt hướng UI/UX để duyệt trước khi code cho full slide system của sản phẩm. Phạm vi bao gồm:
 
-- Màn hình `/documents`, hiện đang dùng `client/src/components/DocumentList.js`
+- Màn hình `/documents`, theo thiết kế cũ dùng legacy document-list screen
 - Màn hình `/slides/:documentId`, hiện đang dùng `client/src/components/SlideStudio.js`
 - Handoff giữa hai màn hình để người dùng đi từ tài liệu sang deck và sang chỉnh sửa chi tiết mà không mất ngữ cảnh
 
@@ -27,12 +29,12 @@ Nguyên tắc thiết kế:
 
 ### Routes đang chạy
 
-- `client/src/App.js` route `/documents` trỏ tới `DocumentList`
+- `client/src/app/routes.js` hiện redirect `/documents` sang workspace flow
 - `client/src/App.js` route `/slides/:documentId` trỏ tới `SlideStudio`
 
 ### Hình dạng UI hiện tại
 
-- `DocumentList.js` đã có document cards, progress panel, inline slide preview, nút mở Studio, nút HTML/PDF
+- Legacy document-list screen đã có document cards, progress panel, inline slide preview, nút mở Studio, nút HTML/PDF
 - `SlideStudio.js` đã có tinh thần Gamma-style: brief panel, live outline, preview canvas, theme cards, edit nội dung từng slide
 - `App.css` đã có hai cụm style rõ ràng:
   - `.slide-inline-*` cho preview trong `/documents`
@@ -42,7 +44,7 @@ Nguyên tắc thiết kế:
 
 - Không viết lại toàn bộ visual language từ đầu
 - Kế thừa ngôn ngữ card-based hiện có, nhưng chuẩn hóa để thêm ảnh và media workflow
-- `DocumentList.js` là điểm bắt đầu chính của người dùng, `SlideStudio.js` là nơi tinh chỉnh sâu
+- Theo thiết kế cũ, document-list screen là điểm bắt đầu chính của người dùng; hiện tại workspace flow là entrypoint chính và `SlideStudio.js` là nơi tinh chỉnh sâu
 
 ## 3. North Star
 
@@ -896,7 +898,7 @@ Không nằm trong pha đầu:
 - Đây là spec thiết kế để duyệt trước khi code UI/flow
 - Pha này chưa đổi API, DB hay backend contract
 - Pha code sau sẽ bám source UI thật đang chạy:
-  - `client/src/components/DocumentList.js`
+  - legacy document-list screen
   - `client/src/components/SlideStudio.js`
   - `client/src/App.css`
 - Theme hiện có trong repo sẽ được tận dụng, không thay thương hiệu toàn cục

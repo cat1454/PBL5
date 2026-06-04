@@ -115,6 +115,11 @@ function DocumentUnderstandingPanel({
   const pageCount = understanding.pages.length;
   const reviewCount = understanding.reviewRegions.length;
   const figureCount = understanding.figureDescriptions.length;
+  const presentation = understanding.presentation;
+  const presentationConfidenceLabel = presentation
+    ? formatUnderstandingConfidence(presentation.extractionConfidence, t('documentUnderstanding.unknown'))
+    : null;
+  const reviewHintCount = presentation?.reviewHintCount || presentation?.uxReviewHints?.length || 0;
 
   return (
     <details
@@ -147,7 +152,111 @@ function DocumentUnderstandingPanel({
             <span>{t('documentUnderstanding.reviewRegions')}</span>
             <strong>{reviewCount}</strong>
           </div>
+          {presentation && (
+            <>
+              <div>
+                <span>{t('documentUnderstanding.presentationSections')}</span>
+                <strong>{presentation.sectionCount}</strong>
+              </div>
+              <div>
+                <span>{t('documentUnderstanding.visualCandidates')}</span>
+                <strong>{presentation.visualCount}</strong>
+              </div>
+              <div>
+                <span>{t('documentUnderstanding.chartReviews')}</span>
+                <strong>{presentation.chartReviewCount}</strong>
+              </div>
+              <div>
+                <span>{t('documentUnderstanding.reviewHints')}</span>
+                <strong>{reviewHintCount}</strong>
+              </div>
+              <div>
+                <span>{t('documentUnderstanding.denseSections')}</span>
+                <strong>{presentation.denseSectionCount || 0}</strong>
+              </div>
+              <div>
+                <span>{t('documentUnderstanding.extractionConfidence')}</span>
+                <strong>{presentationConfidenceLabel}</strong>
+              </div>
+            </>
+          )}
         </div>
+
+        {presentation?.warnings?.length > 0 && (
+          <section className="document-understanding-section">
+            <h4>{t('documentUnderstanding.presentationWarnings')}</h4>
+            <DetailList
+              items={presentation.warnings.slice(0, 4)}
+              emptyLabel={t('documentUnderstanding.noPresentationWarnings')}
+              renderItem={(warning, index) => (
+                <p key={`presentation-warning-${index}`} className="document-understanding-reason">{warning}</p>
+              )}
+            />
+          </section>
+        )}
+
+        {presentation && (
+          <section className="document-understanding-section">
+            <h4>{t('documentUnderstanding.presentationOverview')}</h4>
+            <div className="document-understanding-list">
+              <article className="document-understanding-region">
+                <div className="document-understanding-region-head">
+                  <strong>{t('documentUnderstanding.audienceProfile')}</strong>
+                  <span>{presentation.audienceProfile?.readingDifficulty || t('documentUnderstanding.unknown')}</span>
+                </div>
+                <p>{presentation.presentationFlow?.suggestedOpening || presentation.sourceSummary}</p>
+                {presentation.audienceProfile?.jargonTerms?.length > 0 && (
+                  <small>{t('documentUnderstanding.jargonTerms')}: {presentation.audienceProfile.jargonTerms.slice(0, 8).join(', ')}</small>
+                )}
+              </article>
+            </div>
+          </section>
+        )}
+
+        {presentation && (
+          <section className="document-understanding-section">
+            <h4>{t('documentUnderstanding.uxReviewHints')}</h4>
+            <DetailList
+              items={presentation.uxReviewHints.slice(0, 6)}
+              emptyLabel={t('documentUnderstanding.noUxReviewHints')}
+              renderItem={(hint, index) => (
+                <article key={`ux-hint-${hint.hintType}-${index}`} className={`document-understanding-region hint-${hint.severity}`}>
+                  <div className="document-understanding-region-head">
+                    <strong>{hint.hintType}</strong>
+                    <span>{hint.severity}</span>
+                  </div>
+                  <p>{hint.message}</p>
+                  {hint.suggestedAction && <small>{hint.suggestedAction}</small>}
+                  {(hint.pageNumber || hint.sectionId) && (
+                    <small>{[hint.pageNumber ? t('documentUnderstanding.pageLabel', { page: hint.pageNumber }) : '', hint.sectionId].filter(Boolean).join(' | ')}</small>
+                  )}
+                </article>
+              )}
+            />
+          </section>
+        )}
+
+        {presentation && (
+          <section className="document-understanding-section">
+            <h4>{t('documentUnderstanding.sourceGrounding')}</h4>
+            <DetailList
+              items={presentation.sourceGrounding.slice(0, 6)}
+              emptyLabel={t('documentUnderstanding.noSourceGrounding')}
+              renderItem={(grounding, index) => (
+                <article key={`grounding-${grounding.sectionId}-${index}`} className="document-understanding-region">
+                  <div className="document-understanding-region-head">
+                    <strong>{grounding.sectionId || t('documentUnderstanding.unknown')}</strong>
+                    <span>{formatUnderstandingConfidence(grounding.confidence, t('documentUnderstanding.unknown'))}</span>
+                  </div>
+                  {grounding.pageNumbers.length > 0 && <p>{t('documentUnderstanding.pages')}: {grounding.pageNumbers.join(', ')}</p>}
+                  {grounding.chunkIds.length > 0 && <small>{t('documentUnderstanding.chunks')}: {grounding.chunkIds.slice(0, 5).join(', ')}</small>}
+                  {grounding.evidenceExcerpt && <small>{shortText(grounding.evidenceExcerpt, 220)}</small>}
+                  {grounding.missingEvidenceWarnings.length > 0 && <small>{grounding.missingEvidenceWarnings.join(' | ')}</small>}
+                </article>
+              )}
+            />
+          </section>
+        )}
 
         <section className="document-understanding-section">
           <h4>{t('documentUnderstanding.pageQuality')}</h4>
