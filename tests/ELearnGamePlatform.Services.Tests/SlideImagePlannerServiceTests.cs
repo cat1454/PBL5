@@ -201,6 +201,38 @@ public class SlideImagePlannerServiceTests
     }
 
     [Fact]
+    public async Task SourceImagesForItemAsync_PdfRegionCandidate_PrefersSourcePdfAndDoesNotCallOpenAi()
+    {
+        var item = CreateSlideItem();
+        item.Id = 46;
+        var planner = new FixedPlanner(new SlideImagePlan
+        {
+            NeedsImage = true,
+            VisualRole = "diagram",
+            GenerationPrompt = "Create a 16:9 academic presentation slide illustration showing a diagram layout.",
+            AltText = "Diagram from source PDF."
+        });
+        var handler = new CapturingHttpHandler();
+        var pdfService = new FixedPdfImageAssetService(new SlideImageCandidate
+        {
+            Key = "pdf-region-46-1-1",
+            SourceType = "pdf-region",
+            Provider = "Source PDF",
+            LocalAssetUrl = "/uploads/slide-assets/deck-1/slide-1/pdf-region-1-1.png",
+            IsSelected = true
+        });
+        var service = CreateImageService(planner, handler, pdfImageAssetService: pdfService);
+
+        await service.SourceImagesForItemAsync(item);
+
+        Assert.Equal(0, handler.RequestCount);
+        var candidate = Assert.Single(item.GetImageCandidates());
+        Assert.Equal("pdf-region", candidate.SourceType);
+        Assert.Equal("pdf-region-46-1-1", item.SelectedImageKey);
+        Assert.Equal("ready", item.GetImagePlan()!.StatusHint);
+    }
+
+    [Fact]
     public async Task SourceImagesForItemAsync_GptImageModel_DoesNotSendUnsupportedResponseFormat()
     {
         var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -323,7 +355,8 @@ public class SlideImagePlannerServiceTests
         ISlideImagePlannerService planner,
         CapturingHttpHandler handler,
         ImagePipelineSettings? settings = null,
-        TimeSpan? clientTimeout = null)
+        TimeSpan? clientTimeout = null,
+        ISlidePdfImageAssetService? pdfImageAssetService = null)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"pbl5-slide-image-tests-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -340,7 +373,8 @@ public class SlideImagePlannerServiceTests
             planner,
             Options.Create(settings),
             new TestWebHostEnvironment(tempRoot),
-            NullLogger<SlideImageService>.Instance);
+            NullLogger<SlideImageService>.Instance,
+            pdfImageAssetService);
     }
 
     private static ImagePipelineSettings CreateImagePipelineSettings()
@@ -438,6 +472,22 @@ public class SlideImagePlannerServiceTests
 
         public Task<SlideImagePlan> PlanAsync(SlideItem item, string? documentTopic = null, CancellationToken cancellationToken = default)
             => Task.FromResult(_plan);
+    }
+
+    private sealed class FixedPdfImageAssetService : ISlidePdfImageAssetService
+    {
+        private readonly SlideImageCandidate? _candidate;
+
+        public FixedPdfImageAssetService(SlideImageCandidate? candidate)
+        {
+            _candidate = candidate;
+        }
+
+        public Task<SlideImageCandidate?> TryCreateCandidateAsync(
+            SlideItem item,
+            SlideImagePlan imagePlan,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_candidate);
     }
 
     private sealed class CapturingHttpHandler : HttpMessageHandler

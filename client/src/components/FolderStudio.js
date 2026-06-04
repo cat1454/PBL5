@@ -1013,6 +1013,7 @@ function FolderStudio() {
   const selectedCanvasState = selectedSlide ? normalizeSlideEditorState(selectedSlide) : null;
   const selectedCanvasElement = selectedCanvasState ? findEditorElement(selectedCanvasState, selectedElementId) : null;
   const isLayoutEditMode = canvasMode === 'layout';
+  const isTextEditMode = canvasMode === 'text';
   const selectedCanvasHistory = selectedSlide ? canvasHistory.getHistory(selectedSlide.id) : { past: [], future: [] };
   const canvasRemoteSelections = selectedSlide
     ? Object.values(remoteSelections).filter((selection) => selection.slideId === selectedSlide.id)
@@ -1130,6 +1131,26 @@ function FolderStudio() {
     saved: language === 'vi' ? 'Da luu' : 'Saved',
     error: language === 'vi' ? 'Luu loi' : 'Save failed',
   }[canvasAutosaveStatus] || (language === 'vi' ? 'Da luu' : 'Saved');
+  const canvasModeHint = isLayoutEditMode
+    ? 'Edit layout: drag elements to move, drag corners to resize.'
+    : isTextEditMode
+      ? 'Edit text: update copy directly on the slide without changing layout.'
+      : 'Preview mode: editor controls are hidden.';
+  const handleEnterCanvasPreviewMode = useCallback(() => {
+    setCanvasMode('preview');
+    setSelectedElementId(null);
+    setSelectedEditorField(null);
+  }, []);
+  const handleEnterCanvasTextMode = useCallback(() => {
+    setCanvasMode('text');
+    setSelectedEditorField(null);
+    setSelectedElementId((current) => current || selectedCanvasState?.elements?.find((element) => element.type === 'text')?.id || null);
+  }, [selectedCanvasState]);
+  const handleEnterCanvasLayoutMode = useCallback(() => {
+    setCanvasMode('layout');
+    setSelectedEditorField(null);
+    setSelectedElementId((current) => current || selectedCanvasState?.elements?.[0]?.id || null);
+  }, [selectedCanvasState]);
   const canvasLabels = {
     emptyText: language === 'vi' ? 'Van ban trong' : 'Empty text',
     imageAlt: selectedSlide?.heading || (language === 'vi' ? 'Anh slide' : 'Slide image'),
@@ -3303,14 +3324,13 @@ function FolderStudio() {
           <section className="folder-studio-center">
             <div className="folder-studio-toolbar folder-studio-toolbar-polished is-static-editor-toolbar" aria-label={toolbarLabels.label}>
               <div className="folder-studio-toolbar-group workspace-canvas-mode-group" role="group" aria-label={language === 'vi' ? 'Che do canvas slide' : 'Slide canvas mode'}>
-                <WorkspaceToolbarButton active={!isLayoutEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Preview Mode' : 'Preview Mode'} onClick={() => setCanvasMode('preview')}>
+                <WorkspaceToolbarButton active={canvasMode === 'preview'} disabled={!selectedSlide} label={language === 'vi' ? 'Preview Mode' : 'Preview Mode'} onClick={handleEnterCanvasPreviewMode}>
                   <LuPanelRightClose aria-hidden="true" />
                 </WorkspaceToolbarButton>
-                <WorkspaceToolbarButton active={isLayoutEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Edit Layout Mode' : 'Edit Layout Mode'} onClick={() => {
-                  setCanvasMode('layout');
-                  setSelectedEditorField(null);
-                  setSelectedElementId((current) => current || selectedCanvasState?.elements?.[0]?.id || null);
-                }}>
+                <WorkspaceToolbarButton active={isTextEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Edit Text Mode' : 'Edit Text Mode'} onClick={handleEnterCanvasTextMode}>
+                  <LuType aria-hidden="true" />
+                </WorkspaceToolbarButton>
+                <WorkspaceToolbarButton active={isLayoutEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Edit Layout Mode' : 'Edit Layout Mode'} onClick={handleEnterCanvasLayoutMode}>
                   <LuPanelRightOpen aria-hidden="true" />
                 </WorkspaceToolbarButton>
                 <WorkspaceToolbarButton disabled={!isLayoutEditMode || !selectedCanvasHistory.past.length} label={language === 'vi' ? 'Hoan tac layout' : 'Undo layout'} onClick={handleCanvasUndo}>
@@ -3650,23 +3670,103 @@ function FolderStudio() {
                         {canvasRemoteSelections.map((selection) => selection.displayName).join(', ')}
                       </span>
                     )}
+                    <div className="workspace-canvas-mode-controls" role="group" aria-label="Workspace canvas mode controls">
+                      <button
+                        type="button"
+                        className={`workspace-canvas-mode-button${canvasMode === 'preview' ? ' active' : ''}`}
+                        aria-label="Preview"
+                        title="Preview"
+                        disabled={!selectedSlide}
+                        onClick={handleEnterCanvasPreviewMode}
+                      >
+                        <LuPanelRightClose aria-hidden="true" />
+                        <span>Preview</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`workspace-canvas-mode-button${isTextEditMode ? ' active' : ''}`}
+                        aria-label="Edit text"
+                        title="Edit text"
+                        disabled={!selectedSlide}
+                        onClick={handleEnterCanvasTextMode}
+                      >
+                        <LuType aria-hidden="true" />
+                        <span>Edit text</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`workspace-canvas-mode-button${isLayoutEditMode ? ' active' : ''}`}
+                        aria-label="Edit layout"
+                        title="Edit layout"
+                        disabled={!selectedSlide}
+                        onClick={handleEnterCanvasLayoutMode}
+                      >
+                        <LuPanelRightOpen aria-hidden="true" />
+                        <span>Edit layout</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label="Undo"
+                        title="Undo"
+                        disabled={!isLayoutEditMode || !selectedCanvasHistory.past.length}
+                        onClick={handleCanvasUndo}
+                      >
+                        <LuUndo2 aria-hidden="true" />
+                        <span>Undo</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label="Redo"
+                        title="Redo"
+                        disabled={!isLayoutEditMode || !selectedCanvasHistory.future.length}
+                        onClick={handleCanvasRedo}
+                      >
+                        <LuRedo2 aria-hidden="true" />
+                        <span>Redo</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label="Add text"
+                        title="Add text"
+                        disabled={!isLayoutEditMode}
+                        onClick={handleAddCanvasText}
+                      >
+                        <LuPlus aria-hidden="true" />
+                        <span>Add text</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label="Save layout"
+                        title="Save layout"
+                        disabled={!isLayoutEditMode || !selectedCanvasState}
+                        onClick={handleSaveCanvasLayout}
+                      >
+                        <LuSave aria-hidden="true" />
+                        <span>Save layout</span>
+                      </button>
+                    </div>
+                    <span className="workspace-canvas-mode-hint">{canvasModeHint}</span>
                   </div>
 
-                  {isLayoutEditMode ? (
-                    <article className="folder-slide-card workspace-slide-canvas-card">
-                      <SlideCanvas
-                        editorState={selectedCanvasState}
-                        imageVm={selectedImageVm}
-                        labels={canvasLabels}
-                        remoteSelections={canvasRemoteSelections}
-                        scale={0.58}
-                        selectedElementId={selectedElementId}
-                        onCommitElement={handleCommitCanvasElement}
-                        onPatchElement={handlePatchCanvasElement}
-                        onSelectElement={handleSelectCanvasElement}
-                      />
-                    </article>
-                  ) : (
+                  <article className="folder-slide-card workspace-slide-canvas-card">
+                    <SlideCanvas
+                      editorState={selectedCanvasState}
+                      imageVm={selectedImageVm}
+                      labels={canvasLabels}
+                      mode={isLayoutEditMode ? 'layout' : isTextEditMode ? 'text' : 'preview'}
+                      remoteSelections={isLayoutEditMode ? canvasRemoteSelections : []}
+                      scale={0.58}
+                      selectedElementId={isLayoutEditMode ? selectedElementId : null}
+                      onCommitElement={handleCommitCanvasElement}
+                      onPatchElement={isTextEditMode ? handleCommitCanvasElement : handlePatchCanvasElement}
+                      onSelectElement={isLayoutEditMode ? handleSelectCanvasElement : undefined}
+                    />
+                  </article>
+                  {false && (
                   <article className="folder-slide-card">
                     <div className={`folder-slide-layout${selectedSlideNeedsMedia ? '' : ' text-only-layout'}`}>
                       <div className="folder-slide-copy">

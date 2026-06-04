@@ -2,11 +2,57 @@ import React from 'react';
 import { Rnd } from 'react-rnd';
 import ElementRenderer from './ElementRenderer';
 
-function SlideElement({ element, imageVm, labels, scale, selected, onCommit, onPatch, onSelect }) {
+const getEffectClass = (effectPreset) => {
+  const preset = String(effectPreset || 'none').trim().toLowerCase();
+  return ['soft-shadow', 'neon-glow', 'glass-frame', 'paper-cut', 'duotone'].includes(preset)
+    ? ` effect-${preset}`
+    : '';
+};
+
+function SlideElement({ element, imageVm, labels, mode = 'layout', scale, selected, onCommit, onPatch, onSelect }) {
+  const effectClass = getEffectClass(element.effectPreset);
+  const elementStyle = {
+    zIndex: element.zIndex,
+  };
+
+  const absoluteStyle = {
+    position: 'absolute',
+    left: element.x,
+    top: element.y,
+    width: element.width,
+    height: element.height,
+    zIndex: element.zIndex,
+  };
+
   const handleMouseDown = (event) => {
     event.stopPropagation();
-    onSelect(element.id);
+    if (mode === 'layout') {
+      onSelect?.(element.id);
+    }
   };
+
+  const renderer = (
+    <ElementRenderer
+      element={element}
+      imageVm={imageVm}
+      labels={labels}
+      mode={mode}
+      onTextChange={(elementId, text) => onPatch?.(elementId, { text })}
+    />
+  );
+
+  if (mode !== 'layout') {
+    return (
+      <div
+        className={`slide-canvas-element mode-${mode}${effectClass}`}
+        data-slide-element-id={element.id}
+        data-effect={element.effectPreset || 'none'}
+        style={absoluteStyle}
+      >
+        {renderer}
+      </div>
+    );
+  }
 
   return (
     <Rnd
@@ -41,10 +87,12 @@ function SlideElement({ element, imageVm, labels, scale, selected, onCommit, onP
           height: Number.parseFloat(ref.style.height),
         });
       }}
-      className={`slide-canvas-element${selected ? ' selected' : ''}${element.locked ? ' locked' : ''}`}
-      style={{ zIndex: element.zIndex }}
+      className={`slide-canvas-element${selected ? ' selected' : ''}${element.locked ? ' locked' : ''}${effectClass}`}
+      data-slide-element-id={element.id}
+      data-effect={element.effectPreset || 'none'}
+      style={elementStyle}
     >
-      <ElementRenderer element={element} imageVm={imageVm} labels={labels} />
+      {renderer}
     </Rnd>
   );
 }

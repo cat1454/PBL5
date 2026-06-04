@@ -34,6 +34,9 @@ public class SlideImageCandidate
     public double? Score { get; set; }
     public bool IsSelected { get; set; }
     public string? LayoutMode { get; set; }
+    public int? PageNumber { get; set; }
+    public string? RegionType { get; set; }
+    public string? RegionText { get; set; }
 }
 
 public class SlideImageState

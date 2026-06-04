@@ -30,6 +30,7 @@ public class SlideImageService : ISlideImageService
     private readonly ImagePipelineSettings _settings;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<SlideImageService> _logger;
+    private readonly ISlidePdfImageAssetService? _pdfImageAssetService;
 
     public SlideImageService(
         HttpClient httpClient,
@@ -37,7 +38,8 @@ public class SlideImageService : ISlideImageService
         ISlideImagePlannerService imagePlanner,
         IOptions<ImagePipelineSettings> settings,
         IWebHostEnvironment environment,
-        ILogger<SlideImageService> logger)
+        ILogger<SlideImageService> logger,
+        ISlidePdfImageAssetService? pdfImageAssetService = null)
     {
         _httpClient = httpClient;
         _slideDeckRepository = slideDeckRepository;
@@ -45,6 +47,7 @@ public class SlideImageService : ISlideImageService
         _settings = settings.Value;
         _environment = environment;
         _logger = logger;
+        _pdfImageAssetService = pdfImageAssetService;
         EnsureHttpClientAllowsConfiguredGenerationTimeout();
     }
 
@@ -62,6 +65,16 @@ public class SlideImageService : ISlideImageService
             item.SetImagePlan(imagePlan);
             item.SetImageCandidates(new List<SlideImageCandidate>());
             item.SelectedImageKey = null;
+            return;
+        }
+
+        var pdfRegionCandidate = await TryCreatePdfRegionCandidateAsync(item, imagePlan, cancellationToken);
+        if (pdfRegionCandidate != null)
+        {
+            item.SetImageCandidates(new List<SlideImageCandidate> { pdfRegionCandidate });
+            item.SelectedImageKey = pdfRegionCandidate.Key;
+            UpdatePlanState(imagePlan, "ready", "Da trich xuat anh tu PDF goc cho slide nay.");
+            item.SetImagePlan(imagePlan);
             return;
         }
 
@@ -139,6 +152,27 @@ public class SlideImageService : ISlideImageService
 
         await _slideDeckRepository.UpdateItemAsync(item);
         return await _slideDeckRepository.GetItemAsync(deckId, itemId);
+    }
+
+    private async Task<SlideImageCandidate?> TryCreatePdfRegionCandidateAsync(
+        SlideItem item,
+        SlideImagePlan imagePlan,
+        CancellationToken cancellationToken)
+    {
+        if (_pdfImageAssetService == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _pdfImageAssetService.TryCreateCandidateAsync(item, imagePlan, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not create PDF region image candidate for slide item {ItemId}", item.Id);
+            return null;
+        }
     }
 
     private bool CanGenerate(SlideImagePlan imagePlan)

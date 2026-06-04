@@ -9,6 +9,8 @@ namespace ELearnGamePlatform.Core.Extensions;
 /// </summary>
 public static class EntityExtensions
 {
+    private const double SlideEditorDesignScaleX = 0.8;
+    private const double SlideEditorDesignScaleY = 0.8;
     private const string SlideEditorFontFamily = "Lexend";
 
     // Document extensions
@@ -299,10 +301,15 @@ public static class EntityExtensions
         var source = element ?? fallback ?? new SlideElementState();
         var role = NormalizeToken(source.Role, fallback?.Role ?? "element");
         var type = NormalizeToken(source.Type, fallback?.Type ?? "text");
-        var width = ClampDimension(source.Width, fallback?.Width ?? 320, canvas.Width);
-        var height = ClampDimension(source.Height, fallback?.Height ?? 120, canvas.Height);
+        var sourceWidth = source.Width > 0 ? source.Width : source.W ?? 0;
+        var sourceHeight = source.Height > 0 ? source.Height : source.H ?? 0;
+        var width = ClampDimension(sourceWidth, fallback?.Width ?? fallback?.W ?? 320, canvas.Width);
+        var height = ClampDimension(sourceHeight, fallback?.Height ?? fallback?.H ?? 120, canvas.Height);
         var x = Math.Clamp(source.X, 0, Math.Max(0, canvas.Width - width));
         var y = Math.Clamp(source.Y, 0, Math.Max(0, canvas.Height - height));
+        var align = string.IsNullOrWhiteSpace(source.Align) ? source.TextAlign : source.Align;
+        var fallbackAlign = string.IsNullOrWhiteSpace(fallback?.Align) ? fallback?.TextAlign ?? "left" : fallback!.Align;
+        var src = FirstNonBlank(source.Src, source.Url, source.Base64, fallback?.Src, fallback?.Url, fallback?.Base64);
 
         return new SlideElementState
         {
@@ -315,11 +322,21 @@ public static class EntityExtensions
             Height = height,
             ZIndex = source.ZIndex <= 0 ? fallback?.ZIndex ?? ((index + 1) * 10) : source.ZIndex,
             Locked = source.Locked,
+            Visible = source.Visible,
+            Src = src,
             Text = source.Text ?? fallback?.Text ?? string.Empty,
             FontSize = Math.Clamp(source.FontSize <= 0 ? fallback?.FontSize ?? 24 : source.FontSize, 8, 160),
             Bold = source.Bold,
             Color = string.IsNullOrWhiteSpace(source.Color) ? fallback?.Color ?? "#FFFFFF" : source.Color.Trim(),
-            Align = NormalizeAlign(source.Align, fallback?.Align ?? "left")
+            Align = NormalizeAlign(align, fallbackAlign),
+            TextAlign = NormalizeAlign(align, fallbackAlign),
+            FillColor = FirstNonBlank(source.FillColor, fallback?.FillColor),
+            BorderColor = FirstNonBlank(source.BorderColor, fallback?.BorderColor),
+            BorderWidth = source.BorderWidth ?? fallback?.BorderWidth,
+            Opacity = source.Opacity ?? fallback?.Opacity,
+            Rotation = source.Rotation ?? fallback?.Rotation,
+            EffectPreset = NormalizeEffectPreset(FirstNonBlank(source.EffectPreset, fallback?.EffectPreset)),
+            ImportedAssetName = FirstNonBlank(source.ImportedAssetName, fallback?.ImportedAssetName)
         };
     }
 
@@ -351,6 +368,19 @@ public static class EntityExtensions
     {
         var align = NormalizeToken(value, fallback);
         return align is "left" or "center" or "right" ? align : fallback;
+    }
+
+    private static string NormalizeEffectPreset(string? value)
+    {
+        var preset = NormalizeToken(value, "none");
+        return preset is "soft-shadow" or "neon-glow" or "glass-frame" or "paper-cut" or "duotone"
+            ? preset
+            : "none";
+    }
+
+    private static string? FirstNonBlank(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
     }
 
     private static double ClampDimension(double value, double fallback, int max)
@@ -454,16 +484,18 @@ public static class EntityExtensions
             Id = role,
             Type = "text",
             Role = role,
-            X = x,
-            Y = y,
-            Width = width,
-            Height = height,
+            X = ScaleX(x),
+            Y = ScaleY(y),
+            Width = ScaleX(width),
+            Height = ScaleY(height),
             ZIndex = zIndex,
+            Visible = true,
             Text = text,
-            FontSize = fontSize,
+            FontSize = ScaleFont(fontSize),
             Bold = bold,
             Color = color,
-            Align = align
+            Align = align,
+            TextAlign = align
         };
     }
 
@@ -474,14 +506,21 @@ public static class EntityExtensions
             Id = role,
             Type = "image",
             Role = role,
-            X = x,
-            Y = y,
-            Width = width,
-            Height = height,
+            X = ScaleX(x),
+            Y = ScaleY(y),
+            Width = ScaleX(width),
+            Height = ScaleY(height),
             ZIndex = zIndex,
-            Locked = false
+            Locked = false,
+            Visible = true
         };
     }
+
+    private static double ScaleX(double value) => Math.Round(value * SlideEditorDesignScaleX, 2);
+
+    private static double ScaleY(double value) => Math.Round(value * SlideEditorDesignScaleY, 2);
+
+    private static int ScaleFont(int value) => Math.Max(8, (int)Math.Round(value * SlideEditorDesignScaleY));
 
     public static List<string> GetVerifierIssues(this SlideItem item)
     {
