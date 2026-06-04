@@ -13,11 +13,86 @@
 }
 
 .workspace-canvas-status-row {
+  position: relative;
+  z-index: 12;
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  gap: 10px;
   margin-bottom: 10px;
+  overflow: visible;
+}
+
+.workspace-canvas-mode-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+
+.workspace-canvas-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.workspace-canvas-mode-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.workspace-canvas-mode-button:hover:not(:disabled),
+.workspace-canvas-mode-button:focus-visible {
+  border-color: #7f77dd;
+  color: #4338ca;
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(127, 119, 221, 0.18);
+}
+
+.workspace-canvas-mode-button.active {
+  border-color: #4338ca;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.workspace-canvas-mode-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  box-shadow: none;
+}
+
+.workspace-canvas-mode-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .workspace-canvas-status {

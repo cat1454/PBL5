@@ -191,6 +191,8 @@ public class SlideDeckRepository : ISlideDeckRepository
     public async Task<SlideItem?> GetItemAsync(int deckId, int itemId)
     {
         return await _context.SlideItems
+            .Include(item => item.SlideDeck)
+                .ThenInclude(deck => deck!.Document)
             .FirstOrDefaultAsync(item => item.SlideDeckId == deckId && item.Id == itemId);
     }
 

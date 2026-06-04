@@ -951,12 +951,15 @@ translations.vi.slides = {
     textOnly: 'Chỉ văn bản',
     generated: 'Ảnh AI',
     web: 'Ảnh web',
+    pdfRegion: 'Ảnh PDF',
     noSafeImage: 'Chưa có ảnh an toàn',
     ready: 'Đã có media',
     pending: 'Đang chờ ảnh',
   },
   imageAttribution: {
     generated: 'Nguồn: {{provider}}',
+    pdfRegion: 'Nguồn PDF',
+    pdfRegionPage: 'Nguồn PDF, trang {{page}}',
     web: 'Nguồn web',
   },
   imageMessages: {
@@ -1190,12 +1193,15 @@ translations.en.slides = {
     textOnly: 'Text only',
     generated: 'AI image',
     web: 'Web image',
+    pdfRegion: 'PDF image',
     noSafeImage: 'No safe image yet',
     ready: 'Media ready',
     pending: 'Waiting for image',
   },
   imageAttribution: {
     generated: 'Source: {{provider}}',
+    pdfRegion: 'Source PDF',
+    pdfRegionPage: 'Source PDF, page {{page}}',
     web: 'Web source',
   },
   imageMessages: {
@@ -2175,12 +2181,13 @@ translations.vi.slides.errors = {
 translations.vi.slides = {
   ...translations.vi.slides,
   export: 'Xuat HTML',
+  present: 'Thuyet trinh',
   downloadHtml: 'Tai HTML',
   exportingHtml: 'Dang tai HTML...',
   printPdf: 'In / Luu PDF',
   openingPrint: 'Dang mo ban in...',
-  downloadPptx: 'Tai PPTX',
-  exportingPptx: 'Dang tai PPTX...',
+  downloadPptx: 'Xuat PPTX chinh sua',
+  exportingPptx: 'Dang xuat PPTX...',
   pptxComingSoon: 'PPTX sap co',
   slideNotFoundTitle: 'Không tìm thấy nội dung slide',
   slideNotFoundBody: 'Không tìm thấy nội dung slide này. Vui lòng chọn slide khác hoặc tạo lại deck.',
@@ -2188,7 +2195,9 @@ translations.vi.slides = {
     ...(translations.vi.slides.feedback || {}),
     htmlExported: 'Da tai file HTML.',
     printOpened: 'Da mo ban In / Luu PDF.',
-    pptxExported: 'Da tai file PPTX.',
+    pptxExported: 'Da tai file PPTX chinh sua.',
+    pptxExportedWithSkippedImages: 'Da tai PPTX chinh sua. Bo qua {{count}} anh khong tai duoc.',
+    presentationFullscreenFallback: 'Da mo che do thuyet trinh trong app. Trinh duyet da chan fullscreen.',
   },
   errors: {
     ...(translations.vi.slides.errors || {}),
@@ -2200,12 +2209,13 @@ translations.vi.slides = {
 translations.en.slides = {
   ...translations.en.slides,
   export: 'Export HTML',
+  present: 'Present',
   downloadHtml: 'Download HTML',
   exportingHtml: 'Downloading HTML...',
   printPdf: 'Print / Save as PDF',
   openingPrint: 'Opening print view...',
-  downloadPptx: 'Download PPTX',
-  exportingPptx: 'Downloading PPTX...',
+  downloadPptx: 'Export PPTX Editable',
+  exportingPptx: 'Exporting PPTX...',
   pptxComingSoon: 'PPTX coming soon',
   slideNotFoundTitle: 'Slide content not found',
   slideNotFoundBody: 'Could not find this slide content. Please choose another slide or regenerate the deck.',
@@ -2213,7 +2223,9 @@ translations.en.slides = {
     ...(translations.en.slides.feedback || {}),
     htmlExported: 'HTML file downloaded.',
     printOpened: 'Print / Save as PDF view opened.',
-    pptxExported: 'PPTX file downloaded.',
+    pptxExported: 'Editable PPTX file downloaded.',
+    pptxExportedWithSkippedImages: 'Editable PPTX downloaded. Skipped {{count}} image(s) that could not be loaded.',
+    presentationFullscreenFallback: 'Presentation mode opened in the app. Fullscreen was blocked by the browser.',
   },
   errors: {
     ...(translations.en.slides.errors || {}),
@@ -3035,6 +3047,13 @@ Object.assign(translations.en.workspaces, {
 });
 
 Object.assign(translations.en.slides, {
+  presentation: {
+    presentMode: 'Presentation mode',
+    exitPresent: 'Exit presentation',
+    nextSlide: 'Next slide',
+    previousSlide: 'Previous slide',
+    presentationCounter: '{{current}} / {{total}}',
+  },
   editorToolbar: {
     label: 'Slide editor toolbar',
     fontFamily: 'Font family',
@@ -3096,6 +3115,14 @@ Object.assign(translations.en.slides, {
 });
 
 Object.assign(translations.vi.slides, {
+  present: 'Thuyet trinh',
+  presentation: {
+    presentMode: 'Che do thuyet trinh',
+    exitPresent: 'Thoat thuyet trinh',
+    nextSlide: 'Slide tiep theo',
+    previousSlide: 'Slide truoc',
+    presentationCounter: '{{current}} / {{total}}',
+  },
   editorToolbar: {
     label: 'Thanh cong cu sua slide',
     fontFamily: 'Kieu chu',
@@ -3161,6 +3188,7 @@ Object.assign(translations.en.slides, {
     modeLabel: 'Slide canvas mode',
     previewMode: 'Preview',
     layoutMode: 'Edit layout',
+    importImage: 'Import image',
     saveLayout: 'Save layout',
     savingLayout: 'Saving...',
     emptyText: 'Empty text',
@@ -3172,11 +3200,23 @@ Object.assign(translations.en.slides, {
     text: 'Text',
     fontSize: 'Font size',
     color: 'Color',
+    backgroundTitle: 'Slide background',
+    backgroundColor: 'Background color',
+    backgroundPresets: 'Background presets',
     style: 'Style',
     bold: 'Bold',
     alignLeft: 'Align left',
     alignCenter: 'Align center',
     alignRight: 'Align right',
+    effect: 'Effect',
+    effects: {
+      none: 'None',
+      softShadow: 'Soft shadow',
+      neonGlow: 'Neon glow',
+      glassFrame: 'Glass frame',
+      paperCut: 'Paper cut',
+      duotone: 'Duotone',
+    },
     lock: 'Lock element',
     unlock: 'Unlock element',
     roles: {
@@ -3190,10 +3230,14 @@ Object.assign(translations.en.slides, {
   },
   feedback: {
     ...(translations.en.slides.feedback || {}),
+    imageImported: 'Image imported.',
     layoutSaved: 'Layout saved.',
   },
   errors: {
     ...(translations.en.slides.errors || {}),
+    importImageType: 'Please choose a PNG, JPG, WebP, or GIF image.',
+    importImageTooLarge: 'Image is too large. Please choose an image under 5 MB.',
+    importImageFailed: 'Could not import this image.',
     saveLayout: 'Could not save layout.',
   },
 });
@@ -3203,6 +3247,7 @@ Object.assign(translations.vi.slides, {
     modeLabel: 'Che do canvas slide',
     previewMode: 'Xem truoc',
     layoutMode: 'Sua layout',
+    importImage: 'Them anh',
     saveLayout: 'Luu layout',
     savingLayout: 'Dang luu...',
     emptyText: 'Van ban trong',
@@ -3214,11 +3259,23 @@ Object.assign(translations.vi.slides, {
     text: 'Van ban',
     fontSize: 'Co chu',
     color: 'Mau',
+    backgroundTitle: 'Nen slide',
+    backgroundColor: 'Mau nen',
+    backgroundPresets: 'Mau nen goi y',
     style: 'Kieu chu',
     bold: 'In dam',
     alignLeft: 'Can trai',
     alignCenter: 'Can giua',
     alignRight: 'Can phai',
+    effect: 'Hieu ung',
+    effects: {
+      none: 'Khong',
+      softShadow: 'Do bong mem',
+      neonGlow: 'Phat sang neon',
+      glassFrame: 'Khung kinh',
+      paperCut: 'Cat giay',
+      duotone: 'Hai tong mau',
+    },
     lock: 'Khoa element',
     unlock: 'Mo khoa element',
     roles: {
@@ -3232,10 +3289,14 @@ Object.assign(translations.vi.slides, {
   },
   feedback: {
     ...(translations.vi.slides.feedback || {}),
+    imageImported: 'Da them anh.',
     layoutSaved: 'Da luu layout.',
   },
   errors: {
     ...(translations.vi.slides.errors || {}),
+    importImageType: 'Hay chon anh PNG, JPG, WebP hoac GIF.',
+    importImageTooLarge: 'Anh qua lon. Hay chon anh duoi 5 MB.',
+    importImageFailed: 'Khong the them anh nay.',
     saveLayout: 'Khong the luu layout.',
   },
 });

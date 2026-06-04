@@ -4,6 +4,11 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
   const [statusBySlideId, setStatusBySlideId] = useState({});
   const pendingRef = useRef({});
   const timerRef = useRef({});
+  const onSaveRef = useRef(onSave);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   const saveNow = useCallback(async (slideId, editorState) => {
     if (!slideId || !editorState) {
@@ -50,9 +55,14 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
   }, [saveNow]);
 
   useEffect(() => () => {
-    Object.values(timerRef.current).forEach((timer) => {
+    Object.entries(timerRef.current).forEach(([slideId, timer]) => {
       if (timer) {
         clearTimeout(timer);
+      }
+
+      const pending = pendingRef.current[slideId];
+      if (pending) {
+        onSaveRef.current?.(Number(slideId), pending).catch(() => {});
       }
     });
   }, []);

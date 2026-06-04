@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   LuArrowLeft,
   LuCheck,
+  LuChevronLeft,
   LuChevronRight,
   LuDownload,
   LuEye,
@@ -14,6 +15,7 @@ import {
   LuPanelRightClose,
   LuPanelRightOpen,
   LuPencil,
+  LuPresentation,
   LuPrinter,
   LuRefreshCw,
   LuSparkles,
@@ -35,12 +37,35 @@ import { useLanguage } from '../context/LanguageContext';
 import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 import SlideCanvas from './slide-studio/SlideCanvas';
 import PropertiesPanel from './slide-studio/PropertiesPanel';
+import useSlideEditorAutosave from './slide-studio/useSlideEditorAutosave';
 import {
+  getBoundedPresentationIndex,
+  getNextPresentationIndex,
+  getPresentationCanvasScale,
+  getPresentationStartIndex,
+  isPresentationTextInputTarget,
+} from './slide-studio/presentationMode';
+import { exportEditablePptx } from '../utils/exportEditablePptx';
+import {
+  addEditorElement,
   buildSlideFromEditorState,
+  createImageElement,
   findEditorElement,
   normalizeEditorState as normalizeSlideEditorState,
+  patchEditorCanvas,
   patchEditorElement,
 } from './slide-studio/editorState';
+
+const IMPORT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const IMPORT_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const SLIDE_AUTOSAVE_DEBOUNCE_MS = 400;
+const SLIDE_BACKGROUND_PRESETS = ['#111827', '#0f172a', '#1d4ed8', '#f8fafc', '#fff7ed', '#ecfdf5'];
+
+const isHexColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value || '').trim());
+
+const getBackgroundPickerValue = (background) => (
+  isHexColor(background) ? String(background).trim() : SLIDE_BACKGROUND_PRESETS[0]
+);
 
 const normalizeTextToken = (value) => {
   if (typeof value !== 'string') {
@@ -179,6 +204,9 @@ function SlideStudio({ documentId: propDocumentId }) {
   const location = useLocation();
   const slideRefs = useRef({});
   const centerPanelRef = useRef(null);
+  const importImageInputRef = useRef(null);
+  const deckRef = useRef(null);
+  const isMountedRef = useRef(true);
   const [documentMeta, setDocumentMeta] = useState(null);
   const [sourceUnderstanding, setSourceUnderstanding] = useState(null);
   const [generationReadiness, setGenerationReadiness] = useState(null);
@@ -204,6 +232,13 @@ function SlideStudio({ documentId: propDocumentId }) {
   const [layoutDirtySlideIds, setLayoutDirtySlideIds] = useState([]);
   const [layoutSavingSlideId, setLayoutSavingSlideId] = useState(null);
   const [exportingFormat, setExportingFormat] = useState('');
+  const [isPresenting, setIsPresenting] = useState(false);
+  const [presentSlideIndex, setPresentSlideIndex] = useState(0);
+  const [presentationViewport, setPresentationViewport] = useState({
+    width: typeof window === 'undefined' ? 1280 : window.innerWidth,
+    height: typeof window === 'undefined' ? 720 : window.innerHeight,
+  });
+  const presentationRequestedFullscreenRef = useRef(false);
 
   const audienceOptions = t('slides.options.audiences');
   const toneOptions = t('slides.options.tones');
@@ -244,11 +279,67 @@ function SlideStudio({ documentId: propDocumentId }) {
 
   const [deckBrief, setDeckBrief] = useState(defaultBrief);
 
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    deckRef.current = deck;
+  }, [deck]);
+
   useEffect(() => {
     if (!briefDirty) {
       setDeckBrief(defaultBrief);
     }
   }, [briefDirty, defaultBrief]);
+
+  const saveEditorState = useCallback(async (slideId, editorState) => {
+    const currentDeck = deckRef.current;
+    if (!currentDeck || !slideId || !editorState) {
+      return null;
+    }
+
+    const sourceSlide = currentDeck.items?.find((slide) => slide.id === slideId);
+    const savedRevision = Number(editorState?.revision || 0);
+    const updated = await slideService.updateSlideItem(currentDeck.id, slideId, {
+      editorState,
+      accentTone: sourceSlide?.accentTone,
+    });
+
+    if (!isMountedRef.current) {
+      return updated;
+    }
+
+    const latestSlide = deckRef.current?.items?.find((slide) => slide.id === slideId);
+    const latestRevision = latestSlide ? normalizeSlideEditorState(latestSlide).revision : savedRevision;
+    if (latestRevision <= savedRevision) {
+      setDeck((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextDeck = {
+          ...current,
+          items: current.items.map((slide) => (slide.id === slideId ? updated : slide)),
+        };
+        deckRef.current = nextDeck;
+        return nextDeck;
+      });
+      setLayoutDirtySlideIds((current) => current.filter((dirtySlideId) => dirtySlideId !== slideId));
+    }
+
+    return updated;
+  }, []);
+
+  const {
+    flushSave: flushEditorAutosave,
+    scheduleSave: scheduleEditorAutosave,
+    statusBySlideId: autosaveStatusBySlideId,
+  } = useSlideEditorAutosave({
+    debounceMs: SLIDE_AUTOSAVE_DEBOUNCE_MS,
+    onSave: saveEditorState,
+  });
+
 
   const loadDocument = useCallback(async () => {
     try {
@@ -414,10 +505,13 @@ function SlideStudio({ documentId: propDocumentId }) {
   };
 
   const handleEdit = useCallback((item) => {
-    setCanvasMode('preview');
-    setEditingSlideId(item.id);
+    setCanvasMode('text');
+    setEditingSlideId(null);
     setSelectedSlideId(item.id);
     setIsInspectorOpen(true);
+    const editorState = normalizeSlideEditorState(item);
+    const firstTextElement = editorState?.elements?.find((element) => element.type === 'text');
+    setSelectedElementId(firstTextElement?.id || null);
     setDrafts((current) => ({
       ...current,
       [item.id]: {
@@ -698,10 +792,12 @@ function SlideStudio({ documentId: propDocumentId }) {
   const lowConfidenceCount = deck?.qualitySummary?.lowConfidenceCount
     ?? allPreviewItems.filter((item) => item.quality?.isLowConfidence).length;
   const readinessMessage = getReadinessMessage(generationReadiness, language);
+  const canPresent = previewItems.length > 0 && !isGenerating;
 
   useEffect(() => {
     if (!previewItems.length) {
       setSelectedSlideId(null);
+      setIsPresenting(false);
       return;
     }
 
@@ -710,6 +806,17 @@ function SlideStudio({ documentId: propDocumentId }) {
       setSelectedSlideId(previewItems[0].id);
     }
   }, [previewItems, selectedSlideId]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return;
+    }
+
+    setPresentSlideIndex((current) => getBoundedPresentationIndex(current, previewItems.length));
+    if (!previewItems.length) {
+      setIsPresenting(false);
+    }
+  }, [isPresenting, previewItems.length]);
 
   useEffect(() => {
     if (!selectedSlideId || !centerPanelRef.current) {
@@ -721,6 +828,98 @@ function SlideStudio({ documentId: propDocumentId }) {
       behavior: 'smooth',
     });
   }, [selectedSlideId]);
+
+  const closePresentation = useCallback(() => {
+    setIsPresenting(false);
+    if (
+      presentationRequestedFullscreenRef.current
+      && document.fullscreenElement
+      && typeof document.exitFullscreen === 'function'
+    ) {
+      document.exitFullscreen().catch(() => {});
+    }
+    presentationRequestedFullscreenRef.current = false;
+  }, []);
+
+  const movePresentation = useCallback((direction) => {
+    setPresentSlideIndex((current) => getNextPresentationIndex(current, previewItems.length, direction));
+  }, [previewItems.length]);
+
+  const handleOpenPresentation = useCallback(() => {
+    if (!previewItems.length) {
+      return;
+    }
+
+    setPresentSlideIndex(getPresentationStartIndex(previewItems, selectedSlideId));
+    setIsPresenting(true);
+
+    if (
+      !document.fullscreenElement
+      && document.documentElement
+      && typeof document.documentElement.requestFullscreen === 'function'
+    ) {
+      document.documentElement.requestFullscreen()
+        .then(() => {
+          presentationRequestedFullscreenRef.current = true;
+        })
+        .catch(() => {
+          presentationRequestedFullscreenRef.current = false;
+          showToast({
+            type: 'info',
+            message: t('slides.feedback.presentationFullscreenFallback'),
+          });
+        });
+    }
+  }, [previewItems, selectedSlideId, showToast, t]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (isPresentationTextInputTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closePresentation();
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        movePresentation(-1);
+        return;
+      }
+
+      if (event.key === 'ArrowRight' || event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        movePresentation(1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closePresentation, isPresenting, movePresentation]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setPresentationViewport({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isPresenting]);
 
   if (loading) {
     return (
@@ -735,8 +934,6 @@ function SlideStudio({ documentId: propDocumentId }) {
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide, t) : null;
   const selectedSlideIsTextOnly = isTextOnlySlide(selectedSlide) || selectedImageVm?.needsImage === false;
   const selectedSlideNeedsMedia = !selectedSlideIsTextOnly && selectedImageVm?.needsImage !== false;
-  const selectedSlideBodyBlocks = selectedSlide ? normalizeBodyBlocks(selectedSlide.bodyBlocks) : [];
-  const selectedSlideKeyMessage = selectedSlide?.keyMessage || selectedSlide?.KeyMessage || selectedSlide?.goal;
   const selectedSlideDraft = selectedSlide ? drafts[selectedSlide.id] : null;
   const isEditingSelectedSlide = selectedSlide && editingSlideId === selectedSlide.id;
   const isExportDisabled = !deck || isGenerating || Boolean(exportingFormat);
@@ -746,9 +943,25 @@ function SlideStudio({ documentId: propDocumentId }) {
   const highSeveritySourceHints = sourceReviewHints.filter((hint) => String(hint.severity || '').toLowerCase() === 'high');
   const selectedEditorState = selectedSlide ? normalizeSlideEditorState(selectedSlide) : null;
   const selectedElement = selectedEditorState ? findEditorElement(selectedEditorState, selectedElementId) : null;
+  const presentationIndex = getBoundedPresentationIndex(presentSlideIndex, previewItems.length);
+  const presentationSlide = isPresenting ? previewItems[presentationIndex] : null;
+  const presentationEditorState = presentationSlide ? normalizeSlideEditorState(presentationSlide) : null;
+  const presentationImageVm = presentationSlide ? buildSlideImageViewModel(presentationSlide, t) : null;
+  const presentationSlideIsTextOnly = isTextOnlySlide(presentationSlide) || presentationImageVm?.needsImage === false;
+  const presentationCanvasScale = presentationEditorState
+    ? getPresentationCanvasScale({
+      viewportWidth: presentationViewport.width,
+      viewportHeight: presentationViewport.height,
+      canvasWidth: presentationEditorState.canvas.width,
+      canvasHeight: presentationEditorState.canvas.height,
+    })
+    : 1;
   const isLayoutEditMode = canvasMode === 'layout';
+  const isTextEditMode = canvasMode === 'text';
   const isLayoutDirty = selectedSlide ? layoutDirtySlideIds.includes(selectedSlide.id) : false;
   const isSavingLayout = selectedSlide ? layoutSavingSlideId === selectedSlide.id : false;
+  const selectedAutosaveStatus = selectedSlide ? autosaveStatusBySlideId[selectedSlide.id] : null;
+  const selectedBackgroundValue = getBackgroundPickerValue(selectedEditorState?.canvas?.background);
   const canvasScale = getCanvasScale(canvasZoom);
   const canvasLabels = {
     emptyText: t('slides.canvas.emptyText'),
@@ -762,11 +975,29 @@ function SlideStudio({ documentId: propDocumentId }) {
     text: t('slides.canvas.text'),
     fontSize: t('slides.canvas.fontSize'),
     color: t('slides.canvas.color'),
+    backgroundTitle: t('slides.canvas.backgroundTitle'),
+    backgroundColor: t('slides.canvas.backgroundColor'),
+    backgroundPresets: t('slides.canvas.backgroundPresets'),
+    autosaveStatus: {
+      dirty: t('slides.editorAutosave.dirty'),
+      saving: t('slides.editorAutosave.saving'),
+      saved: t('slides.editorAutosave.saved'),
+      error: t('slides.editorAutosave.error'),
+    },
     style: t('slides.canvas.style'),
     bold: t('slides.canvas.bold'),
     alignLeft: t('slides.canvas.alignLeft'),
     alignCenter: t('slides.canvas.alignCenter'),
     alignRight: t('slides.canvas.alignRight'),
+    effect: t('slides.canvas.effect'),
+    effectPresets: {
+      none: t('slides.canvas.effects.none'),
+      'soft-shadow': t('slides.canvas.effects.softShadow'),
+      'neon-glow': t('slides.canvas.effects.neonGlow'),
+      'glass-frame': t('slides.canvas.effects.glassFrame'),
+      'paper-cut': t('slides.canvas.effects.paperCut'),
+      duotone: t('slides.canvas.effects.duotone'),
+    },
     lock: t('slides.canvas.lock'),
     unlock: t('slides.canvas.unlock'),
     roles: {
@@ -780,6 +1011,9 @@ function SlideStudio({ documentId: propDocumentId }) {
   };
 
   const handleSelectSlide = (item) => {
+    if (selectedSlide && selectedEditorState && layoutDirtySlideIds.includes(selectedSlide.id)) {
+      flushEditorAutosave(selectedSlide.id, selectedEditorState).catch(() => {});
+    }
     setSelectedSlideId(item.id);
     setSelectedElementId(null);
     if (slideRefs.current[item.id]) {
@@ -788,12 +1022,23 @@ function SlideStudio({ documentId: propDocumentId }) {
   };
 
   const handleSetCanvasMode = (mode) => {
+    if (selectedSlide && selectedEditorState && mode === 'preview' && layoutDirtySlideIds.includes(selectedSlide.id)) {
+      flushEditorAutosave(selectedSlide.id, selectedEditorState).catch(() => {});
+    }
     setCanvasMode(mode);
     if (mode === 'layout' && selectedSlide) {
       setEditingSlideId(null);
       setIsInspectorOpen(true);
       const firstElement = selectedEditorState?.elements?.[0];
       setSelectedElementId((current) => current || firstElement?.id || null);
+    } else if (mode === 'text' && selectedSlide) {
+      setEditingSlideId(null);
+      setIsInspectorOpen(true);
+      const firstTextElement = selectedEditorState?.elements?.find((element) => element.type === 'text');
+      setSelectedElementId((current) => current || firstTextElement?.id || null);
+    } else {
+      setEditingSlideId(null);
+      setSelectedElementId(null);
     }
   };
 
@@ -810,15 +1055,115 @@ function SlideStudio({ documentId: propDocumentId }) {
         return current;
       }
 
-      return {
+      const nextDeck = {
         ...current,
         items: current.items.map((slide) => (slide.id === selectedSlide.id ? nextSlide : slide)),
       };
+      deckRef.current = nextDeck;
+      return nextDeck;
     });
     setSelectedElementId(elementId);
     setLayoutDirtySlideIds((current) => (
       current.includes(selectedSlide.id) ? current : [...current, selectedSlide.id]
     ));
+    scheduleEditorAutosave(selectedSlide.id, nextEditorState);
+  };
+
+  const handlePatchCanvas = (patch) => {
+    if (!selectedSlide || !selectedEditorState) {
+      return;
+    }
+
+    const nextEditorState = patchEditorCanvas(selectedEditorState, patch);
+    const nextSlide = buildSlideFromEditorState(selectedSlide, nextEditorState);
+
+    setDeck((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextDeck = {
+        ...current,
+        items: current.items.map((slide) => (slide.id === selectedSlide.id ? nextSlide : slide)),
+      };
+      deckRef.current = nextDeck;
+      return nextDeck;
+    });
+    setLayoutDirtySlideIds((current) => (
+      current.includes(selectedSlide.id) ? current : [...current, selectedSlide.id]
+    ));
+    scheduleEditorAutosave(selectedSlide.id, nextEditorState);
+  };
+
+  const handleImportImageClick = () => {
+    if (!selectedSlide || (!isLayoutEditMode && !isTextEditMode)) {
+      return;
+    }
+
+    importImageInputRef.current?.click();
+  };
+
+  const readImportedImage = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read image.'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleImportImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !selectedSlide || !selectedEditorState) {
+      return;
+    }
+
+    if (!IMPORT_IMAGE_TYPES.has(file.type)) {
+      showToast({ type: 'error', message: t('slides.errors.importImageType') });
+      return;
+    }
+
+    if (file.size > IMPORT_IMAGE_MAX_BYTES) {
+      showToast({ type: 'error', message: t('slides.errors.importImageTooLarge') });
+      return;
+    }
+
+    try {
+      const src = await readImportedImage(file);
+      const element = createImageElement(selectedEditorState, { src, name: file.name });
+      const nextEditorState = addEditorElement(selectedEditorState, element);
+      const nextSlide = buildSlideFromEditorState(selectedSlide, nextEditorState);
+
+      setDeck((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextDeck = {
+          ...current,
+          items: current.items.map((slide) => (slide.id === selectedSlide.id ? nextSlide : slide)),
+        };
+        deckRef.current = nextDeck;
+        return nextDeck;
+      });
+      setCanvasMode('layout');
+      setIsInspectorOpen(true);
+      setSelectedElementId(element.id);
+      setLayoutDirtySlideIds((current) => (
+        current.includes(selectedSlide.id) ? current : [...current, selectedSlide.id]
+      ));
+      scheduleEditorAutosave(selectedSlide.id, nextEditorState);
+      showToast({
+        type: 'success',
+        message: t('slides.feedback.imageImported'),
+        description: file.name,
+      });
+    } catch (err) {
+      console.error(err);
+      const message = t('slides.errors.importImageFailed');
+      setError(message);
+      showToast({ type: 'error', message });
+    }
   };
 
   const handleSaveLayout = async () => {
@@ -828,16 +1173,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
     try {
       setLayoutSavingSlideId(selectedSlide.id);
-      const updated = await slideService.updateSlideItem(deck.id, selectedSlide.id, {
-        editorState: selectedEditorState,
-        accentTone: selectedSlide.accentTone,
-      });
-
-      setDeck((current) => ({
-        ...current,
-        items: current.items.map((slide) => (slide.id === selectedSlide.id ? updated : slide)),
-      }));
-      setLayoutDirtySlideIds((current) => current.filter((slideId) => slideId !== selectedSlide.id));
+      await flushEditorAutosave(selectedSlide.id, selectedEditorState);
       showToast({
         type: 'success',
         message: t('slides.feedback.layoutSaved'),
@@ -923,11 +1259,13 @@ function SlideStudio({ documentId: propDocumentId }) {
 
     try {
       setExportingFormat('pptx');
-      const result = await slideService.exportDeckPptx(deck.id);
+      const result = await exportEditablePptx({ deck, documentMeta, t });
       showToast({
         type: 'success',
         message: t('slides.feedback.pptxExported'),
-        description: result.filename,
+        description: result.skippedImages > 0
+          ? t('slides.feedback.pptxExportedWithSkippedImages', { count: result.skippedImages })
+          : result.filename,
       });
     } catch (err) {
       console.error(err);
@@ -941,6 +1279,13 @@ function SlideStudio({ documentId: propDocumentId }) {
 
   return (
     <div className={`slide-studio gamma-studio theme-${themeMeta.key}`}>
+      <input
+        ref={importImageInputRef}
+        type="file"
+        className="slide-import-image-input"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={handleImportImageChange}
+      />
       <section className="studio-header-bar card">
         <div className="studio-header-main">
           <button className="button button-secondary studio-back-button" onClick={handleBack}>
@@ -968,6 +1313,10 @@ function SlideStudio({ documentId: propDocumentId }) {
           <button className="button button-secondary studio-action-button" onClick={() => setHideLowConfidence((current) => !current)} title={hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}>
             {hideLowConfidence ? <LuEye aria-hidden="true" /> : <LuEyeOff aria-hidden="true" />}
             <span>{hideLowConfidence ? t('slides.showAllSlides') : t('slides.hideLowConfidence')}</span>
+          </button>
+          <button className="button button-secondary studio-action-button" onClick={handleOpenPresentation} disabled={!canPresent} title={t('slides.present')}>
+            <LuPresentation aria-hidden="true" />
+            <span>{t('slides.present')}</span>
           </button>
           <button className="button button-secondary studio-action-button" onClick={handleDownloadHtml} disabled={isExportDisabled} title={t('slides.downloadHtml')}>
             <LuDownload aria-hidden="true" />
@@ -1169,10 +1518,18 @@ function SlideStudio({ documentId: propDocumentId }) {
               <div className="studio-mode-toggle" role="group" aria-label={t('slides.canvas.modeLabel')}>
                 <button
                   type="button"
-                  className={`studio-zoom-button${!isLayoutEditMode ? ' active' : ''}`}
+                  className={`studio-zoom-button${canvasMode === 'preview' ? ' active' : ''}`}
                   onClick={() => handleSetCanvasMode('preview')}
                 >
                   {t('slides.canvas.previewMode')}
+                </button>
+                <button
+                  type="button"
+                  className={`studio-zoom-button${isTextEditMode ? ' active' : ''}`}
+                  onClick={() => handleSetCanvasMode('text')}
+                  disabled={!selectedSlide}
+                >
+                  {t('slides.editSlide')}
                 </button>
                 <button
                   type="button"
@@ -1195,17 +1552,34 @@ function SlideStudio({ documentId: propDocumentId }) {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={handleImportImageClick}
+                disabled={!selectedSlide || (!isLayoutEditMode && !isTextEditMode)}
+                title={t('slides.canvas.importImage')}
+              >
+                <LuImage aria-hidden="true" />
+                <span>{t('slides.canvas.importImage')}</span>
+              </button>
               {selectedSlide && (
                 <>
-                  {isLayoutEditMode && (
-                    <button
-                      className="button"
-                      onClick={handleSaveLayout}
-                      disabled={isSavingLayout || !isLayoutDirty}
-                    >
-                      <LuCheck aria-hidden="true" />
-                      <span>{isSavingLayout ? t('slides.canvas.savingLayout') : t('slides.canvas.saveLayout')}</span>
-                    </button>
+                  {(isLayoutEditMode || isTextEditMode) && (
+                    <>
+                      <span className={`slide-autosave-status status-${selectedAutosaveStatus || 'idle'}`}>
+                        {selectedAutosaveStatus
+                          ? propertyLabels.autosaveStatus[selectedAutosaveStatus]
+                          : propertyLabels.autosaveStatus.saved}
+                      </span>
+                      <button
+                        className="button"
+                        onClick={handleSaveLayout}
+                        disabled={isSavingLayout || !isLayoutDirty}
+                      >
+                        <LuCheck aria-hidden="true" />
+                        <span>{isSavingLayout ? t('slides.canvas.savingLayout') : t('slides.canvas.saveLayout')}</span>
+                      </button>
+                    </>
                   )}
                   <button className="button button-secondary" onClick={() => handleEdit(selectedSlide)}>
                     <LuPencil aria-hidden="true" />
@@ -1244,7 +1618,7 @@ function SlideStudio({ documentId: propDocumentId }) {
 
             {selectedSlide ? (
               <div className="studio-canvas-stage" style={getZoomStyle(canvasZoom)}>
-                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideIsTextOnly ? ' text-only-slide' : ''}${isLayoutEditMode ? ' layout-edit-slide' : ''}`}>
+                <article className={`studio-slide-frame slide-preview-${normalizeSlideType(selectedSlide.slideType)}${selectedSlideIsTextOnly ? ' text-only-slide' : ''} layout-edit-slide`}>
                   <div className="studio-slide-meta">
                     <span>{t('slides.slideLabel', { index: selectedSlide.slideIndex })}</span>
                     <div className="quality-toolbar">
@@ -1260,63 +1634,16 @@ function SlideStudio({ documentId: propDocumentId }) {
                     </div>
                   </div>
 
-                  {isLayoutEditMode ? (
-                    <SlideCanvas
-                      editorState={selectedEditorState}
-                      imageVm={selectedImageVm}
-                      labels={canvasLabels}
-                      scale={canvasScale}
-                      selectedElementId={selectedElementId}
-                      onPatchElement={handlePatchElement}
-                      onSelectElement={setSelectedElementId}
-                    />
-                  ) : (
-                    <div className={`studio-slide-content${selectedSlideIsTextOnly ? ' text-only-layout' : ''}`}>
-                      <div className="studio-slide-text">
-                        <h3>{selectedSlide.heading}</h3>
-                        {selectedSlide.subheading && <p className="studio-slide-subheading">{selectedSlide.subheading}</p>}
-                        {selectedSlideKeyMessage && <div className="studio-slide-goal studio-slide-key-message">{selectedSlideKeyMessage}</div>}
-                        {selectedSlideBodyBlocks.length > 0 ? (
-                          selectedSlideIsTextOnly ? (
-                            <ul className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)} slide-body-list`}>
-                              {selectedSlideBodyBlocks.map((block, index) => (
-                                <li key={index}>{block}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <div className={`studio-slide-body studio-body-type-${normalizeSlideType(selectedSlide.slideType)}`}>
-                              {selectedSlideBodyBlocks.map((block, index) => (
-                                <div key={index} className="studio-slide-bullet">{block}</div>
-                              ))}
-                            </div>
-                          )
-                        ) : (
-                          <div className="slide-skeleton">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </div>
-                        )}
-                        {selectedSlide.speakerNotes && <p className="studio-slide-notes">{selectedSlide.speakerNotes}</p>}
-                      </div>
-
-                      {selectedSlideNeedsMedia && (
-                        <div className={`studio-media-frame tone-${selectedImageVm?.badgeTone || 'muted'}${selectedImageVm?.selectedImage ? ' has-image' : ''}`}>
-                          {selectedImageVm?.selectedImage?.localAssetUrl ? (
-                            <img
-                              src={selectedImageVm.selectedImage.localAssetUrl}
-                              alt={selectedImageVm.selectedImage.altText || selectedSlide.heading || t('slides.slideLabel', { index: selectedSlide.slideIndex })}
-                            />
-                          ) : (
-                            <div className="studio-media-placeholder">
-                              <strong>{selectedImageVm?.badgeLabel}</strong>
-                              <span>{selectedImageVm?.statusLabel}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <SlideCanvas
+                    editorState={selectedEditorState}
+                    imageVm={selectedImageVm}
+                    labels={canvasLabels}
+                    mode={isLayoutEditMode ? 'layout' : isTextEditMode ? 'text' : 'preview'}
+                    scale={canvasScale}
+                    selectedElementId={isLayoutEditMode ? selectedElementId : null}
+                    onPatchElement={handlePatchElement}
+                    onSelectElement={isLayoutEditMode ? setSelectedElementId : undefined}
+                  />
 
                   {(selectedSlide.quality?.isLowConfidence || selectedSlide.quality?.isUnknown) && (
                     <div className="quality-warning compact">
@@ -1424,6 +1751,37 @@ function SlideStudio({ documentId: propDocumentId }) {
                   </div>
                 ) : (
                   <div className="studio-inspector-stack">
+                    {(isLayoutEditMode || isTextEditMode) && selectedEditorState && (
+                      <div className="studio-inspector-block slide-background-panel">
+                        <div className="studio-inspector-block-head">
+                          <div>
+                            <span className="studio-kicker">{propertyLabels.backgroundTitle}</span>
+                            <strong>{propertyLabels.backgroundColor}</strong>
+                          </div>
+                          <input
+                            type="color"
+                            value={selectedBackgroundValue}
+                            onChange={(event) => handlePatchCanvas({ background: event.target.value })}
+                            aria-label={propertyLabels.backgroundColor}
+                            title={propertyLabels.backgroundColor}
+                          />
+                        </div>
+                        <div className="slide-background-swatches" role="group" aria-label={propertyLabels.backgroundPresets}>
+                          {SLIDE_BACKGROUND_PRESETS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              className={`slide-background-swatch${selectedBackgroundValue.toLowerCase() === color.toLowerCase() ? ' active' : ''}`}
+                              style={{ background: color }}
+                              onClick={() => handlePatchCanvas({ background: color })}
+                              aria-label={`${propertyLabels.backgroundColor} ${color}`}
+                              title={color}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {isLayoutEditMode && (
                       <PropertiesPanel
                         element={selectedElement}
@@ -1668,6 +2026,71 @@ function SlideStudio({ documentId: propDocumentId }) {
           </section>
         </aside>
       </div>
+
+      {isPresenting && presentationSlide && presentationEditorState && (
+        <section
+          className="slide-presentation-overlay"
+          aria-label={t('slides.presentation.presentMode')}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="slide-presentation-toolbar">
+            <div>
+              <span className="studio-kicker">{t('slides.presentation.presentMode')}</span>
+              <strong>{presentationSlide.heading || deck?.title || t('slides.previewFallbackTitle')}</strong>
+            </div>
+            <span className="slide-presentation-counter">
+              {t('slides.presentation.presentationCounter', {
+                current: presentationIndex + 1,
+                total: previewItems.length,
+              })}
+            </span>
+            <button
+              type="button"
+              className="slide-presentation-close"
+              onClick={closePresentation}
+              title={t('slides.presentation.exitPresent')}
+              aria-label={t('slides.presentation.exitPresent')}
+            >
+              <LuX aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="slide-presentation-stage">
+            <button
+              type="button"
+              className="slide-presentation-nav previous"
+              onClick={() => movePresentation(-1)}
+              disabled={presentationIndex === 0}
+              title={t('slides.presentation.previousSlide')}
+              aria-label={t('slides.presentation.previousSlide')}
+            >
+              <LuChevronLeft aria-hidden="true" />
+            </button>
+
+            <article className={`slide-presentation-frame studio-slide-frame slide-preview-${normalizeSlideType(presentationSlide.slideType)}${presentationSlideIsTextOnly ? ' text-only-slide' : ''} layout-edit-slide`}>
+              <SlideCanvas
+                editorState={presentationEditorState}
+                imageVm={presentationImageVm}
+                labels={canvasLabels}
+                mode="preview"
+                scale={presentationCanvasScale}
+              />
+            </article>
+
+            <button
+              type="button"
+              className="slide-presentation-nav next"
+              onClick={() => movePresentation(1)}
+              disabled={presentationIndex >= previewItems.length - 1}
+              title={t('slides.presentation.nextSlide')}
+              aria-label={t('slides.presentation.nextSlide')}
+            >
+              <LuChevronRight aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

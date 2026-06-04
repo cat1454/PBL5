@@ -43,31 +43,26 @@ public class SlideExportService : ISlideExportService
         builder.AppendLine("<style>");
         builder.AppendLine(@"
 @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300..900&display=swap');
-:root{color-scheme:light;--text:#17212d;--muted:#596779;--border:#d8dee8;--paper:#fff;--accent:#2458a6;--slide-font-family:'Lexend','Noto Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+:root{color-scheme:dark;--text:#e5e7eb;--muted:#9ca3af;--border:#1f2937;--paper:#111827;--accent:#2458a6;--slide-font-family:'Lexend','Noto Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
 *{box-sizing:border-box;}
-body{margin:0;background:#eef2f7;color:var(--text);font-family:var(--slide-font-family);}
+body{margin:0;background:#0f172a;color:var(--text);font-family:var(--slide-font-family);}
 .deck-shell{max-width:1180px;margin:0 auto;padding:28px 18px 48px;font-family:inherit;}
 .print-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;color:var(--muted);font-family:inherit;}
 .print-toolbar h1{margin:0;color:var(--text);font-size:24px;line-height:1.2;}
 .print-toolbar p{margin:4px 0 0;line-height:1.5;}
 .print-button{border:0;border-radius:8px;background:var(--accent);color:#fff;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;}
-.slide-page{width:100%;aspect-ratio:16/9;background:var(--paper);border:1px solid var(--border);box-shadow:0 18px 48px rgba(15,23,42,.14);margin:0 auto 24px;padding:48px;display:flex;flex-direction:column;page-break-after:always;break-after:page;font-family:inherit;}
+.slide-page{position:relative;width:100%;aspect-ratio:16/9;background:var(--paper);border:1px solid var(--border);box-shadow:0 18px 48px rgba(0,0,0,.3);margin:0 auto 24px;overflow:hidden;page-break-after:always;break-after:page;font-family:inherit;}
 .slide-page:last-child{page-break-after:auto;break-after:auto;}
-.slide-meta{display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}
-.slide-page h2{margin:22px 0 10px;font-family:inherit;font-size:42px;line-height:1.05;color:var(--text);}
-.slide-subheading{margin:0 0 14px;color:var(--muted);font-size:20px;line-height:1.45;}
-.slide-goal{display:inline-block;max-width:100%;align-self:flex-start;margin:0 0 20px;padding:8px 12px;border-radius:999px;background:#edf4ff;color:#1d4ed8;font-weight:700;font-size:14px;}
-.slide-body{font-family:inherit;font-size:22px;line-height:1.42;}
-.slide-body ul{margin:0;padding-left:24px;display:grid;gap:12px;}
-.slide-body p{margin:0 0 12px;}
-.speaker-notes{margin-top:auto;border-top:1px solid var(--border);padding-top:14px;color:var(--muted);font-family:inherit;font-size:14px;line-height:1.5;}
-.slide-page.type-title{justify-content:flex-end;background:linear-gradient(180deg,#fff7ed,#fff);}
-.slide-page.type-title h2{font-size:58px;}
-.slide-page.type-sectiondivider{background:#17212d;color:#fff;}
-.slide-page.type-sectiondivider h2,.slide-page.type-sectiondivider .slide-meta{color:#fff;}
-.slide-page.type-sectiondivider .slide-subheading,.slide-page.type-sectiondivider .speaker-notes{color:rgba(255,255,255,.78);}
-.slide-page.type-highlight{background:#f8fbff;}
-.slide-page.type-quote .slide-body{font-family:inherit;font-size:28px;font-style:italic;}
+.slide-element{position:absolute;margin:0;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;font-family:var(--slide-font-family);line-height:1.15;}
+.slide-element.image img{display:block;width:100%;height:100%;object-fit:cover;}
+.slide-element.shape{white-space:normal;}
+.slide-element.line{height:0!important;overflow:visible;}
+.slide-element.effect-soft-shadow{filter:drop-shadow(0 18px 28px rgba(15,23,42,.38));}
+.slide-element.effect-neon-glow{filter:drop-shadow(0 0 12px rgba(56,189,248,.78)) drop-shadow(0 0 28px rgba(168,85,247,.42));}
+.slide-element.effect-glass-frame{padding:10px;border:1px solid rgba(226,232,240,.46);border-radius:24px;background:rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 18px 36px rgba(15,23,42,.28);}
+.slide-element.effect-paper-cut{padding:8px;background:#f8fafc;box-shadow:10px 10px 0 rgba(15,23,42,.36);color:#17212d;}
+.slide-element.effect-duotone.image img{filter:grayscale(1) contrast(1.12) sepia(.42) hue-rotate(148deg) saturate(1.85);}
+.slide-element.effect-duotone.text{text-shadow:2px 2px 0 rgba(14,165,233,.5),-2px -2px 0 rgba(244,114,182,.38);}
 @page{size:16in 9in;margin:0;}
 @media print{
   html,body{width:100%;height:100%;background:#fff;}
@@ -93,25 +88,8 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:var(--slide-font-
 
         foreach (var item in orderedItems)
         {
-            builder.AppendLine($"<article class=\"slide-page type-{Html(item.SlideType.ToString().ToLowerInvariant())}\">");
-            builder.AppendLine("<div class=\"slide-meta\">");
-            builder.AppendLine($"<span>Slide {item.SlideIndex}</span>");
-            builder.AppendLine($"<span>{Html(item.SlideType.ToString())}</span>");
-            builder.AppendLine("</div>");
-            builder.AppendLine($"<h2>{Html(item.Heading ?? $"Slide {item.SlideIndex}")}</h2>");
-            if (!string.IsNullOrWhiteSpace(item.Subheading))
-            {
-                builder.AppendLine($"<p class=\"slide-subheading\">{Html(item.Subheading!)}</p>");
-            }
-            if (!string.IsNullOrWhiteSpace(item.Goal))
-            {
-                builder.AppendLine($"<div class=\"slide-goal\">{Html(item.Goal!)}</div>");
-            }
-            AppendBodyHtml(builder, item.GetBodyBlocks(), item.SlideType);
-            if (!string.IsNullOrWhiteSpace(item.SpeakerNotes))
-            {
-                builder.AppendLine($"<div class=\"speaker-notes\"><strong>Speaker notes:</strong> {Html(item.SpeakerNotes!)}</div>");
-            }
+            builder.AppendLine($"<article class=\"slide-page type-{Html(item.SlideType.ToString().ToLowerInvariant())}\" aria-label=\"Slide {item.SlideIndex}\">");
+            AppendEditorElements(builder, item);
             builder.AppendLine("</article>");
         }
 
@@ -178,6 +156,146 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:var(--slide-font-
         }
 
         return stream.ToArray();
+    }
+
+    private static void AppendEditorElements(StringBuilder builder, SlideItem item)
+    {
+        var editorState = item.GetEditorState();
+        var canvasWidth = Math.Max(1, editorState.Canvas?.Width ?? 1280);
+        var canvasHeight = Math.Max(1, editorState.Canvas?.Height ?? 720);
+        var selectedImage = ResolveSelectedImage(item);
+
+        foreach (var element in editorState.Elements
+            .Where(element => element.Visible)
+            .OrderBy(element => element.ZIndex))
+        {
+            var type = (element.Type ?? "text").Trim().ToLowerInvariant();
+            var style = BuildElementStyle(element, canvasWidth, canvasHeight);
+            if (type == "text")
+            {
+                var text = NormalizePrintableText(element.Text);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    continue;
+                }
+
+                builder.AppendLine(
+                    $"<div class=\"slide-element text {Html(BuildEffectClass(element))}\" style=\"{Html(style)}\">{Html(text)}</div>");
+                continue;
+            }
+
+            if (type == "image")
+            {
+                var src = FirstNonBlank(element.Src, element.Url, element.Base64, selectedImage?.LocalAssetUrl, selectedImage?.ThumbnailUrl);
+                if (string.IsNullOrWhiteSpace(src))
+                {
+                    continue;
+                }
+
+                var alt = Html(selectedImage?.AltText ?? element.Role ?? "Slide image");
+                builder.AppendLine(
+                    $"<div class=\"slide-element image {Html(BuildEffectClass(element))}\" style=\"{Html(style)}\"><img src=\"{Html(src!)}\" alt=\"{alt}\" /></div>");
+                continue;
+            }
+
+            if (IsShapeElement(type))
+            {
+                var shapeStyle = BuildShapeStyle(element, style, type);
+                builder.AppendLine($"<div class=\"slide-element shape {Html(type)} {Html(BuildEffectClass(element))}\" style=\"{Html(shapeStyle)}\"></div>");
+            }
+        }
+    }
+
+    private static string BuildEffectClass(SlideElementState element)
+    {
+        var preset = (element.EffectPreset ?? "none").Trim().ToLowerInvariant();
+        return preset is "soft-shadow" or "neon-glow" or "glass-frame" or "paper-cut" or "duotone"
+            ? $"effect-{preset}"
+            : string.Empty;
+    }
+
+    private static string BuildElementStyle(SlideElementState element, int canvasWidth, int canvasHeight)
+    {
+        var x = ToPercent(element.X, canvasWidth);
+        var y = ToPercent(element.Y, canvasHeight);
+        var width = ToPercent(element.Width, canvasWidth);
+        var height = ToPercent(element.Height, canvasHeight);
+        var color = NormalizeCssColor(element.Color, "#ffffff");
+        var align = NormalizeTextAlign(element.Align ?? element.TextAlign);
+        var opacity = element.Opacity is >= 0 and <= 1 ? $";opacity:{element.Opacity.Value:0.###}" : string.Empty;
+        var rotation = element.Rotation.HasValue ? $";transform:rotate({element.Rotation.Value:0.###}deg)" : string.Empty;
+
+        return $"left:{x:0.###}%;top:{y:0.###}%;width:{width:0.###}%;height:{height:0.###}%;z-index:{element.ZIndex};color:{color};font-size:{Math.Clamp(element.FontSize, 8, 160)}px;font-weight:{(element.Bold ? 700 : 400)};text-align:{align};{opacity}{rotation}";
+    }
+
+    private static string BuildShapeStyle(SlideElementState element, string baseStyle, string type)
+    {
+        var fill = NormalizeCssColor(element.FillColor, "transparent");
+        var border = NormalizeCssColor(element.BorderColor, "#ffffff");
+        var borderWidth = Math.Max(0, element.BorderWidth ?? 0);
+        var radius = type == "roundedrectangle" ? "8px" : type == "ellipse" ? "50%" : "0";
+
+        if (type == "line")
+        {
+            return $"{baseStyle};background:transparent;border-top:{Math.Max(1, borderWidth):0.###}px solid {border};";
+        }
+
+        return $"{baseStyle};background:{fill};border:{borderWidth:0.###}px solid {border};border-radius:{radius};";
+    }
+
+    private static SlideImageCandidate? ResolveSelectedImage(SlideItem item)
+    {
+        var candidates = item.GetImageCandidates();
+        if (!string.IsNullOrWhiteSpace(item.SelectedImageKey))
+        {
+            var selected = candidates.FirstOrDefault(candidate =>
+                string.Equals(candidate.Key, item.SelectedImageKey, StringComparison.OrdinalIgnoreCase));
+            if (selected != null)
+            {
+                return selected;
+            }
+        }
+
+        return candidates.FirstOrDefault(candidate => candidate.IsSelected)
+            ?? candidates.FirstOrDefault();
+    }
+
+    private static bool IsShapeElement(string type)
+        => type is "rectangle" or "roundedrectangle" or "ellipse" or "line";
+
+    private static string? NormalizePrintableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return string.Equals(trimmed, "Empty text", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : trimmed;
+    }
+
+    private static double ToPercent(double value, int total)
+        => total <= 0 ? 0 : Math.Clamp(value / total * 100, 0, 100);
+
+    private static string NormalizeTextAlign(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "left" : value.Trim().ToLowerInvariant();
+        return normalized is "left" or "center" or "right" ? normalized : "left";
+    }
+
+    private static string NormalizeCssColor(string? value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.StartsWith("#", StringComparison.Ordinal) || string.Equals(trimmed, "transparent", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : $"#{trimmed}";
     }
 
     private static SlideLayoutPart CreateBlankLayout(PresentationPart presentationPart)
@@ -426,6 +544,9 @@ body{margin:0;background:#eef2f7;color:var(--text);font-family:var(--slide-font-
     }
 
     private static string Html(string value) => WebUtility.HtmlEncode(value);
+
+    private static string? FirstNonBlank(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     private static string Truncate(string value, int maxLength)
     {

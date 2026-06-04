@@ -2,6 +2,7 @@ import React from 'react';
 import { LuAlignCenter, LuAlignLeft, LuAlignRight, LuBold, LuLock, LuLockOpen } from 'react-icons/lu';
 
 const numberValue = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+const effectKeys = ['none', 'soft-shadow', 'neon-glow', 'glass-frame', 'paper-cut', 'duotone'];
 
 function PropertiesPanel({ element, labels, onPatch }) {
   if (!element) {
@@ -64,6 +65,20 @@ function PropertiesPanel({ element, labels, onPatch }) {
           <input type="number" min="24" value={Math.round(element.height)} onChange={patchNumber('height')} />
         </label>
       </div>
+
+      <label className="gamma-field">
+        <span>{labels.effect}</span>
+        <select
+          value={element.effectPreset || 'none'}
+          onChange={(event) => onPatch(element.id, { effectPreset: event.target.value })}
+        >
+          {effectKeys.map((effectKey) => (
+            <option key={effectKey} value={effectKey}>
+              {labels.effectPresets?.[effectKey] || effectKey}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {element.type === 'text' && (
         <>

@@ -1,10 +1,15 @@
+export const DESIGN_WIDTH = 1280;
+export const DESIGN_HEIGHT = 720;
+
 export const SLIDE_CANVAS_DEFAULT = {
-  width: 1600,
-  height: 900,
+  width: DESIGN_WIDTH,
+  height: DESIGN_HEIGHT,
   background: 'theme',
 };
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+const scaleDesign = (value) => Number((value * 0.8).toFixed(2));
+const scaleFont = (value) => Math.max(8, Math.round(value * 0.8));
 
 export const readEditorValue = (value, camelKey, pascalKey = null, fallback = undefined) => {
   if (!value || typeof value !== 'object') {
@@ -54,11 +59,45 @@ const normalizeAlign = (align) => {
   return ['left', 'center', 'right'].includes(value) ? value : 'left';
 };
 
+const normalizeEffectPreset = (value) => {
+  const preset = String(value || 'none').trim().toLowerCase();
+  return ['none', 'soft-shadow', 'neon-glow', 'glass-frame', 'paper-cut', 'duotone'].includes(preset)
+    ? preset
+    : 'none';
+};
+
+const readFirstEditorValue = (value, keys, fallback = undefined) => {
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  for (const key of keys) {
+    if (value[key] !== undefined && value[key] !== null) {
+      return value[key];
+    }
+  }
+
+  return fallback;
+};
+
+const normalizeImageSrc = (element) => String(readFirstEditorValue(element, [
+  'src',
+  'Src',
+  'url',
+  'Url',
+  'imageUrl',
+  'ImageUrl',
+  'localAssetUrl',
+  'LocalAssetUrl',
+  'base64',
+  'Base64',
+], '') || '');
+
 const normalizeElement = (element, index, canvas) => {
   const role = String(readEditorValue(element, 'role', 'Role', `element-${index + 1}`) || `element-${index + 1}`).toLowerCase();
   const type = String(readEditorValue(element, 'type', 'Type', 'text') || 'text').toLowerCase();
-  const width = clamp(Number(readEditorValue(element, 'width', 'Width', 320)) || 320, 24, canvas.width);
-  const height = clamp(Number(readEditorValue(element, 'height', 'Height', 120)) || 120, 24, canvas.height);
+  const width = clamp(Number(readFirstEditorValue(element, ['width', 'Width', 'w', 'W'], 320)) || 320, 24, canvas.width);
+  const height = clamp(Number(readFirstEditorValue(element, ['height', 'Height', 'h', 'H'], 120)) || 120, 24, canvas.height);
   const x = clamp(Number(readEditorValue(element, 'x', 'X', 0)) || 0, 0, Math.max(0, canvas.width - width));
   const y = clamp(Number(readEditorValue(element, 'y', 'Y', 0)) || 0, 0, Math.max(0, canvas.height - height));
 
@@ -72,11 +111,21 @@ const normalizeElement = (element, index, canvas) => {
     height,
     zIndex: Number(readEditorValue(element, 'zIndex', 'ZIndex', (index + 1) * 10)) || (index + 1) * 10,
     locked: Boolean(readEditorValue(element, 'locked', 'Locked', false)),
+    visible: readEditorValue(element, 'visible', 'Visible', true) !== false,
+    src: normalizeImageSrc(element),
     text: String(readEditorValue(element, 'text', 'Text', '') ?? ''),
     fontSize: clamp(Number(readEditorValue(element, 'fontSize', 'FontSize', 24)) || 24, 8, 160),
     bold: Boolean(readEditorValue(element, 'bold', 'Bold', false)),
     color: String(readEditorValue(element, 'color', 'Color', '#FFFFFF') || '#FFFFFF'),
-    align: normalizeAlign(readEditorValue(element, 'align', 'Align', 'left')),
+    align: normalizeAlign(readFirstEditorValue(element, ['align', 'Align', 'textAlign', 'TextAlign'], 'left')),
+    shapeType: readFirstEditorValue(element, ['shapeType', 'ShapeType', 'shape', 'Shape'], undefined),
+    fillColor: readFirstEditorValue(element, ['fillColor', 'FillColor', 'fill', 'Fill', 'backgroundColor', 'BackgroundColor'], undefined),
+    borderColor: readFirstEditorValue(element, ['borderColor', 'BorderColor', 'stroke', 'Stroke', 'lineColor', 'LineColor'], undefined),
+    borderWidth: readFirstEditorValue(element, ['borderWidth', 'BorderWidth', 'strokeWidth', 'StrokeWidth', 'lineWidth', 'LineWidth'], undefined),
+    opacity: readFirstEditorValue(element, ['opacity', 'Opacity'], undefined),
+    rotation: readFirstEditorValue(element, ['rotation', 'Rotation'], undefined),
+    effectPreset: normalizeEffectPreset(readFirstEditorValue(element, ['effectPreset', 'EffectPreset', 'effect', 'Effect'], 'none')),
+    importedAssetName: String(readFirstEditorValue(element, ['importedAssetName', 'ImportedAssetName', 'assetName', 'AssetName'], '') || ''),
   };
 };
 
@@ -84,14 +133,16 @@ const textElement = ({ role, x, y, width, height, zIndex, text, fontSize, bold =
   id: role,
   type: 'text',
   role,
-  x,
-  y,
-  width,
-  height,
+  x: scaleDesign(x),
+  y: scaleDesign(y),
+  width: scaleDesign(width),
+  height: scaleDesign(height),
   zIndex,
   locked: false,
+  visible: true,
+  src: '',
   text: text || '',
-  fontSize,
+  fontSize: scaleFont(fontSize),
   bold,
   color,
   align,
@@ -101,12 +152,14 @@ const imageElement = () => ({
   id: 'image',
   type: 'image',
   role: 'image',
-  x: 980,
-  y: 190,
-  width: 460,
-  height: 420,
+  x: scaleDesign(980),
+  y: scaleDesign(190),
+  width: scaleDesign(460),
+  height: scaleDesign(420),
   zIndex: 15,
   locked: false,
+  visible: true,
+  src: '',
   text: '',
   fontSize: 24,
   bold: false,
@@ -218,6 +271,14 @@ export const patchEditorElement = (editorState, elementId, patch) => {
   });
 };
 
+export const patchEditorCanvas = (editorState, patch) => bumpRevision({
+  ...editorState,
+  canvas: normalizeCanvas({
+    ...editorState?.canvas,
+    ...patch,
+  }),
+});
+
 export const bumpRevision = (editorState) => ({
   ...editorState,
   revision: Number(editorState?.revision || 0) + 1,
@@ -246,6 +307,32 @@ export const createTextElement = (editorState, text = 'New text') => {
     text,
     fontSize: 28,
     color: '#FFFFFF',
+  }, nextIndex, canvas);
+};
+
+export const createImageElement = (editorState, { src, name } = {}) => {
+  const canvas = normalizeCanvas(editorState?.canvas);
+  const nextIndex = (editorState?.elements?.length || 0) + 1;
+  const width = Math.min(420, Math.max(240, Math.round(canvas.width * 0.34)));
+  const height = Math.min(320, Math.max(180, Math.round(canvas.height * 0.44)));
+  const x = Math.max(0, Math.round((canvas.width - width) / 2));
+  const y = Math.max(0, Math.round((canvas.height - height) / 2));
+  const maxZIndex = Math.max(...(editorState?.elements || []).map((element) => Number(element.zIndex) || 0), 0);
+
+  return normalizeElement({
+    id: `image-${Date.now()}`,
+    type: 'image',
+    role: `image-${nextIndex}`,
+    x,
+    y,
+    width,
+    height,
+    zIndex: maxZIndex + 10,
+    locked: false,
+    visible: true,
+    src: src || '',
+    importedAssetName: name || '',
+    effectPreset: 'soft-shadow',
   }, nextIndex, canvas);
 };
 

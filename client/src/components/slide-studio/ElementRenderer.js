@@ -1,15 +1,52 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
-function ElementRenderer({ element, imageVm, labels }) {
+const pickImageSource = (element, imageVm) => {
+  const selectedImage = imageVm?.selectedImage;
+  return element?.src
+    || element?.url
+    || element?.imageUrl
+    || element?.localAssetUrl
+    || element?.base64
+    || selectedImage?.localAssetUrl
+    || selectedImage?.imageUrl
+    || selectedImage?.url
+    || selectedImage?.thumbnailUrl
+    || '';
+};
+
+function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChange }) {
+  const isTextMode = mode === 'text';
+  const textRef = useRef(null);
+  const text = element.text || '';
+  const displayText = text || (mode === 'preview' ? '' : labels?.emptyText);
+
+  useEffect(() => {
+    if (element.type === 'image') {
+      return;
+    }
+
+    const node = textRef.current;
+    if (!node || node.textContent === displayText) {
+      return;
+    }
+
+    if (isTextMode && document.activeElement === node) {
+      return;
+    }
+
+    node.textContent = displayText;
+  }, [displayText, element.type, isTextMode]);
+
   if (element.type === 'image') {
     const selectedImage = imageVm?.selectedImage;
+    const imageSource = pickImageSource(element, imageVm);
 
     return (
       <div className="slide-canvas-image">
-        {selectedImage?.localAssetUrl ? (
+        {imageSource ? (
           <img
-            src={selectedImage.localAssetUrl}
-            alt={selectedImage.altText || labels?.imageAlt || ''}
+            src={imageSource}
+            alt={selectedImage?.altText || labels?.imageAlt || ''}
           />
         ) : (
           <div className="slide-canvas-image-placeholder">
@@ -23,7 +60,11 @@ function ElementRenderer({ element, imageVm, labels }) {
 
   return (
     <div
+      ref={textRef}
       className={`slide-canvas-text role-${element.role}`}
+      contentEditable={isTextMode}
+      suppressContentEditableWarning
+      onInput={isTextMode ? (event) => onTextChange?.(element.id, event.currentTarget.textContent || '') : undefined}
       style={{
         color: element.color,
         fontSize: element.fontSize,
@@ -31,7 +72,7 @@ function ElementRenderer({ element, imageVm, labels }) {
         textAlign: element.align,
       }}
     >
-      {element.text || labels?.emptyText}
+      {displayText}
     </div>
   );
 }

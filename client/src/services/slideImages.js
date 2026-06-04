@@ -128,9 +128,12 @@ const deriveNeedsImage = (item, slideType) => {
 
 export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates)
   .map((candidate, index) => {
-    const sourceType = normalizeOptionalString(candidate?.sourceType ?? candidate?.SourceType)?.toLowerCase() === 'generated'
+    const rawSourceType = normalizeOptionalString(candidate?.sourceType ?? candidate?.SourceType)?.toLowerCase();
+    const sourceType = rawSourceType === 'generated'
       ? 'generated'
-      : 'web';
+      : rawSourceType === 'pdf-region'
+        ? 'pdf-region'
+        : 'web';
 
     return {
       key: pickFirstString(candidate?.key, candidate?.Key, `candidate-${index + 1}`),
@@ -140,7 +143,7 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
         candidate?.Provider,
         candidate?.domain,
         candidate?.Domain,
-        sourceType === 'generated' ? 'AI Generated' : 'Web'
+        sourceType === 'generated' ? 'AI Generated' : sourceType === 'pdf-region' ? 'Source PDF' : 'Web'
       ),
       originUrl: pickFirstString(candidate?.originUrl, candidate?.OriginUrl, candidate?.sourceUrl, candidate?.SourceUrl),
       localAssetUrl: pickFirstString(
@@ -173,6 +176,9 @@ export const normalizeImageCandidates = (rawCandidates) => toArray(rawCandidates
       score: Number.isFinite(candidate?.score) ? candidate.score : (Number.isFinite(candidate?.Score) ? candidate.Score : null),
       isSelected: Boolean(candidate?.isSelected ?? candidate?.IsSelected),
       layoutMode: pickFirstString(candidate?.layoutMode, candidate?.LayoutMode),
+      pageNumber: Number.isFinite(candidate?.pageNumber) ? candidate.pageNumber : (Number.isFinite(candidate?.PageNumber) ? candidate.PageNumber : null),
+      regionType: pickFirstString(candidate?.regionType, candidate?.RegionType),
+      regionText: pickFirstString(candidate?.regionText, candidate?.RegionText),
     };
   })
   .filter((candidate) => candidate.localAssetUrl || candidate.originUrl);
@@ -238,6 +244,10 @@ const getImageBadgeLabel = (status, selectedImage, needsImage, t = fallbackTrans
     return t('slides.imageBadges.web', 'Web image');
   }
 
+  if (selectedImage?.sourceType === 'pdf-region') {
+    return t('slides.imageBadges.pdfRegion', 'PDF image');
+  }
+
   if (status === 'no-license-safe-image') {
     return t('slides.imageBadges.noSafeImage', 'No license-safe image yet');
   }
@@ -276,6 +286,12 @@ const buildAttributionText = (selectedImage, t = fallbackTranslate) => {
 
   if (selectedImage.sourceType === 'generated') {
     return t('slides.imageAttribution.generated', 'Source: {{provider}}', { provider: selectedImage.provider });
+  }
+
+  if (selectedImage.sourceType === 'pdf-region') {
+    return selectedImage.pageNumber
+      ? t('slides.imageAttribution.pdfRegionPage', 'Source PDF, page {{page}}', { page: selectedImage.pageNumber })
+      : t('slides.imageAttribution.pdfRegion', 'Source PDF');
   }
 
   const segments = [

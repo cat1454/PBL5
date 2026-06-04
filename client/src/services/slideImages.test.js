@@ -57,4 +57,33 @@ describe('buildSlideImageViewModel', () => {
     expect(vm.selectedImage.key).toBe('generated-1');
     expect(vm.badgeLabel).toBe('AI image');
   });
+
+  it('normalizes selected PDF-region image candidates with source metadata', () => {
+    const vm = buildSlideImageViewModel({
+      slideType: 'Content',
+      imageState: {
+        needsImage: true,
+        status: 'ready',
+      },
+      imageCandidates: [
+        {
+          key: 'pdf-region-1-2-1',
+          sourceType: 'pdf-region',
+          provider: 'Source PDF',
+          localAssetUrl: '/uploads/slide-assets/deck-1/slide-2/pdf-region-4-1.png',
+          pageNumber: 4,
+          regionType: 'ChartCandidate',
+          regionText: 'Chart caption',
+          isSelected: true,
+        },
+      ],
+      selectedImageKey: 'pdf-region-1-2-1',
+    });
+
+    expect(vm.selectedImage.sourceType).toBe('pdf-region');
+    expect(vm.selectedImage.pageNumber).toBe(4);
+    expect(vm.selectedImage.regionType).toBe('ChartCandidate');
+    expect(vm.badgeLabel).toBe('PDF image');
+    expect(vm.attributionText).toBe('Source PDF, page 4');
+  });
 });

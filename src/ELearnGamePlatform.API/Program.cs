@@ -153,6 +153,7 @@ builder.Services.AddScoped<QuestionStudioOrchestrator>();
 builder.Services.AddScoped<ISlideGenerator, SlideGeneratorService>();
 builder.Services.AddScoped<ISlideExportService, SlideExportService>();
 builder.Services.AddScoped<ISlideImagePlannerService, SlideImagePlannerService>();
+builder.Services.AddScoped<ISlidePdfImageAssetService, SlidePdfImageAssetService>();
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IWorkspacePayloadService, WorkspacePayloadService>();
