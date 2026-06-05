@@ -24,6 +24,9 @@ public class SlideGeneratorService : ISlideGenerator
     private const int EvidenceChunkLimit = 3;
     private const int PromptCoverageChunkLimit = 8;
     private const int PromptKeyFactLimit = 2;
+    private const int FastOutlineChunksPerSectionLimit = 3;
+    private const int FastOutlineChunkExcerptLimit = 650;
+    private const int FastOutlineContextCharLimit = 10_000;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
     private const int SlideRepairThreshold = 86;
@@ -86,6 +89,7 @@ public class SlideGeneratorService : ISlideGenerator
         string? speedMode = null)
     {
         correlationId ??= Guid.NewGuid().ToString("N");
+        var outlineStopwatch = Stopwatch.StartNew();
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
         var fastMode = IsFastMode(speedMode);
@@ -119,7 +123,21 @@ public class SlideGeneratorService : ISlideGenerator
             {
                 try
                 {
-                    var prompt = BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount);
+                    var promptPayload = fastMode
+                        ? BuildFastOutlinePrompt(processedContent, brief, chunks, sectionPlans, targetCount)
+                        : BuildOutlinePromptPayload(BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount));
+                    var prompt = promptPayload.Prompt;
+                    if (fastMode)
+                    {
+                        _logger.LogInformation(
+                            "[SlideGen:{JobId}] Phase=outline Step=prompt-built SpeedMode=fast SectionCount={SectionCount} ChunkCount={ChunkCount} PromptChars={PromptChars} ContextChars={ContextChars}",
+                            correlationId,
+                            sectionPlans.Count,
+                            promptPayload.ContextChunkCount,
+                            prompt.Length,
+                            promptPayload.ContextChars);
+                    }
+
                     var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                         prompt,
                         "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
@@ -140,6 +158,11 @@ public class SlideGeneratorService : ISlideGenerator
 
                 if (IsOutlineQualityAcceptable(outline, targetCount, out qualityIssues))
                 {
+                    outlineStopwatch.Stop();
+                    _logger.LogInformation(
+                        "[SlideGen:{JobId}] Phase=outline Step=completed DurationMs={DurationMs}",
+                        correlationId,
+                        outlineStopwatch.ElapsedMilliseconds);
                     return outline;
                 }
             }
@@ -152,7 +175,13 @@ public class SlideGeneratorService : ISlideGenerator
             currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId);
         }
 
-        return BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
+        var fallback = BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
+        outlineStopwatch.Stop();
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=outline Step=completed DurationMs={DurationMs}",
+            correlationId,
+            outlineStopwatch.ElapsedMilliseconds);
+        return fallback;
     }
 
     public async Task<SlideContentResult> GenerateSlideAsync(
@@ -418,6 +447,81 @@ Return JSON:
     }}
   ]
 }}";
+
+    private static OutlinePromptPayload BuildOutlinePromptPayload(string prompt)
+        => new()
+        {
+            Prompt = prompt,
+            ContextChars = 0,
+            ContextChunkCount = 0
+        };
+
+    private static OutlinePromptPayload BuildFastOutlinePrompt(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        List<DocumentChunk> chunks,
+        List<SlideSectionPlan> sectionPlans,
+        int targetCount)
+    {
+        var context = BuildFastOutlineContextBlock(sectionPlans, chunks, out var contextChunkCount);
+        var prompt = $@"You are creating a fast lesson deck outline from compact section evidence.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Compact document analysis:
+{BuildFastAnalyzedContentBlock(processedContent)}
+
+Compact outline context:
+{context}
+
+Requirements:
+1. Return one JSON object only.
+2. Write visible text in Vietnamese with proper diacritics.
+3. Create exactly {targetCount} slides.
+4. Slide 1 must be Title.
+5. Include one SectionDivider in the early deck.
+6. Each slide needs heading, optional subheading, short goal, keyMessage, and 1-3 preferredChunkIds.
+7. preferredChunkIds must come exactly from the compact outline context.
+8. Cover the supplied sections in order and keep a lesson flow for learners.
+9. Use section title, local summary, key facts, and source refs before using excerpts.
+10. Do not infer chapters, references, appendices, or facts outside the compact context.
+11. Headings and keyMessage must be concrete, not generic.
+12. If mode=lecture, make the deck feel like a chapter-based lesson: opening, learning objective, major subsections in order, synthesis, and review.
+13. If mode=summary, prioritize concise synthesis and retention.
+14. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
+15. If mode=timeline, emphasize chronology, turning points, and period transitions.
+
+Return JSON:
+{{
+  ""title"": ""ten deck"",
+  ""subtitle"": ""mo ta ngan"",
+  ""presentationContractVersion"": ""{PresentationExtractionContract.CurrentVersion}"",
+  ""themeKey"": ""editorial-sunrise"",
+  ""slides"": [
+    {{
+      ""slideIndex"": 1,
+      ""slideType"": ""Title"",
+      ""heading"": ""tieu de slide"",
+      ""subheading"": ""phu de"",
+      ""goal"": ""muc tieu ngan"",
+      ""keyMessage"": ""mot y chinh ro rang"",
+      ""preferredChunkIds"": [""C01""],
+      ""rhythm"": ""dense"",
+      ""visualRole"": ""process"",
+      ""chartIntent"": ""none"",
+      ""needsChartReview"": false
+    }}
+  ]
+}}";
+
+        return new OutlinePromptPayload
+        {
+            Prompt = prompt,
+            ContextChars = context.Length,
+            ContextChunkCount = contextChunkCount
+        };
+    }
 
     private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence, List<SlideSectionPlan> sectionPlans)
         => $@"You are a system creating grounded study slides from source sections.
@@ -2327,6 +2431,27 @@ Return JSON only:
         return $"- Language: {processedContent.Language}\n- Document type: {processedContent.DocumentType}\n- Title: {processedContent.Title}\n- Main content start page: {processedContent.MainContentStartPage}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
     }
 
+    private static string BuildFastAnalyzedContentBlock(ProcessedContent? processedContent)
+    {
+        if (processedContent == null)
+        {
+            return "- No precomputed analysis. Use compact outline context only.";
+        }
+
+        var topics = processedContent.MainTopics
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Select(topic => NormalizeLine(topic, 70))
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Take(4);
+        var keyPoints = processedContent.KeyPoints
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Select(point => NormalizeLine(point, 90))
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Take(4);
+
+        return $"- Language: {NormalizeLine(processedContent.Language, 40) ?? "unknown"}\n- Document type: {NormalizeLine(processedContent.DocumentType, 60) ?? "unknown"}\n- Title: {NormalizeLine(processedContent.Title, 120) ?? "untitled"}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {NormalizeLine(processedContent.Summary, 180) ?? "Khong co tom tat san."}";
+    }
+
     private static string BuildPresentationContractBlock(PresentationExtractionContract? contract)
     {
         if (contract == null)
@@ -2592,6 +2717,136 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             Environment.NewLine,
             sectionPlans.Take(PromptCoverageChunkLimit).Select(plan =>
                 $"- {string.Join(", ", plan.SourceChunkIds)} | primary={plan.IsPrimarySection} | heading={NormalizeLine(plan.HeadingText, 80) ?? plan.SectionId} | summary={NormalizeLine(plan.Summary, 160) ?? "khong co"} | ideas={string.Join(" | ", plan.KeyIdeas.Take(3))} | significance={NormalizeLine(plan.LearningSignificance, 120) ?? "khong co"}"));
+
+    private static string BuildFastOutlineContextBlock(
+        IReadOnlyList<SlideSectionPlan> sectionPlans,
+        IReadOnlyList<DocumentChunk> chunks,
+        out int contextChunkCount)
+    {
+        var chunksById = chunks
+            .GroupBy(chunk => chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var context = new StringBuilder();
+        var usedChunkIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var plan in sectionPlans.OrderBy(plan => plan.FirstChunkNumber))
+        {
+            var representativeChunks = SelectFastOutlineRepresentativeChunks(plan, chunksById);
+            foreach (var chunk in representativeChunks)
+            {
+                usedChunkIds.Add(chunk.ChunkId);
+            }
+
+            var refs = representativeChunks.Any()
+                ? string.Join(", ", representativeChunks.Select(chunk => chunk.ChunkId))
+                : string.Join(", ", plan.SourceChunkIds.Take(FastOutlineChunksPerSectionLimit));
+            var facts = representativeChunks
+                .SelectMany(chunk => chunk.KeyFacts)
+                .Concat(plan.KeyIdeas)
+                .Select(fact => NormalizeLine(fact, 120))
+                .Where(fact => !string.IsNullOrWhiteSpace(fact))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(4)
+                .ToList();
+
+            AppendFastContextLine(context, $"Section: {NormalizeLine(plan.HeadingText, 120) ?? plan.SectionId}");
+            AppendFastContextLine(context, $"- refs: {refs}; sourceChunkCount={plan.SourceChunkIds.Count}; primary={plan.IsPrimarySection}");
+            AppendFastContextLine(context, $"- summary: {NormalizeLine(plan.Summary, 420) ?? "khong co"}");
+            AppendFastContextLine(context, $"- keyFacts: {(facts.Any() ? string.Join(" | ", facts) : "khong co")}");
+
+            foreach (var chunk in representativeChunks)
+            {
+                var excerpt = NormalizeLine(chunk.EvidenceExcerpt, FastOutlineChunkExcerptLimit)
+                    ?? NormalizeLine(chunk.Summary, 220)
+                    ?? NormalizeLine(chunk.Label, 120)
+                    ?? "khong co excerpt";
+                AppendFastContextLine(
+                    context,
+                    $"- excerpt {chunk.ChunkId}: heading={BuildHeadingMeta(chunk)}; label={NormalizeLine(chunk.Label, 70) ?? chunk.ChunkId}; {excerpt}");
+            }
+
+            AppendFastContextLine(context, string.Empty);
+            if (context.Length >= FastOutlineContextCharLimit)
+            {
+                break;
+            }
+        }
+
+        contextChunkCount = usedChunkIds.Count;
+        return context.Length == 0
+            ? "- Khong co compact outline context."
+            : context.ToString().TrimEnd();
+    }
+
+    private static List<DocumentChunk> SelectFastOutlineRepresentativeChunks(
+        SlideSectionPlan plan,
+        IReadOnlyDictionary<string, DocumentChunk> chunksById)
+    {
+        var candidates = plan.SourceChunkIds
+            .Select(chunkId => chunksById.TryGetValue(chunkId, out var chunk) ? chunk : null)
+            .Where(chunk => chunk != null)
+            .Cast<DocumentChunk>()
+            .ToList();
+
+        if (!candidates.Any())
+        {
+            return new List<DocumentChunk>();
+        }
+
+        var selected = new List<DocumentChunk>();
+        AddFastOutlineChunk(selected, candidates.FirstOrDefault(chunk => chunk.IsPrimarySection));
+        AddFastOutlineChunk(selected, candidates.OrderByDescending(chunk => chunk.TeachabilityScore).FirstOrDefault());
+        AddFastOutlineChunk(selected, candidates.OrderBy(chunk => chunk.ChunkNumber).FirstOrDefault());
+
+        foreach (var chunk in candidates.OrderBy(chunk => chunk.ChunkNumber))
+        {
+            if (selected.Count >= FastOutlineChunksPerSectionLimit)
+            {
+                break;
+            }
+
+            AddFastOutlineChunk(selected, chunk);
+        }
+
+        return selected
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .Take(FastOutlineChunksPerSectionLimit)
+            .ToList();
+    }
+
+    private static void AddFastOutlineChunk(List<DocumentChunk> selected, DocumentChunk? chunk)
+    {
+        if (chunk == null || selected.Any(existing => string.Equals(existing.ChunkId, chunk.ChunkId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        selected.Add(chunk);
+    }
+
+    private static void AppendFastContextLine(StringBuilder builder, string line)
+    {
+        if (builder.Length >= FastOutlineContextCharLimit)
+        {
+            return;
+        }
+
+        var remaining = FastOutlineContextCharLimit - builder.Length;
+        if (remaining <= Environment.NewLine.Length)
+        {
+            return;
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(line)
+            ? string.Empty
+            : NormalizeLine(line, remaining - Environment.NewLine.Length) ?? string.Empty;
+        if (normalized.Length == 0 && line.Length > 0)
+        {
+            return;
+        }
+
+        builder.AppendLine(normalized);
+    }
 
     private static string BuildRelevantSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans, IEnumerable<string> preferredChunkIds)
     {
@@ -3470,6 +3725,13 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         public List<string> SourceChunkIds { get; set; } = new();
         public bool IsPrimarySection { get; set; }
         public int FirstChunkNumber { get; set; }
+    }
+
+    private sealed class OutlinePromptPayload
+    {
+        public string Prompt { get; init; } = string.Empty;
+        public int ContextChars { get; init; }
+        public int ContextChunkCount { get; init; }
     }
 
     private sealed class SlideSectionSummaryDraft

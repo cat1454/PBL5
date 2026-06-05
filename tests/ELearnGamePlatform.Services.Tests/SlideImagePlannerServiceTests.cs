@@ -233,6 +233,46 @@ public class SlideImagePlannerServiceTests
     }
 
     [Fact]
+    public async Task SourceImagesForItemAsync_FastPreview_SkipsPlannerPdfAndExternalGeneration()
+    {
+        var item = CreateSlideItem();
+        item.Id = 47;
+        item.SelectedImageKey = "existing";
+        item.SetImageCandidates(new List<SlideImageCandidate>
+        {
+            new() { Key = "existing", SourceType = "pdf-region", LocalAssetUrl = "/old.png", IsSelected = true }
+        });
+
+        var planner = new FixedPlanner(new SlideImagePlan
+        {
+            NeedsImage = true,
+            VisualRole = "diagram",
+            GenerationPrompt = "Create a 16:9 academic presentation slide illustration showing a diagram layout.",
+            AltText = "Diagram."
+        });
+        var handler = new CapturingHttpHandler();
+        var pdfService = new FixedPdfImageAssetService(new SlideImageCandidate
+        {
+            Key = "pdf-region-47-1-1",
+            SourceType = "pdf-region",
+            Provider = "Source PDF",
+            LocalAssetUrl = "/uploads/slide-assets/deck-1/slide-1/pdf-region-1-1.png",
+            IsSelected = true
+        });
+        var service = CreateImageService(planner, handler, pdfImageAssetService: pdfService);
+
+        await service.SourceImagesForItemAsync(item, SlideImageSourcingOptions.FastPreview);
+
+        Assert.Equal(0, planner.CallCount);
+        Assert.Equal(0, pdfService.CallCount);
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Null(item.SelectedImageKey);
+        Assert.Empty(item.GetImageCandidates());
+        Assert.False(item.GetImagePlan()!.NeedsImage);
+        Assert.Equal("fast-mode-skipped", item.GetImagePlan()!.StatusHint);
+    }
+
+    [Fact]
     public async Task SourceImagesForItemAsync_GptImageModel_DoesNotSendUnsupportedResponseFormat()
     {
         var originalApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
@@ -464,19 +504,27 @@ public class SlideImagePlannerServiceTests
     private sealed class FixedPlanner : ISlideImagePlannerService
     {
         private readonly SlideImagePlan _plan;
+        public int CallCount { get; private set; }
 
         public FixedPlanner(SlideImagePlan plan)
         {
             _plan = plan;
         }
 
-        public Task<SlideImagePlan> PlanAsync(SlideItem item, string? documentTopic = null, CancellationToken cancellationToken = default)
-            => Task.FromResult(_plan);
+        public Task<SlideImagePlan> PlanAsync(
+            SlideItem item,
+            string? documentTopic = null,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(_plan);
+        }
     }
 
     private sealed class FixedPdfImageAssetService : ISlidePdfImageAssetService
     {
         private readonly SlideImageCandidate? _candidate;
+        public int CallCount { get; private set; }
 
         public FixedPdfImageAssetService(SlideImageCandidate? candidate)
         {
@@ -487,7 +535,10 @@ public class SlideImagePlannerServiceTests
             SlideItem item,
             SlideImagePlan imagePlan,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(_candidate);
+        {
+            CallCount++;
+            return Task.FromResult(_candidate);
+        }
     }
 
     private sealed class CapturingHttpHandler : HttpMessageHandler

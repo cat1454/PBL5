@@ -1502,6 +1502,73 @@
   opacity: 0.5;
 }
 
+.app-surface-workspace .folder-studio-speed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.app-surface-workspace .folder-studio-speed-toggle button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.app-surface-workspace .folder-studio-speed-toggle button.active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.app-surface-workspace .folder-studio-speed-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-surface-workspace .folder-studio-speed-toggle.is-topbar {
+  flex: 0 0 auto;
+}
+
+.app-surface-workspace .folder-studio-speed-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dce5f2;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.app-surface-workspace .folder-studio-speed-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.app-surface-workspace .folder-studio-speed-card strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.app-surface-workspace .folder-studio-speed-card span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.app-surface-workspace .folder-studio-speed-card .folder-studio-speed-toggle {
+  justify-self: start;
+}
+
 .app-surface-workspace .folder-studio-rail {
   grid-column: 1;
   grid-row: 2 / 4;
@@ -1994,6 +2061,13 @@
   .app-surface-workspace .folder-studio-topbar-actions {
     width: auto !important;
     flex-direction: row !important;
+    flex-wrap: wrap;
+  }
+
+  .app-surface-workspace .folder-studio-speed-toggle.is-topbar {
+    order: 10;
+    width: 100%;
+    justify-content: center;
   }
 
   .app-surface-workspace .folder-studio-topbar-modes {
