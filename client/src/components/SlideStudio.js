@@ -19,6 +19,7 @@ import {
   LuPrinter,
   LuRefreshCw,
   LuSparkles,
+  LuType,
   LuX,
 } from 'react-icons/lu';
 import { documentService, getApiErrorMessage, isApiNotFound, isSlideSchemaUnavailable, slideService } from '../services/api';
@@ -50,6 +51,7 @@ import {
   addEditorElement,
   buildSlideFromEditorState,
   createImageElement,
+  createTextElement,
   findEditorElement,
   normalizeEditorState as normalizeSlideEditorState,
   patchEditorCanvas,
@@ -1095,8 +1097,39 @@ function SlideStudio({ documentId: propDocumentId }) {
     scheduleEditorAutosave(selectedSlide.id, nextEditorState);
   };
 
+  const handleAddTextElement = () => {
+    if (!selectedSlide || !selectedEditorState) {
+      return;
+    }
+
+    const element = createTextElement(selectedEditorState, t('slides.canvas.newTextElement'));
+    const nextEditorState = addEditorElement(selectedEditorState, element);
+    const nextSlide = buildSlideFromEditorState(selectedSlide, nextEditorState);
+
+    setDeck((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextDeck = {
+        ...current,
+        items: current.items.map((slide) => (slide.id === selectedSlide.id ? nextSlide : slide)),
+      };
+      deckRef.current = nextDeck;
+      return nextDeck;
+    });
+    setCanvasMode('layout');
+    setIsInspectorOpen(true);
+    setSelectedElementId(element.id);
+    setLayoutDirtySlideIds((current) => (
+      current.includes(selectedSlide.id) ? current : [...current, selectedSlide.id]
+    ));
+    scheduleEditorAutosave(selectedSlide.id, nextEditorState);
+    showToast({ type: 'success', message: t('slides.feedback.textElementAdded') });
+  };
+
   const handleImportImageClick = () => {
-    if (!selectedSlide || (!isLayoutEditMode && !isTextEditMode)) {
+    if (!selectedSlide) {
       return;
     }
 
@@ -1552,16 +1585,38 @@ function SlideStudio({ documentId: propDocumentId }) {
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={handleImportImageClick}
-                disabled={!selectedSlide || (!isLayoutEditMode && !isTextEditMode)}
-                title={t('slides.canvas.importImage')}
-              >
-                <LuImage aria-hidden="true" />
-                <span>{t('slides.canvas.importImage')}</span>
-              </button>
+              <div className="studio-insert-group" role="group" aria-label={t('slides.canvas.insertGroup')}>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleAddTextElement}
+                  disabled={!selectedSlide}
+                  title={t('slides.canvas.addTextElement')}
+                >
+                  <LuType aria-hidden="true" />
+                  <span>{t('slides.canvas.addTextElement')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleImportImageClick}
+                  disabled={!selectedSlide}
+                  title={t('slides.canvas.importImage')}
+                >
+                  <LuImage aria-hidden="true" />
+                  <span>{t('slides.canvas.importImage')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleOpenPresentation}
+                  disabled={!canPresent}
+                  title={t('slides.present')}
+                >
+                  <LuPresentation aria-hidden="true" />
+                  <span>{t('slides.present')}</span>
+                </button>
+              </div>
               {selectedSlide && (
                 <>
                   {(isLayoutEditMode || isTextEditMode) && (

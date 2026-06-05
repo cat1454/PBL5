@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   LuAlignCenter,
   LuAlignLeft,
@@ -15,14 +15,18 @@ import {
   LuIndentDecrease,
   LuIndentIncrease,
   LuItalic,
+  LuLayers,
+  LuLayoutTemplate,
   LuImage,
   LuLink2,
   LuList,
   LuListOrdered,
+  LuMousePointer2,
   LuPanelRightClose,
   LuPanelRightOpen,
   LuPalette,
   LuPlus,
+  LuPresentation,
   LuPrinter,
   LuRedo2,
   LuRefreshCw,
@@ -34,6 +38,7 @@ import {
   LuType,
   LuUnderline,
   LuUndo2,
+  LuUpload,
   LuX,
 } from 'react-icons/lu';
 import {
@@ -60,9 +65,12 @@ import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 import LayersPanel from './slide-studio/LayersPanel';
 import PropertiesPanel from './slide-studio/PropertiesPanel';
 import SlideCanvas from './slide-studio/SlideCanvas';
+import SlideStudioCanvaMockup from './slide-studio/SlideStudioCanvaMockup';
+import SlideThumbnail from './slide-studio/SlideThumbnail';
 import {
   addEditorElement,
   buildSlideFromEditorState,
+  createImageElement,
   createTextElement,
   deleteEditorElement,
   duplicateEditorElement,
@@ -659,7 +667,7 @@ function WorkspaceQuestionProgressCard({ progress, language }) {
   );
 }
 
-function FolderStudio() {
+function FolderStudioRuntime() {
   const { t, language } = useLanguage();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
@@ -667,6 +675,7 @@ function FolderStudio() {
   const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const canvasImageInputRef = useRef(null);
   const centerCanvasRef = useRef(null);
   const editorSurfaceRef = useRef(null);
 
@@ -702,11 +711,11 @@ function FolderStudio() {
   const [isScopePickerOpen, setIsScopePickerOpen] = useState(false);
   const [scopeRecommendation, setScopeRecommendation] = useState(null);
   const [filterText, setFilterText] = useState('');
-  const [activeSidebarTab, setActiveSidebarTab] = useState('sources');
-  const [isActionPanelOpen, setIsActionPanelOpen] = useState(true);
+  const [activeTool, setActiveTool] = useState('sources');
   const [canvasMode, setCanvasMode] = useState('preview');
   const [selectedElementId, setSelectedElementId] = useState(null);
   const [copiedElement, setCopiedElement] = useState(null);
+  const [canvasStageSize, setCanvasStageSize] = useState({ width: 0, height: 0 });
   const [remoteSelections, setRemoteSelections] = useState({});
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
@@ -722,6 +731,7 @@ function FolderStudio() {
   const animatedRevisionRef = useRef({});
   const realtimeThrottleRef = useRef({});
   const canvasHistory = useSlideEditorHistory();
+  const canvasImportImageTypes = useMemo(() => new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']), []);
   const audienceLabels = t('slides.options.audiences');
   const toneLabels = t('slides.options.tones');
   const languageStyleLabels = t('slides.options.languageStyles');
@@ -1019,6 +1029,17 @@ function FolderStudio() {
     ? Object.values(remoteSelections).filter((selection) => selection.slideId === selectedSlide.id)
     : [];
   const displayName = currentUser?.fullName || currentUser?.email || currentUser?.username || (language === 'vi' ? 'Nguoi dung workspace' : 'Workspace user');
+  const selectedCanvasScale = useMemo(() => {
+    const canvas = selectedCanvasState?.canvas;
+    if (!canvas || !canvasStageSize.width || !canvasStageSize.height) {
+      return 0.58;
+    }
+
+    const availableWidth = Math.max(240, canvasStageSize.width - 72);
+    const availableHeight = Math.max(180, canvasStageSize.height - 132);
+    const nextScale = Math.min(availableWidth / canvas.width, availableHeight / canvas.height, 0.72);
+    return Number(Math.max(0.24, nextScale).toFixed(3));
+  }, [canvasStageSize.height, canvasStageSize.width, selectedCanvasState]);
 
   const applyCanvasStateToDeck = useCallback((slideId, editorState, { remote = false } = {}) => {
     let nextSlide = null;
@@ -1200,6 +1221,33 @@ function FolderStudio() {
   useEffect(() => {
     latestDirtyDraftsRef.current = dirtyDrafts;
   }, [dirtyDrafts]);
+
+  useEffect(() => {
+    const node = editorSurfaceRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      setCanvasStageSize((current) => {
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        return current.width === width && current.height === height ? current : { width, height };
+      });
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [activeTool, selectedSlideId]);
 
   useEffect(() => {
     if (!selectedSlide || !deck?.items?.length) {
@@ -1915,9 +1963,70 @@ function FolderStudio() {
 
     const element = createTextElement(selectedCanvasState, language === 'vi' ? 'Van ban moi' : 'New text');
     const nextState = addEditorElement(selectedCanvasState, element);
+    setCanvasMode('layout');
     setSelectedElementId(element.id);
     commitCanvasState(selectedSlide.id, nextState, 'addElement', element.id);
   }, [commitCanvasState, language, selectedCanvasState, selectedSlide]);
+
+  const readCanvasImageFile = useCallback((file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read image.'));
+    reader.readAsDataURL(file);
+  }), []);
+
+  const handleAddCanvasImageClick = useCallback(() => {
+    if (!selectedSlide || !selectedCanvasState) {
+      return;
+    }
+
+    canvasImageInputRef.current?.click();
+  }, [selectedCanvasState, selectedSlide]);
+
+  const handleAddCanvasImageChange = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !selectedSlide || !selectedCanvasState) {
+      return;
+    }
+
+    if (!canvasImportImageTypes.has(file.type)) {
+      showToast({
+        type: 'error',
+        message: language === 'vi' ? 'Hay chon anh PNG, JPG, WebP hoac GIF.' : 'Please choose a PNG, JPG, WebP, or GIF image.',
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast({
+        type: 'error',
+        message: language === 'vi' ? 'Anh qua lon. Hay chon anh duoi 5 MB.' : 'Image is too large. Please choose an image under 5 MB.',
+      });
+      return;
+    }
+
+    try {
+      const src = await readCanvasImageFile(file);
+      const element = createImageElement(selectedCanvasState, { src, name: file.name });
+      const nextState = addEditorElement(selectedCanvasState, element);
+      setCanvasMode('layout');
+      setSelectedElementId(element.id);
+      commitCanvasState(selectedSlide.id, nextState, 'addElement', element.id);
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Da them anh vao canvas.' : 'Image added to the canvas.',
+        description: file.name,
+      });
+    } catch (err) {
+      console.error(err);
+      showToast({
+        type: 'error',
+        message: language === 'vi' ? 'Khong the them anh nay.' : 'Could not add this image.',
+      });
+    }
+  }, [canvasImportImageTypes, commitCanvasState, language, readCanvasImageFile, selectedCanvasState, selectedSlide, showToast]);
 
   const handleDeleteCanvasElement = useCallback((elementId = selectedElementId) => {
     if (!selectedSlide || !selectedCanvasState || !elementId) {
@@ -2953,11 +3062,18 @@ function FolderStudio() {
         onChange={handleSourceUpload}
         accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.txt"
       />
+      <input
+        ref={canvasImageInputRef}
+        type="file"
+        hidden
+        onChange={handleAddCanvasImageChange}
+        accept="image/png,image/jpeg,image/webp,image/gif"
+      />
 
       {uploadNotice && <div className="alert alert-info">{uploadNotice}</div>}
       {error && <div className="alert alert-error">{error}</div>}
       {generationError && <div className="alert alert-error">{generationError}</div>}
-      <section className="folder-studio-shell">
+      <section className={`folder-studio-shell tool-${activeTool || 'none'}`}>
         <div className="folder-studio-topbar">
           <button
             type="button"
@@ -2982,6 +3098,36 @@ function FolderStudio() {
                 </span>
               )}
             </div>
+          </div>
+
+          <div className="folder-studio-topbar-modes" role="group" aria-label={language === 'vi' ? 'Che do studio' : 'Studio modes'}>
+            <button
+              type="button"
+              className={`folder-studio-mode-chip${canvasMode === 'preview' ? ' active' : ''}`}
+              disabled={!selectedSlide}
+              onClick={handleEnterCanvasPreviewMode}
+            >
+              <LuMousePointer2 aria-hidden="true" />
+              <span>Preview</span>
+            </button>
+            <button
+              type="button"
+              className={`folder-studio-mode-chip${isTextEditMode ? ' active' : ''}`}
+              disabled={!selectedSlide}
+              onClick={handleEnterCanvasTextMode}
+            >
+              <LuType aria-hidden="true" />
+              <span>{language === 'vi' ? 'Sua text' : 'Edit text'}</span>
+            </button>
+            <button
+              type="button"
+              className={`folder-studio-mode-chip${isLayoutEditMode ? ' active' : ''}`}
+              disabled={!selectedSlide}
+              onClick={handleEnterCanvasLayoutMode}
+            >
+              <LuPanelRightOpen aria-hidden="true" />
+              <span>{language === 'vi' ? 'Sua layout' : 'Edit layout'}</span>
+            </button>
           </div>
 
           <div className="folder-studio-topbar-actions">
@@ -3016,33 +3162,56 @@ function FolderStudio() {
             <button
               type="button"
               className="folder-studio-mini-btn folder-studio-panel-toggle"
-              onClick={() => setIsActionPanelOpen((current) => !current)}
-              aria-label={isActionPanelOpen
-                ? (language === 'vi' ? 'Ẩn panel hành động' : 'Hide action panel')
-                : (language === 'vi' ? 'Mở panel hành động' : 'Show action panel')}
+              onClick={() => setActiveTool((current) => (current === 'actions' ? null : 'actions'))}
+              aria-label={activeTool === 'actions'
+                ? (language === 'vi' ? 'An actions drawer' : 'Hide actions drawer')
+                : (language === 'vi' ? 'Mo actions drawer' : 'Show actions drawer')}
             >
-              {isActionPanelOpen ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
-              {isActionPanelOpen ? (language === 'vi' ? 'Ẩn điều khiển' : 'Hide controls') : (language === 'vi' ? 'Mở điều khiển' : 'Show controls')}
+              {activeTool === 'actions' ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
+              {language === 'vi' ? 'Actions' : 'Actions'}
             </button>
           </div>
         </div>
 
-        <div className={`folder-studio-main${isActionPanelOpen ? ' action-open' : ' action-closed'}`}>
-          <aside className={`folder-studio-sidebar tab-${activeSidebarTab}`}>
+        <nav className="folder-studio-rail" aria-label={language === 'vi' ? 'Cong cu studio' : 'Studio tools'}>
+          {[
+            { key: 'slides', label: language === 'vi' ? 'Slides' : 'Slides', icon: LuLayoutTemplate },
+            { key: 'sources', label: language === 'vi' ? 'Sources' : 'Sources', icon: LuBookOpen },
+            { key: 'text', label: language === 'vi' ? 'Text' : 'Text', icon: LuType },
+            { key: 'elements', label: language === 'vi' ? 'Layers' : 'Layers', icon: LuLayers },
+            { key: 'uploads', label: language === 'vi' ? 'Uploads' : 'Uploads', icon: LuUpload },
+            { key: 'actions', label: language === 'vi' ? 'Actions' : 'Actions', icon: LuSparkles },
+          ].map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              className={activeTool === key ? 'active' : ''}
+              onClick={() => setActiveTool((current) => (current === key ? null : key))}
+              aria-label={label}
+              title={label}
+            >
+              <Icon aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className={`folder-studio-main drawer-${activeTool || 'closed'}`}>
+          <aside className={`folder-studio-sidebar tab-${activeTool === 'slides' ? 'slides' : 'sources'}`}>
             <div className="folder-studio-panel-title">{language === 'vi' ? 'Điều hướng nội dung' : 'Content navigation'}</div>
 
             <div className="folder-studio-sidebar-tabs">
               <button
                 type="button"
-                className={`folder-studio-sidebar-tab${activeSidebarTab === 'slides' ? ' active' : ''}`}
-                onClick={() => setActiveSidebarTab('slides')}
+                className={`folder-studio-sidebar-tab${activeTool === 'slides' ? ' active' : ''}`}
+                onClick={() => setActiveTool('slides')}
               >
                 {language === 'vi' ? 'Cấu trúc slide' : 'Slides'}
               </button>
               <button
                 type="button"
-                className={`folder-studio-sidebar-tab${activeSidebarTab === 'sources' ? ' active' : ''}`}
-                onClick={() => setActiveSidebarTab('sources')}
+                className={`folder-studio-sidebar-tab${activeTool !== 'slides' ? ' active' : ''}`}
+                onClick={() => setActiveTool('sources')}
               >
                 {language === 'vi' ? 'Nguồn tài liệu' : 'Sources'}
               </button>
@@ -3707,6 +3876,39 @@ function FolderStudio() {
                       <button
                         type="button"
                         className="workspace-canvas-mode-button"
+                        aria-label={language === 'vi' ? 'Them text' : 'Add text'}
+                        title={language === 'vi' ? 'Them text' : 'Add text'}
+                        disabled={!selectedSlide}
+                        onClick={handleAddCanvasText}
+                      >
+                        <LuPlus aria-hidden="true" />
+                        <span>{language === 'vi' ? 'Them text' : 'Add text'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label={language === 'vi' ? 'Them anh' : 'Add image'}
+                        title={language === 'vi' ? 'Them anh' : 'Add image'}
+                        disabled={!selectedSlide}
+                        onClick={handleAddCanvasImageClick}
+                      >
+                        <LuImage aria-hidden="true" />
+                        <span>{language === 'vi' ? 'Them anh' : 'Add image'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
+                        aria-label={language === 'vi' ? 'Thuyet trinh' : 'Present'}
+                        title={language === 'vi' ? 'Thuyet trinh' : 'Present'}
+                        disabled={!selectedSourceDocumentId || !deckReady}
+                        onClick={() => navigate(`/slides/${selectedSourceDocumentId}`)}
+                      >
+                        <LuPresentation aria-hidden="true" />
+                        <span>{language === 'vi' ? 'Thuyet trinh' : 'Present'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
                         aria-label="Undo"
                         title="Undo"
                         disabled={!isLayoutEditMode || !selectedCanvasHistory.past.length}
@@ -3725,17 +3927,6 @@ function FolderStudio() {
                       >
                         <LuRedo2 aria-hidden="true" />
                         <span>Redo</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="workspace-canvas-mode-button"
-                        aria-label="Add text"
-                        title="Add text"
-                        disabled={!isLayoutEditMode}
-                        onClick={handleAddCanvasText}
-                      >
-                        <LuPlus aria-hidden="true" />
-                        <span>Add text</span>
                       </button>
                       <button
                         type="button"
@@ -3759,7 +3950,7 @@ function FolderStudio() {
                       labels={canvasLabels}
                       mode={isLayoutEditMode ? 'layout' : isTextEditMode ? 'text' : 'preview'}
                       remoteSelections={isLayoutEditMode ? canvasRemoteSelections : []}
-                      scale={0.58}
+                      scale={selectedCanvasScale}
                       selectedElementId={isLayoutEditMode ? selectedElementId : null}
                       onCommitElement={handleCommitCanvasElement}
                       onPatchElement={isTextEditMode ? handleCommitCanvasElement : handlePatchCanvasElement}
@@ -3955,14 +4146,45 @@ function FolderStudio() {
             </div>
           </section>
 
-          <aside className={`folder-studio-rpanel${isActionPanelOpen ? ' open' : ''}${selectedEditorField ? ' property-mode' : ''}`}>
-            {isLayoutEditMode && selectedCanvasState && (
-              <>
+          {((isLayoutEditMode && selectedCanvasElement) || selectedEditorField) && (
+            <aside className="folder-studio-floating-inspector">
+              {isLayoutEditMode && selectedCanvasElement && (
                 <PropertiesPanel
                   element={selectedCanvasElement}
                   labels={canvasPropertyLabels}
                   onPatch={(elementId, patch) => handleCommitCanvasElement(elementId, patch)}
                 />
+              )}
+              {selectedEditorField && renderAdvancedPropertiesPanel()}
+            </aside>
+          )}
+
+          <aside className={`folder-studio-rpanel drawer-${activeTool || 'closed'}`}>
+            {activeTool === 'text' && (
+              <div className="folder-studio-action-section folder-studio-text-drawer-section">
+                <div className="folder-studio-section-label">{language === 'vi' ? 'Text' : 'Text'}</div>
+                <button
+                  type="button"
+                  className="folder-studio-action tone-primary"
+                  onClick={handleAddCanvasText}
+                  disabled={!selectedSlide}
+                >
+                  <span className="folder-studio-action-icon"><LuType aria-hidden="true" /></span>
+                  <span className="folder-studio-action-copy">
+                    <strong>{language === 'vi' ? 'Them text vao canvas' : 'Add text to canvas'}</strong>
+                    <span>{language === 'vi' ? 'Tao text element moi va chuyen sang edit layout.' : 'Create a new text element and switch to layout editing.'}</span>
+                  </span>
+                  <span className="folder-studio-action-badge">Text</span>
+                </button>
+                <div className="folder-studio-scope-hint">
+                  {language === 'vi'
+                    ? 'Edit text truc tiep tren slide: chon Edit text roi click vao text element.'
+                    : 'Edit text inline on the slide: choose Edit text, then click a text element.'}
+                </div>
+              </div>
+            )}
+            {isLayoutEditMode && selectedCanvasState && (
+              <>
                 <LayersPanel
                   elements={selectedCanvasState.elements}
                   labels={canvasLayerLabels}
@@ -3975,7 +4197,6 @@ function FolderStudio() {
                 />
               </>
             )}
-            {renderAdvancedPropertiesPanel()}
             <div className="folder-studio-panel-title">{language === 'vi' ? 'Studio / Hành động' : 'Studio / Actions'}</div>
 
             <div className="folder-studio-action-section">
@@ -4220,6 +4441,30 @@ function FolderStudio() {
             </div>
           </aside>
         </div>
+        <footer className="folder-studio-filmstrip" aria-label={language === 'vi' ? 'Danh sach slide' : 'Slide thumbnails'}>
+          {slideItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`folder-studio-filmstrip-item${item.id === selectedSlideId ? ' active' : ''}`}
+              onClick={() => handleSelectSlide(item.id)}
+            >
+              <SlideThumbnail
+                editorState={normalizeSlideEditorState(item)}
+                imageVm={buildSlideImageViewModel(item)}
+                labels={canvasLabels}
+              />
+              <strong>{item.heading || 'Untitled'}</strong>
+            </button>
+          ))}
+          {!slideItems.length && (
+            <div className="folder-studio-filmstrip-empty">
+              {hasSelectedScope
+                ? (language === 'vi' ? 'Tao deck de co thumbnail slide.' : 'Generate a deck to show slide thumbnails.')
+                : (language === 'vi' ? 'Chon source va scope truoc.' : 'Select a source and scope first.')}
+            </div>
+          )}
+        </footer>
       </section>
 
       {isScopePickerOpen && selectedSource && (
@@ -4328,6 +4573,18 @@ function FolderStudio() {
       )}
     </div>
   );
+}
+
+function FolderStudio() {
+  const { workspaceId } = useParams();
+  const [searchParams] = useSearchParams();
+  const showStudioMockup = searchParams.get('studioMockup') === '1';
+
+  if (showStudioMockup) {
+    return <SlideStudioCanvaMockup workspaceName={`Workspace ${workspaceId || 'demo'}`} />;
+  }
+
+  return <FolderStudioRuntime />;
 }
 
 export default FolderStudio;

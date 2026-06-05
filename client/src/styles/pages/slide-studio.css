@@ -978,6 +978,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 18px;
+  overflow: visible;
   padding: 18px 22px;
   background: var(--gamma-card-strong);
   border: 1px solid var(--gamma-border);
@@ -989,7 +990,9 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  flex: 1 1 320px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .studio-back-button,
@@ -1070,7 +1073,10 @@
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  flex: 1 1 420px;
+  min-width: min(100%, 280px);
   max-width: 760px;
+  overflow: visible;
 }
 
 .studio-action-button {
@@ -1304,6 +1310,14 @@
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.studio-insert-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .studio-canvas-body {
@@ -2028,12 +2042,14 @@
 
   .studio-header-actions,
   .studio-toolbar-actions,
+  .studio-insert-group,
   .studio-zoom-group {
     justify-content: flex-start;
   }
 
   .studio-header-actions .button,
   .studio-toolbar-actions .button,
+  .studio-insert-group .button,
   .studio-action-button {
     width: 100%;
     justify-content: center;
@@ -2104,3 +2120,28 @@
   }
 }
 
+/* Keep Slide Studio action controls visible inside the bounded shell. */
+.studio-header-actions .studio-action-button,
+.studio-toolbar-actions .button,
+.studio-insert-group .button {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.studio-canvas-toolbar,
+.studio-toolbar-actions,
+.studio-insert-group {
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.studio-canvas-toolbar {
+  flex-wrap: wrap;
+}
+
+.studio-canvas-column,
+.studio-workspace {
+  min-width: 0;
+}

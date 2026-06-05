@@ -1,0 +1,654 @@
+.canva-mockup-shell {
+  --mockup-topbar-h: 58px;
+  --mockup-rail-w: 64px;
+  --mockup-drawer-w: 316px;
+  --mockup-filmstrip-h: 104px;
+  height: calc(100vh - 64px);
+  min-height: 680px;
+  display: grid;
+  grid-template-columns: var(--mockup-rail-w) minmax(0, 1fr);
+  grid-template-rows: var(--mockup-topbar-h) minmax(0, 1fr) var(--mockup-filmstrip-h);
+  overflow: hidden;
+  color: #172033;
+  background: #eef2f7;
+  border: 1px solid #d9e2ef;
+}
+
+.canva-mockup-shell button,
+.canva-mockup-shell input,
+.canva-mockup-shell select {
+  font: inherit;
+}
+
+.canva-mockup-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid #dce5f2;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(14px);
+}
+
+.canva-mockup-icon-command,
+.canva-mockup-export,
+.canva-mockup-mode-group button,
+.canva-mockup-rail button,
+.canva-mockup-drawer-list button,
+.canva-mockup-text-grid button,
+.canva-mockup-action-stack button,
+.canva-mockup-filmstrip button {
+  border: 0;
+  cursor: pointer;
+}
+
+.canva-mockup-icon-command {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  color: #334155;
+  border-radius: 8px;
+  background: #edf2f8;
+}
+
+.canva-mockup-title {
+  display: grid;
+  min-width: 150px;
+  margin-right: auto;
+}
+
+.canva-mockup-title span,
+.canva-mockup-save-state,
+.canva-mockup-inspector span,
+.canva-mockup-drawer-head span,
+.canva-mockup-source-stack span,
+.canva-mockup-upload-drop span,
+.canva-mockup-slide-copy span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.canva-mockup-title strong {
+  max-width: 36vw;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canva-mockup-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid #dae4f0;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.canva-mockup-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.canva-mockup-mode-group button,
+.canva-mockup-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #334155;
+  border-radius: 999px;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.canva-mockup-mode-group button.active,
+.canva-mockup-export {
+  color: #ffffff;
+  background: #1f6f8b;
+}
+
+.canva-mockup-rail {
+  grid-column: 1;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  border-right: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.canva-mockup-rail button {
+  width: 48px;
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  color: #475569;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.canva-mockup-rail button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.canva-mockup-rail button span {
+  max-width: 48px;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canva-mockup-rail button.active {
+  color: #0f5d75;
+  background: #e4f6f5;
+}
+
+.canva-mockup-main {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.canva-mockup-drawer {
+  width: var(--mockup-drawer-w);
+  flex: 0 0 var(--mockup-drawer-w);
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  border-right: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.canva-mockup-drawer-head {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.canva-mockup-drawer-head strong {
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.canva-mockup-drawer-list,
+.canva-mockup-source-stack,
+.canva-mockup-action-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.canva-mockup-drawer-list button,
+.canva-mockup-source-stack article,
+.canva-mockup-action-stack button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #1e293b;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.canva-mockup-drawer-list button span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #0f5d75;
+  border-radius: 7px;
+  background: #dff4f2;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.canva-mockup-drawer-list button.active {
+  border-color: #32a6a1;
+  background: #effaf8;
+}
+
+.canva-mockup-source-stack article svg,
+.canva-mockup-action-stack button svg {
+  flex: 0 0 auto;
+  color: #0f5d75;
+}
+
+.canva-mockup-source-stack article div {
+  display: grid;
+  gap: 2px;
+}
+
+.canva-mockup-text-grid,
+.canva-mockup-element-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.canva-mockup-text-grid button,
+.canva-mockup-element-grid span {
+  min-height: 74px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #1e293b;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.canva-mockup-upload-drop {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 20px;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  color: #334155;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.canva-mockup-upload-drop svg {
+  width: 30px;
+  height: 30px;
+  color: #0f5d75;
+}
+
+.canva-mockup-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 28px;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    #eef2f7;
+  background-size: 28px 28px;
+}
+
+.canva-mockup-canvas {
+  position: relative;
+  width: min(74vw, 980px);
+  max-width: calc(100% - 360px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.canva-mockup-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 78% 20%, rgba(255, 255, 255, 0.62), transparent 24%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.68));
+}
+
+.canva-mockup-canvas.tone-coral { background: linear-gradient(135deg, #f97373, #f7d794 62%, #ffffff); }
+.canva-mockup-canvas.tone-mint { background: linear-gradient(135deg, #50c5b7, #d7f8ec 62%, #ffffff); }
+.canva-mockup-canvas.tone-indigo { background: linear-gradient(135deg, #5465ff, #c7d2fe 62%, #ffffff); }
+.canva-mockup-canvas.tone-amber { background: linear-gradient(135deg, #f0a33a, #fde9a9 62%, #ffffff); }
+.canva-mockup-canvas.tone-steel { background: linear-gradient(135deg, #516070, #d7e0ea 62%, #ffffff); }
+.canva-mockup-canvas.tone-rose { background: linear-gradient(135deg, #e85d75, #ffd6df 62%, #ffffff); }
+.canva-mockup-canvas.tone-teal { background: linear-gradient(135deg, #0f766e, #a7f3d0 62%, #ffffff); }
+
+.canva-mockup-slide-badge,
+.canva-mockup-slide-copy,
+.canva-mockup-slide-visual,
+.canva-mockup-selected-text {
+  position: absolute;
+  z-index: 1;
+}
+
+.canva-mockup-slide-badge {
+  top: 24px;
+  left: 26px;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: #0f172a;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.74);
+  font-weight: 800;
+}
+
+.canva-mockup-slide-copy {
+  left: 72px;
+  bottom: 70px;
+  width: min(58%, 560px);
+  display: grid;
+  gap: 12px;
+}
+
+.canva-mockup-slide-copy h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(30px, 4vw, 54px);
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.canva-mockup-slide-copy p {
+  max-width: 520px;
+  margin: 0;
+  color: #334155;
+  font-size: clamp(15px, 1.6vw, 21px);
+  line-height: 1.45;
+}
+
+.canva-mockup-slide-visual {
+  top: 86px;
+  right: 70px;
+  width: 230px;
+  height: 250px;
+}
+
+.canva-mockup-slide-visual span {
+  position: absolute;
+  display: block;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+}
+
+.canva-mockup-slide-visual span:nth-child(1) {
+  inset: 0 40px 76px 0;
+}
+
+.canva-mockup-slide-visual span:nth-child(2) {
+  inset: 54px 0 34px 78px;
+}
+
+.canva-mockup-slide-visual span:nth-child(3) {
+  inset: 154px 84px 0 30px;
+}
+
+.canva-mockup-selected-text {
+  left: 70px;
+  bottom: 54px;
+  width: 260px;
+  height: 96px;
+  border: 2px solid #1f6f8b;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.canva-mockup-selected-text span {
+  position: absolute;
+  top: -26px;
+  left: -2px;
+  padding: 3px 7px;
+  color: #ffffff;
+  border-radius: 6px;
+  background: #1f6f8b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.canva-mockup-inspector {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 3;
+  width: 304px;
+  max-height: calc(100% - 36px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.2);
+}
+
+.canva-mockup-inspector div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.canva-mockup-inspector strong {
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.canva-mockup-inspector label {
+  display: grid;
+  gap: 7px;
+}
+
+.canva-mockup-inspector select,
+.canva-mockup-inspector input[type="range"] {
+  width: 100%;
+}
+
+.canva-mockup-inspector select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.canva-mockup-swatches {
+  display: flex;
+  gap: 8px;
+}
+
+.canva-mockup-swatches i {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.swatch-ink { background: #0f172a; }
+.swatch-coral { background: #ef6f6c; }
+.swatch-mint { background: #2bb3a3; }
+.swatch-indigo { background: #5465ff; }
+
+.canva-mockup-filmstrip {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 16px;
+  border-top: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.canva-mockup-filmstrip button {
+  width: 128px;
+  flex: 0 0 128px;
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  color: #334155;
+  background: transparent;
+  text-align: left;
+}
+
+.canva-mockup-thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #e2e8f0;
+}
+
+.canva-mockup-filmstrip button.active .canva-mockup-thumb {
+  border-color: #1f6f8b;
+}
+
+.canva-mockup-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 12px 10px 10px 36px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.canva-mockup-thumb i {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  color: #0f172a;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.canva-mockup-thumb.tone-coral { background: #f7b0a5; }
+.canva-mockup-thumb.tone-mint { background: #9be2d8; }
+.canva-mockup-thumb.tone-indigo { background: #b7c0ff; }
+.canva-mockup-thumb.tone-amber { background: #f7d37b; }
+.canva-mockup-thumb.tone-steel { background: #bcc8d4; }
+.canva-mockup-thumb.tone-rose { background: #f4a9b8; }
+.canva-mockup-thumb.tone-teal { background: #82d8c9; }
+
+.canva-mockup-filmstrip strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canva-mockup-filmstrip-add {
+  min-height: 72px;
+  place-items: center;
+  border: 1px dashed #94a3b8 !important;
+  border-radius: 8px;
+  color: #475569 !important;
+}
+
+@media (max-width: 1160px) {
+  .canva-mockup-canvas {
+    width: min(88vw, 820px);
+    max-width: 100%;
+  }
+
+  .canva-mockup-inspector {
+    width: 270px;
+  }
+}
+
+@media (max-width: 900px) {
+  .canva-mockup-shell {
+    min-height: 720px;
+  }
+
+  .canva-mockup-topbar {
+    gap: 8px;
+    overflow-x: auto;
+  }
+
+  .canva-mockup-title strong {
+    max-width: 180px;
+  }
+
+  .canva-mockup-drawer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 4;
+    width: min(var(--mockup-drawer-w), calc(100vw - var(--mockup-rail-w) - 28px));
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  }
+
+  .canva-mockup-stage {
+    padding: 18px;
+  }
+
+  .canva-mockup-inspector {
+    top: auto;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    width: auto;
+    max-height: 238px;
+  }
+
+  .canva-mockup-canvas {
+    width: min(88vw, 680px);
+  }
+}
+
+@media (max-width: 680px) {
+  .canva-mockup-shell {
+    --mockup-topbar-h: 106px;
+    grid-template-rows: var(--mockup-topbar-h) minmax(0, 1fr) var(--mockup-filmstrip-h);
+  }
+
+  .canva-mockup-topbar {
+    flex-wrap: wrap;
+    align-content: center;
+  }
+
+  .canva-mockup-mode-group {
+    order: 5;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .canva-mockup-canvas {
+    width: min(86vw, 520px);
+  }
+
+  .canva-mockup-slide-copy {
+    left: 30px;
+    right: 30px;
+    bottom: 40px;
+    width: auto;
+  }
+
+  .canva-mockup-slide-visual,
+  .canva-mockup-selected-text {
+    display: none;
+  }
+}
