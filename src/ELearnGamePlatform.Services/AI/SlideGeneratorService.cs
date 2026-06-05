@@ -86,7 +86,7 @@ public class SlideGeneratorService : ISlideGenerator
         correlationId ??= Guid.NewGuid().ToString("N");
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
-        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId);
+        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId, documentId);
         var targetCount = Math.Clamp(desiredSlideCount, 5, 18);
 
         Report(
@@ -2376,12 +2376,14 @@ Warnings:
     private async Task<List<SlideSectionPlan>> GenerateSectionPlansAsync(
         List<DocumentChunk> chunks,
         IProgress<SlideGenerationProgressUpdate>? progress,
-        string correlationId)
+        string correlationId,
+        int? documentId)
     {
         var plans = BuildSectionPlans(chunks);
         _logger.LogInformation(
-            "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started SectionCount={SectionCount} ChunkCount={ChunkCount}",
+            "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started DocumentId={DocumentId} SectionCount={SectionCount} ChunkCount={ChunkCount}",
             correlationId,
+            documentId,
             plans.Count,
             chunks.Count);
 
@@ -2414,8 +2416,9 @@ Return JSON:
                     OllamaModelProfile.Analysis);
                 sectionStopwatch.Stop();
                 _logger.LogInformation(
-                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-completed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-completed DocumentId={DocumentId} Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
                     correlationId,
+                    documentId,
                     index + 1,
                     plans.Count,
                     current.SectionId,
@@ -2439,8 +2442,9 @@ Return JSON:
                 sectionStopwatch.Stop();
                 _logger.LogWarning(
                     ex,
-                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-failed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-failed DocumentId={DocumentId} Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
                     correlationId,
+                    documentId,
                     index + 1,
                     plans.Count,
                     current.SectionId,
