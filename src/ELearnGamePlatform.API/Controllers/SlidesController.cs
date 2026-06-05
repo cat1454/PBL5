@@ -1876,6 +1876,10 @@ public class SlidesController : AuthenticatedControllerBase
             ScopePolicy = request.ScopePolicy,
             ConfirmLowConfidence = request.ConfirmLowConfidence
         }));
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=job Step=request-completed-background-continues FolderId={FolderId}",
+            jobId,
+            folderId);
 
         var recommendation = BuildScopeRecommendation(request);
 
@@ -1889,6 +1893,48 @@ public class SlidesController : AuthenticatedControllerBase
             progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state),
             scopeRecommendation = recommendation
         });
+    }
+
+    [HttpGet("folders/{folderId}/generate/active")]
+    public async Task<IActionResult> GetActiveGenerateSlidesForFolder(int folderId)
+    {
+        _logger.LogInformation(
+            "[SlideGen] Phase=job Step=resume-active-query FolderId={FolderId}",
+            folderId);
+
+        var folder = await GetFolderAsync(folderId);
+        if (folder == null)
+        {
+            return NotFound("Folder project not found");
+        }
+
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        if (!_jobStore.TryGetLatestActiveJobForFolder(folderId, out var state) || state == null)
+        {
+            _logger.LogInformation(
+                "[SlideGen] Phase=job Step=resume-active-empty FolderId={FolderId}",
+                folderId);
+            return NoContent();
+        }
+
+        var userAuthResult = EnsureCurrentUserMatches(state.CreatedByUserId);
+        if (userAuthResult != null)
+        {
+            return userAuthResult;
+        }
+
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=job Step=resume-active-found FolderId={FolderId} Status={Status}",
+            state.JobId,
+            folderId,
+            state.Status);
+
+        return Ok(JobProgressPayloadFactory.BuildSlide(state));
     }
 
     private async Task<DocumentGenerationReadiness> GetFolderGenerationReadinessAsync(FolderProject folder, GenerateFolderSlidesRequest request)

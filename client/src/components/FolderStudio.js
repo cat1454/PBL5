@@ -1109,21 +1109,33 @@ function FolderStudioRuntime() {
 
     try {
       setError('');
-      const [folderData, sourceData, deckData] = await Promise.all([
+      const [folderData, sourceData, deckData, activeJobData] = await Promise.all([
         workspaceService.get(workspaceId),
         workspaceService.listSources(workspaceId),
         slideService.getDeckByFolder(workspaceId),
+        slideService.getActiveGenerateJobForFolder(workspaceId),
       ]);
 
       setFolder(folderData);
       setSources(Array.isArray(sourceData) ? sourceData : []);
       setDeck(deckData || null);
 
-      if (deckData?.generationProgress) {
-        const nextProgress = normalizeProgressState(deckData.generationProgress, progressRef.current || {});
+      const resumableProgress = activeJobData || deckData?.generationProgress || null;
+      if (resumableProgress) {
+        const nextProgress = normalizeProgressState(resumableProgress, progressRef.current || {});
         setProgress(nextProgress);
         if (nextProgress.jobId) {
           setJobId(nextProgress.jobId);
+        }
+        if (activeJobData && isActiveProgress(nextProgress)) {
+          debugSlideGen({
+            action: 'resume-active-job',
+            jobId: nextProgress.jobId,
+            workspaceId,
+            folderProjectId: nextProgress.folderProjectId,
+            status: nextProgress.status,
+            percent: nextProgress.percent,
+          });
         }
       } else if (!progressRef.current || isTerminalProgress(progressRef.current)) {
         setProgress(null);
@@ -1143,7 +1155,7 @@ function FolderStudioRuntime() {
         }));
       }
 
-      return { folderData, sourceData, deckData };
+      return { folderData, sourceData, deckData, activeJobData };
     } catch (err) {
       console.error(err);
       setError(getApiErrorMessage(err, language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.'));

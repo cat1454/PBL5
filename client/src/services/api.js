@@ -608,6 +608,11 @@ export const slideService = {
     return response.data;
   },
 
+  getActiveGenerateJobForFolder: async (folderId) => {
+    const response = await apiClient.get(`/slides/folders/${folderId}/generate/active`);
+    return response.status === 204 ? null : response.data;
+  },
+
   getDeckByDocument: async (documentId) => {
     const response = await apiClient.get(`/slides/document/${documentId}`);
     return response.status === 204 ? null : response.data;

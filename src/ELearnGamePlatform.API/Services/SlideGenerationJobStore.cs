@@ -9,6 +9,7 @@ public interface ISlideGenerationJobStore
     bool TryGetJob(string jobId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForDocument(int documentId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
+    bool TryGetLatestActiveJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
     bool IsLatestJob(string jobId, int? documentId, int? folderProjectId);
     void UpdateJob(string jobId, Action<SlideGenerationJobState> updater);
 }
@@ -106,6 +107,16 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         }
 
         return TryGetJob(jobId, out state);
+    }
+
+    public bool TryGetLatestActiveJobForFolder(int folderProjectId, out SlideGenerationJobState? state)
+    {
+        if (!TryGetLatestJobForFolder(folderProjectId, out state) || state == null)
+        {
+            return false;
+        }
+
+        return state.Status is "queued" or "running";
     }
 
     public void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
