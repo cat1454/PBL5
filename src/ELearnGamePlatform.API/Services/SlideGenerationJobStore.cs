@@ -9,6 +9,7 @@ public interface ISlideGenerationJobStore
     bool TryGetJob(string jobId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForDocument(int documentId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
+    bool IsLatestJob(string jobId, int? documentId, int? folderProjectId);
     void UpdateJob(string jobId, Action<SlideGenerationJobState> updater);
 }
 
@@ -38,6 +39,11 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             ElapsedSeconds = 0
         };
 
+        if (_latestJobByDocument.TryGetValue(documentId, out var previousJobId))
+        {
+            MarkSuperseded(previousJobId, now);
+        }
+
         _jobs[jobId] = state;
         _latestJobByDocument[documentId] = jobId;
         return jobId;
@@ -62,6 +68,11 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             UpdatedAt = now,
             ElapsedSeconds = 0
         };
+
+        if (_latestJobByFolder.TryGetValue(folderProjectId, out var previousJobId))
+        {
+            MarkSuperseded(previousJobId, now);
+        }
 
         _jobs[jobId] = state;
         _latestJobByFolder[folderProjectId] = jobId;
@@ -106,8 +117,55 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 
         lock (state)
         {
+            if (state.IsSuperseded)
+            {
+                return;
+            }
+
             updater(state);
             state.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+
+    public bool IsLatestJob(string jobId, int? documentId, int? folderProjectId)
+    {
+        if (folderProjectId.HasValue)
+        {
+            return _latestJobByFolder.TryGetValue(folderProjectId.Value, out var latestJobId)
+                && string.Equals(latestJobId, jobId, StringComparison.Ordinal);
+        }
+
+        if (documentId.HasValue)
+        {
+            return _latestJobByDocument.TryGetValue(documentId.Value, out var latestJobId)
+                && string.Equals(latestJobId, jobId, StringComparison.Ordinal);
+        }
+
+        return false;
+    }
+
+    private void MarkSuperseded(string jobId, DateTime now)
+    {
+        if (!_jobs.TryGetValue(jobId, out var state))
+        {
+            return;
+        }
+
+        lock (state)
+        {
+            if (state.Status is "completed" or "failed" or "cancelled" or "superseded")
+            {
+                return;
+            }
+
+            state.IsSuperseded = true;
+            state.Status = "superseded";
+            state.Stage = "superseded";
+            state.StageLabel = "Superseded";
+            state.Message = "A newer slide generation job has started.";
+            state.Detail = "This older job will no longer update progress or save a deck.";
+            state.EstimatedRemainingSeconds = 0;
+            state.UpdatedAt = now;
         }
     }
 }
@@ -137,4 +195,5 @@ public class SlideGenerationJobState
     public string? Error { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsSuperseded { get; set; }
 }

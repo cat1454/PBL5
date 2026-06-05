@@ -51,8 +51,19 @@ public class SlideImageService : ISlideImageService
         EnsureHttpClientAllowsConfiguredGenerationTimeout();
     }
 
-    public async Task SourceImagesForItemAsync(SlideItem item, CancellationToken cancellationToken = default)
+    public async Task SourceImagesForItemAsync(
+        SlideItem item,
+        SlideImageSourcingOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
+        options ??= SlideImageSourcingOptions.Quality;
+
+        if (!options.AllowImagePlanning)
+        {
+            ApplyFastPreviewImageSkip(item, options.SkipReason);
+            return;
+        }
+
         var imagePlan = await _imagePlanner.PlanAsync(item, item.SlideDeck?.Title, cancellationToken);
         item.SetImagePlan(imagePlan);
 
@@ -68,7 +79,9 @@ public class SlideImageService : ISlideImageService
             return;
         }
 
-        var pdfRegionCandidate = await TryCreatePdfRegionCandidateAsync(item, imagePlan, cancellationToken);
+        var pdfRegionCandidate = options.AllowPdfRegionExtraction
+            ? await TryCreatePdfRegionCandidateAsync(item, imagePlan, cancellationToken)
+            : null;
         if (pdfRegionCandidate != null)
         {
             item.SetImageCandidates(new List<SlideImageCandidate> { pdfRegionCandidate });
@@ -78,12 +91,14 @@ public class SlideImageService : ISlideImageService
             return;
         }
 
-        if (!CanGenerate(imagePlan))
+        if (!options.AllowExternalImageGeneration || !CanGenerate(imagePlan))
         {
             UpdatePlanState(
                 imagePlan,
-                "not-requested",
-                "Image generation dang tat hoac generationPrompt chua hop le.");
+                options.AllowExternalImageGeneration ? "not-requested" : "fast-mode-skipped",
+                options.AllowExternalImageGeneration
+                    ? "Image generation dang tat hoac generationPrompt chua hop le."
+                    : "Fast Preview dang bo qua tao anh nang; co the refresh image khi can Quality mode.");
             item.SetImagePlan(imagePlan);
             item.SetImageCandidates(new List<SlideImageCandidate>());
             item.SelectedImageKey = null;
@@ -116,9 +131,30 @@ public class SlideImageService : ISlideImageService
             return null;
         }
 
-        await SourceImagesForItemAsync(item, cancellationToken);
+        await SourceImagesForItemAsync(item, cancellationToken: cancellationToken);
         await _slideDeckRepository.UpdateItemAsync(item);
         return await _slideDeckRepository.GetItemAsync(deckId, itemId);
+    }
+
+    private static void ApplyFastPreviewImageSkip(SlideItem item, string? reason)
+    {
+        var imagePlan = new SlideImagePlan
+        {
+            NeedsImage = false,
+            Reason = "Fast Preview keeps the slide text-only and defers PDF-region extraction, vision render, and generated image sourcing.",
+            VisualRole = "none",
+            SourceEvidence = item.EvidenceFromText ?? item.KeyMessage,
+            SearchQueries = new List<string>(),
+            StatusHint = "fast-mode-skipped",
+            LastResultMessage = string.Equals(reason, "fast-preview", StringComparison.OrdinalIgnoreCase)
+                ? "Fast Preview skipped heavy image sourcing for this slide."
+                : "Heavy image sourcing was skipped for this slide.",
+            LastAttemptedAtUtc = DateTime.UtcNow
+        };
+
+        item.SetImagePlan(imagePlan);
+        item.SetImageCandidates(new List<SlideImageCandidate>());
+        item.SelectedImageKey = null;
     }
 
     public async Task<SlideItem?> SelectImageAsync(int deckId, int itemId, string candidateKey, CancellationToken cancellationToken = default)

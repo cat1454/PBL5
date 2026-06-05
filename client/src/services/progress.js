@@ -1,5 +1,5 @@
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'superseded', 'cancelled', 'canceled']);
 
 const normalizeString = (value, fallback = '') => (
   typeof value === 'string' ? value.trim() : fallback
@@ -23,6 +23,9 @@ const ENGLISH_STAGE_LABELS = {
   saving: 'Saving results',
   completed: 'Completed',
   failed: 'Failed',
+  superseded: 'Superseded',
+  cancelled: 'Cancelled',
+  canceled: 'Cancelled',
 };
 
 export const normalizeProgressState = (raw, fallback = {}) => {

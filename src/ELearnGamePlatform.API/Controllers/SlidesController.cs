@@ -70,6 +70,11 @@ public class SlidesController : AuthenticatedControllerBase
             return BadRequest("DesiredSlideCount must be between 5 and 18");
         }
 
+        if (!IsSupportedSpeedMode(request.SpeedMode))
+        {
+            return BadRequest("Unsupported slide generation speed mode.");
+        }
+
         var document = await _documentRepository.GetByIdAsync(request.DocumentId);
         if (document == null)
         {
@@ -109,6 +114,7 @@ public class SlidesController : AuthenticatedControllerBase
             NarrativeGoal = request.NarrativeGoal,
             LanguageStyle = request.LanguageStyle,
             Mode = request.Mode,
+            SpeedMode = request.SpeedMode,
             ScopePolicy = request.ScopePolicy,
             SelectedSectionIds = request.SelectedSectionIds,
             SourceIds = request.SourceIds,
@@ -456,13 +462,14 @@ public class SlidesController : AuthenticatedControllerBase
         try
         {
             _logger.LogInformation(
-                "[SlideGen:{JobId}] Phase=job Step=started FolderId={FolderId} DocumentId={DocumentId} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} DesiredSlideCount={DesiredSlideCount}",
+                "[SlideGen:{JobId}] Phase=job Step=started FolderId={FolderId} DocumentId={DocumentId} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} DesiredSlideCount={DesiredSlideCount} SpeedMode={SpeedMode}",
                 jobId,
                 target.FolderProjectId,
                 target.DocumentId,
                 target.SourceIds == null ? string.Empty : string.Join(",", target.SourceIds),
                 target.SelectedSectionIds?.Count ?? 0,
-                target.DesiredSlideCount);
+                target.DesiredSlideCount,
+                NormalizeSpeedMode(target.SpeedMode));
 
             using var scope = _scopeFactory.CreateScope();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
@@ -508,6 +515,9 @@ public class SlidesController : AuthenticatedControllerBase
             }
 
             var brief = BuildBrief(target);
+            var speedMode = NormalizeSpeedMode(target.SpeedMode);
+            var isFastMode = speedMode == "fast";
+            var imageSourcingOptions = ResolveImageSourcingOptions(speedMode);
             var outlineProgress = new Progress<SlideGenerationProgressUpdate>(update =>
             {
                 UpdateJob(jobId, state =>
@@ -524,7 +534,8 @@ public class SlidesController : AuthenticatedControllerBase
                 target.DesiredSlideCount,
                 outlineProgress,
                 context.DocumentId,
-                jobId);
+                jobId,
+                speedMode);
             outlineStopwatch.Stop();
             _logger.LogInformation(
                 "[SlideGen:{JobId}] Phase=outline Step=completed FolderId={FolderId} DocumentId={DocumentId} SlideCount={SlideCount} DurationMs={DurationMs}",
@@ -533,6 +544,10 @@ public class SlidesController : AuthenticatedControllerBase
                 context.DocumentId,
                 outline.Slides.Count,
                 outlineStopwatch.ElapsedMilliseconds);
+            if (!IsJobStillCurrent(jobId, context))
+            {
+                return;
+            }
 
             var deck = new SlideDeck
             {
@@ -549,6 +564,21 @@ public class SlidesController : AuthenticatedControllerBase
                 .OrderBy(slide => slide.SlideIndex)
                 .Select(CreatePlaceholderItem)
                 .ToList();
+
+            if (isFastMode)
+            {
+                UpdateJob(jobId, state =>
+                {
+                    state.Percent = Math.Max(state.Percent, 22);
+                    state.Stage = "saving-deck";
+                    state.StageLabel = "Saving deck";
+                    state.Message = "Saving deck";
+                    state.Detail = $"Saving {placeholderItems.Count} slide placeholders";
+                    state.StageIndex = 3;
+                    state.StageCount = 6;
+                    UpdateEta(state);
+                });
+            }
 
             var saveOutlineStopwatch = Stopwatch.StartNew();
             persistedDeck = context.FolderProjectId.HasValue
@@ -580,6 +610,11 @@ public class SlidesController : AuthenticatedControllerBase
             var slideItems = persistedDeck.Items.OrderBy(item => item.SlideIndex).ToList();
             for (var index = 0; index < slideItems.Count; index++)
             {
+                if (!IsJobStillCurrent(jobId, context))
+                {
+                    return;
+                }
+
                 var item = slideItems[index];
                 var outlineSlide = outline.Slides.First(slide => slide.SlideIndex == item.SlideIndex);
                 var slideStopwatch = Stopwatch.StartNew();
@@ -592,7 +627,7 @@ public class SlidesController : AuthenticatedControllerBase
                     state.Percent = MapProgress(26, 88, index, slideItems.Count);
                     state.Stage = "generating-slides";
                     state.StageLabel = "Dang sinh slide";
-                    state.Message = $"Dang tao slide {index + 1}/{slideItems.Count}";
+                    state.Message = isFastMode ? "Generating slides" : $"Dang tao slide {index + 1}/{slideItems.Count}";
                     state.Detail = outlineSlide.Heading;
                     state.Current = index + 1;
                     state.Total = slideItems.Count;
@@ -618,7 +653,7 @@ public class SlidesController : AuthenticatedControllerBase
                                 endPercent: 90));
                         state.Stage = "generating-slides";
                         state.StageLabel = "Dang sinh slide";
-                        state.Message = $"Dang tao slide {index + 1}/{slideItems.Count}";
+                        state.Message = isFastMode ? "Generating slides" : $"Dang tao slide {index + 1}/{slideItems.Count}";
                         state.Detail = string.IsNullOrWhiteSpace(update.Detail)
                             ? (string.IsNullOrWhiteSpace(update.Message) ? outlineSlide.Heading : update.Message)
                             : update.Detail;
@@ -640,6 +675,11 @@ public class SlidesController : AuthenticatedControllerBase
                     context.DocumentId,
                     jobId);
                 slideStopwatch.Stop();
+                if (!IsJobStillCurrent(jobId, context))
+                {
+                    return;
+                }
+
                 _logger.LogInformation(
                     "[SlideGen:{JobId}] Phase=slide-generation Step=content-completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} Heading={Heading} DurationMs={DurationMs}",
                     jobId,
@@ -672,6 +712,11 @@ public class SlidesController : AuthenticatedControllerBase
                 item.Status = content.SuggestedStatus;
                 if (item.Status == SlideItemStatus.Completed)
                 {
+                    if (!IsJobStillCurrent(jobId, context))
+                    {
+                        return;
+                    }
+
                     UpdateJob(jobId, state =>
                     {
                         state.Percent = Math.Max(
@@ -679,7 +724,9 @@ public class SlidesController : AuthenticatedControllerBase
                             MapSlideProgress(index + 1, slideItems.Count, 0, 30, 90));
                         state.Stage = "image-sourcing";
                         state.StageLabel = "Dang xu ly media";
-                        state.Message = $"Dang tim/chon media cho slide {index + 1}/{slideItems.Count}";
+                        state.Message = isFastMode
+                            ? "Generating slides"
+                            : $"Dang tim/chon media cho slide {index + 1}/{slideItems.Count}";
                         state.Detail = item.Heading;
                         state.Current = index + 1;
                         state.Total = slideItems.Count;
@@ -689,18 +736,24 @@ public class SlidesController : AuthenticatedControllerBase
                         UpdateEta(state);
                     });
                     var imageStopwatch = Stopwatch.StartNew();
-                    await slideImageService.SourceImagesForItemAsync(item);
+                    await slideImageService.SourceImagesForItemAsync(item, imageSourcingOptions);
                     imageStopwatch.Stop();
                     _logger.LogInformation(
-                        "[SlideGen:{JobId}] Phase=image-sourcing Step=completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} DurationMs={DurationMs}",
+                        "[SlideGen:{JobId}] Phase=image-sourcing Step=completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} SpeedMode={SpeedMode} DurationMs={DurationMs}",
                         jobId,
                         context.FolderProjectId,
                         context.DocumentId,
                         persistedDeck.Id,
                         index + 1,
                         slideItems.Count,
+                        speedMode,
                         imageStopwatch.ElapsedMilliseconds);
                 }
+                if (!IsJobStillCurrent(jobId, context))
+                {
+                    return;
+                }
+
                 var saveSlideStopwatch = Stopwatch.StartNew();
                 await slideDeckRepository.UpdateItemAsync(item);
                 saveSlideStopwatch.Stop();
@@ -721,12 +774,32 @@ public class SlidesController : AuthenticatedControllerBase
                     state.Percent = MapProgress(30, 90, index + 1, slideItems.Count);
                     state.Stage = "generating-slides";
                     state.StageLabel = "Dang sinh slide";
-                    state.Message = $"Da xong slide {index + 1}/{slideItems.Count}";
+                    state.Message = isFastMode ? "Generating slides" : $"Da xong slide {index + 1}/{slideItems.Count}";
                     state.Detail = item.Heading;
                     state.Current = index + 1;
                     state.Total = slideItems.Count;
                     state.UnitLabel = "slide";
                     state.StageIndex = 4;
+                    state.StageCount = 6;
+                    UpdateEta(state);
+                });
+            }
+
+            if (!IsJobStillCurrent(jobId, context))
+            {
+                return;
+            }
+
+            if (isFastMode)
+            {
+                UpdateJob(jobId, state =>
+                {
+                    state.Percent = Math.Max(state.Percent, 94);
+                    state.Stage = "saving-deck";
+                    state.StageLabel = "Saving deck";
+                    state.Message = "Saving deck";
+                    state.Detail = persistedDeck.Title;
+                    state.StageIndex = 6;
                     state.StageCount = 6;
                     UpdateEta(state);
                 });
@@ -1593,6 +1666,21 @@ public class SlidesController : AuthenticatedControllerBase
         });
     }
 
+    private bool IsJobStillCurrent(string jobId, SlideGenerationContext context)
+    {
+        if (_jobStore.IsLatestJob(jobId, context.DocumentId, context.FolderProjectId))
+        {
+            return true;
+        }
+
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=job Step=superseded-stop FolderId={FolderId} DocumentId={DocumentId}",
+            jobId,
+            context.FolderProjectId,
+            context.DocumentId);
+        return false;
+    }
+
     private void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
         => _jobStore.UpdateJob(jobId, state =>
         {
@@ -1701,12 +1789,13 @@ public class SlidesController : AuthenticatedControllerBase
     public async Task<IActionResult> StartGenerateSlidesForFolder(int folderId, [FromBody] GenerateFolderSlidesRequest request)
     {
         _logger.LogInformation(
-            "[SlideGen] Phase=request Step=received FolderId={FolderId} DesiredSlideCount={DesiredSlideCount} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} Mode={Mode} ScopePolicy={ScopePolicy}",
+            "[SlideGen] Phase=request Step=received FolderId={FolderId} DesiredSlideCount={DesiredSlideCount} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} Mode={Mode} SpeedMode={SpeedMode} ScopePolicy={ScopePolicy}",
             folderId,
             request.DesiredSlideCount,
             request.SourceIds == null ? string.Empty : string.Join(",", request.SourceIds),
             request.SelectedSectionIds?.Count ?? 0,
             request.Mode,
+            NormalizeSpeedMode(request.SpeedMode),
             request.ScopePolicy);
 
         if (!IsValidSlideCount(request.DesiredSlideCount))
@@ -1740,6 +1829,11 @@ public class SlidesController : AuthenticatedControllerBase
         if (!IsSupportedGenerationMode(request.Mode))
         {
             return BadRequest("Unsupported slide generation mode.");
+        }
+
+        if (!IsSupportedSpeedMode(request.SpeedMode))
+        {
+            return BadRequest("Unsupported slide generation speed mode.");
         }
 
         try
@@ -1777,6 +1871,7 @@ public class SlidesController : AuthenticatedControllerBase
             SourceIds = request.SourceIds,
             SelectedSectionIds = request.SelectedSectionIds,
             Mode = request.Mode,
+            SpeedMode = request.SpeedMode,
             ScopePolicy = request.ScopePolicy,
             ConfirmLowConfidence = request.ConfirmLowConfidence
         }));
@@ -1830,6 +1925,28 @@ public class SlidesController : AuthenticatedControllerBase
             || mode.Equals("summary", StringComparison.OrdinalIgnoreCase)
             || mode.Equals("exam-review", StringComparison.OrdinalIgnoreCase)
             || mode.Equals("timeline", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSupportedSpeedMode(string? speedMode)
+        => string.IsNullOrWhiteSpace(speedMode)
+            || speedMode.Equals("fast", StringComparison.OrdinalIgnoreCase)
+            || speedMode.Equals("balanced", StringComparison.OrdinalIgnoreCase)
+            || speedMode.Equals("quality", StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeSpeedMode(string? speedMode)
+        => string.IsNullOrWhiteSpace(speedMode)
+            ? "quality"
+            : speedMode.Trim().ToLowerInvariant() switch
+            {
+                "fast" => "fast",
+                "balanced" => "balanced",
+                "quality" => "quality",
+                _ => "quality"
+            };
+
+    private static SlideImageSourcingOptions ResolveImageSourcingOptions(string? speedMode)
+        => NormalizeSpeedMode(speedMode) == "fast"
+            ? SlideImageSourcingOptions.FastPreview
+            : SlideImageSourcingOptions.Quality;
 
     private static bool IsSlideSchemaMissing(PostgresException ex)
     {
@@ -2204,6 +2321,7 @@ public class GenerateSlidesRequest
     public List<int>? SourceIds { get; set; }
     public List<string>? SelectedSectionIds { get; set; }
     public string? Mode { get; set; }
+    public string? SpeedMode { get; set; }
     public string? ScopePolicy { get; set; }
     public bool ConfirmLowConfidence { get; set; }
 }
@@ -2219,6 +2337,7 @@ public class GenerateFolderSlidesRequest
     public List<int>? SourceIds { get; set; }
     public List<string>? SelectedSectionIds { get; set; }
     public string? Mode { get; set; }
+    public string? SpeedMode { get; set; } = "fast";
     public string? ScopePolicy { get; set; }
     public bool ConfirmLowConfidence { get; set; }
 }
@@ -2252,6 +2371,7 @@ internal sealed class SlideGenerationTarget
     public List<int>? SourceIds { get; init; }
     public List<string>? SelectedSectionIds { get; init; }
     public string? Mode { get; init; }
+    public string? SpeedMode { get; init; }
     public string? ScopePolicy { get; init; }
     public bool ConfirmLowConfidence { get; init; }
 }

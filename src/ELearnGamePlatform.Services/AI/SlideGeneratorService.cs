@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -81,23 +82,33 @@ public class SlideGeneratorService : ISlideGenerator
         int desiredSlideCount,
         IProgress<SlideGenerationProgressUpdate>? progress = null,
         int? documentId = null,
-        string? correlationId = null)
+        string? correlationId = null,
+        string? speedMode = null)
     {
         correlationId ??= Guid.NewGuid().ToString("N");
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
-        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId, documentId);
+        var fastMode = IsFastMode(speedMode);
+        if (fastMode)
+        {
+            Report(progress, 12, "preparing-content", "Preparing selected content", "Preparing selected content");
+        }
+
+        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId, documentId, speedMode);
         var targetCount = Math.Clamp(desiredSlideCount, 5, 18);
 
-        Report(
-            progress,
-            12,
-            "coverage-map",
-            processedContent?.CoverageMap.Any() == true
-                ? "Dang tai su dung coverage map da luu de lap outline"
-                : "Dang doc toan bo tai lieu de lap outline",
-            "Coverage map",
-            $"So phan doc duoc: {chunks.Count}, theme: {NormalizeThemeKey(brief?.ThemeKey)}");
+        if (!fastMode)
+        {
+            Report(
+                progress,
+                12,
+                "coverage-map",
+                processedContent?.CoverageMap.Any() == true
+                    ? "Dang tai su dung coverage map da luu de lap outline"
+                    : "Dang doc toan bo tai lieu de lap outline",
+                "Coverage map",
+                $"So phan doc duoc: {chunks.Count}, theme: {NormalizeThemeKey(brief?.ThemeKey)}");
+        }
 
         SlideOutlineDraft? currentDraft = null;
         var qualityIssues = new List<string>();
@@ -2377,9 +2388,20 @@ Warnings:
         List<DocumentChunk> chunks,
         IProgress<SlideGenerationProgressUpdate>? progress,
         string correlationId,
-        int? documentId)
+        int? documentId,
+        string? speedMode)
     {
         var plans = BuildSectionPlans(chunks);
+        if (IsFastMode(speedMode))
+        {
+            Report(progress, 18, "fast-outline", "Building fast outline", "Building fast outline");
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=section-summaries Step=fast-local-plans SkippedAi=true SectionCount={SectionCount}",
+                correlationId,
+                plans.Count);
+            return plans;
+        }
+
         _logger.LogInformation(
             "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started DocumentId={DocumentId} SectionCount={SectionCount} ChunkCount={ChunkCount}",
             correlationId,
@@ -2421,7 +2443,7 @@ Return JSON:
                     documentId,
                     index + 1,
                     plans.Count,
-                    current.SectionId,
+                    ClampLogValue(current.SectionId, 160),
                     current.EvidenceExcerpt?.Length ?? 0,
                     sectionStopwatch.ElapsedMilliseconds);
 
@@ -2447,7 +2469,7 @@ Return JSON:
                     documentId,
                     index + 1,
                     plans.Count,
-                    current.SectionId,
+                    ClampLogValue(current.SectionId, 160),
                     current.EvidenceExcerpt?.Length ?? 0,
                     sectionStopwatch.ElapsedMilliseconds);
             }
@@ -2475,6 +2497,8 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             {
                 var ordered = group.OrderBy(chunk => chunk.ChunkNumber).ToList();
                 var first = ordered[0];
+                var rawSectionId = first.SectionKey ?? first.HeadingPath ?? first.ChunkId;
+                var rawTitle = first.HeadingText ?? first.NormalizedHeading ?? first.Label;
                 var keyIdeas = ordered
                     .SelectMany(chunk => chunk.KeyFacts)
                     .Select(fact => NormalizeLine(fact, 180))
@@ -2483,22 +2507,85 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
                     .Take(4)
                     .Cast<string>()
                     .ToList();
+                var excerpt = string.Join("\n", ordered.Select(chunk => chunk.EvidenceExcerpt).Where(text => !string.IsNullOrWhiteSpace(text)).Take(3));
 
                 return new SlideSectionPlan
                 {
-                    SectionId = first.SectionKey ?? first.HeadingPath ?? first.ChunkId,
-                    HeadingPath = first.HeadingPath,
-                    HeadingText = first.HeadingText ?? first.NormalizedHeading ?? first.Label,
-                    Summary = NormalizeLine(first.Summary, 220) ?? NormalizeLine(first.Label, 180) ?? first.ChunkId,
+                    SectionId = BuildStableSectionPlanId(rawSectionId, first.ChunkId, first.ChunkNumber),
+                    HeadingPath = NormalizeLine(first.HeadingPath, 160),
+                    HeadingText = BuildSectionPlanTitle(rawTitle, rawSectionId, first.ChunkId),
+                    Summary = BuildLocalSectionSummary(ordered, keyIdeas, excerpt),
                     KeyIdeas = keyIdeas,
                     LearningSignificance = keyIdeas.FirstOrDefault() ?? NormalizeLine(first.Summary, 180) ?? "không đủ dữ kiện",
-                    EvidenceExcerpt = string.Join("\n", ordered.Select(chunk => chunk.EvidenceExcerpt).Where(text => !string.IsNullOrWhiteSpace(text)).Take(3)),
+                    EvidenceExcerpt = NormalizeLine(excerpt, 900) ?? string.Empty,
                     SourceChunkIds = ordered.Select(chunk => chunk.ChunkId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                    IsPrimarySection = ordered.Any(chunk => chunk.IsPrimarySection)
+                    IsPrimarySection = ordered.Any(chunk => chunk.IsPrimarySection),
+                    FirstChunkNumber = first.ChunkNumber
                 };
             })
-            .OrderBy(plan => plan.SourceChunkIds.FirstOrDefault())
+            .OrderBy(plan => plan.FirstChunkNumber)
             .ToList();
+
+    private static bool IsFastMode(string? speedMode)
+        => string.Equals(speedMode?.Trim(), "fast", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildStableSectionPlanId(string? rawSectionId, string fallbackChunkId, int chunkNumber)
+    {
+        var raw = NormalizeLine(rawSectionId, 360) ?? NormalizeLine(fallbackChunkId, 120) ?? $"chunk-{chunkNumber:00}";
+        var compact = Regex.Replace(raw, @"\s+", " ").Trim();
+        if (compact.Length <= 96)
+        {
+            return compact;
+        }
+
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(compact)))[..10].ToLowerInvariant();
+        return $"{compact[..Math.Min(84, compact.Length)].TrimEnd()}-{suffix}";
+    }
+
+    private static string BuildSectionPlanTitle(string? rawTitle, string? rawSectionId, string fallbackChunkId)
+    {
+        var title = NormalizeLine(rawTitle, 120)
+            ?? NormalizeLine(rawSectionId, 120)
+            ?? NormalizeLine(fallbackChunkId, 80)
+            ?? "Section";
+        return title.Length <= 120 ? title : $"{title[..117].TrimEnd()}...";
+    }
+
+    private static string BuildLocalSectionSummary(
+        IReadOnlyList<DocumentChunk> ordered,
+        IReadOnlyList<string> keyIdeas,
+        string excerpt)
+    {
+        var fromKeyFacts = keyIdeas.Any()
+            ? string.Join(" ", keyIdeas.Take(3))
+            : null;
+        var candidate = fromKeyFacts
+            ?? ordered.Select(chunk => NormalizeLine(chunk.Summary, 320)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? FirstSentences(excerpt, 2)
+            ?? ordered.Select(chunk => NormalizeLine(chunk.Label, 220)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? "Khong du du kien grounded.";
+        return NormalizeLine(candidate, 420) ?? "Khong du du kien grounded.";
+    }
+
+    private static string? FirstSentences(string? value, int sentenceCount)
+    {
+        var normalized = NormalizeLine(value, 900);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        var sentences = Regex.Split(normalized, @"(?<=[.!?。！？])\s+")
+            .Where(sentence => !string.IsNullOrWhiteSpace(sentence))
+            .Take(Math.Max(1, sentenceCount))
+            .ToList();
+        return sentences.Any()
+            ? NormalizeLine(string.Join(" ", sentences), 420)
+            : NormalizeLine(normalized, 420);
+    }
+
+    private static string ClampLogValue(string? value, int maxLength)
+        => NormalizeLine(value, maxLength) ?? string.Empty;
 
     private static string BuildSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans)
         => string.Join(
@@ -3382,6 +3469,7 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         public string EvidenceExcerpt { get; set; } = string.Empty;
         public List<string> SourceChunkIds { get; set; } = new();
         public bool IsPrimarySection { get; set; }
+        public int FirstChunkNumber { get; set; }
     }
 
     private sealed class SlideSectionSummaryDraft

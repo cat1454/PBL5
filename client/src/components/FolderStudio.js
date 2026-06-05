@@ -146,6 +146,7 @@ const LANGUAGE_STYLE_OPTIONS = [
 ];
 const DECK_LENGTH_OPTIONS = [8, 12, 18];
 const DECK_MODE_OPTIONS = ['lecture', 'summary', 'exam-review', 'timeline'];
+const SLIDE_GENERATION_SPEED_MODES = ['fast', 'quality'];
 const EXCLUDED_SCOPE_CLASSES = ['FRONT_MATTER', 'TABLE_OF_CONTENTS', 'REFERENCE', 'APPENDIX', 'NOISE'];
 const SCOPE_TITLE_MAX_LENGTH = 90;
 const SCOPE_PREVIEW_MAX_LENGTH = 500;
@@ -156,6 +157,26 @@ const normalizeTextToken = (value) => {
   }
 
   return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+};
+
+const getSlideGenerationSpeedModeLabel = (mode, language) => {
+  if (mode === 'quality') {
+    return language === 'vi' ? 'Quality' : 'Quality';
+  }
+
+  return language === 'vi' ? 'Fast preview' : 'Fast preview';
+};
+
+const getSlideGenerationSpeedModeDetail = (mode, language) => {
+  if (mode === 'quality') {
+    return language === 'vi'
+      ? 'Dung PDF-region, vision render va tao anh khi can.'
+      : 'Uses PDF regions, vision render, and image generation when needed.';
+  }
+
+  return language === 'vi'
+    ? 'Bo render PDF/AI image de ra deck chinh sua nhanh.'
+    : 'Skips PDF render and AI images for a faster editable deck.';
 };
 
 const isTextOnlyValue = (value) => normalizeTextToken(value) === 'text_only';
@@ -857,6 +878,7 @@ function FolderStudioRuntime() {
   const [exportingFormat, setExportingFormat] = useState('');
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
+  const [slideGenerationSpeedMode, setSlideGenerationSpeedMode] = useState('fast');
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
   const [expandedSectionIds, setExpandedSectionIds] = useState([]);
@@ -1562,6 +1584,10 @@ function FolderStudioRuntime() {
         if (nextProgress.status === 'failed') {
           stopPolling('failed', nextProgress);
           setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
+          await loadWorkspace({ silent: true });
+        } else if (isTerminalProgress(nextProgress)) {
+          stopPolling(nextProgress.status, nextProgress);
+          setGenerationError('');
           await loadWorkspace({ silent: true });
         } else {
           setGenerationError('');
@@ -2609,6 +2635,7 @@ function FolderStudioRuntime() {
         sourceIds: [selectedSource.id],
         selectedSectionIds,
         mode: brief.mode,
+        speedMode: slideGenerationSpeedMode,
         scopePolicy: 'selected-sections-only',
         confirmLowConfidence: readinessDecision.confirmed,
       };
@@ -3359,6 +3386,25 @@ function FolderStudioRuntime() {
           </div>
 
           <div className="folder-studio-topbar-actions">
+            <div
+              className="folder-studio-speed-toggle is-topbar"
+              role="group"
+              aria-label={language === 'vi' ? 'Che do tao slide' : 'Slide generation speed'}
+            >
+              {SLIDE_GENERATION_SPEED_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={slideGenerationSpeedMode === mode ? 'active' : ''}
+                  onClick={() => setSlideGenerationSpeedMode(mode)}
+                  disabled={isStartingGeneration || isActiveProgress(progress)}
+                  title={getSlideGenerationSpeedModeDetail(mode, language)}
+                  aria-pressed={slideGenerationSpeedMode === mode}
+                >
+                  {getSlideGenerationSpeedModeLabel(mode, language)}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               className="folder-studio-mini-btn"
@@ -4460,6 +4506,31 @@ function FolderStudioRuntime() {
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Tạo mới' : 'Create'}</div>
+              <div className="folder-studio-speed-card">
+                <div>
+                  <strong>{language === 'vi' ? 'Che do tao slide' : 'Slide generation mode'}</strong>
+                  <span>{getSlideGenerationSpeedModeDetail(slideGenerationSpeedMode, language)}</span>
+                </div>
+                <div
+                  className="folder-studio-speed-toggle"
+                  role="group"
+                  aria-label={language === 'vi' ? 'Che do tao slide' : 'Slide generation speed'}
+                >
+                  {SLIDE_GENERATION_SPEED_MODES.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={slideGenerationSpeedMode === mode ? 'active' : ''}
+                      onClick={() => setSlideGenerationSpeedMode(mode)}
+                      disabled={isStartingGeneration || isActiveProgress(progress)}
+                      title={getSlideGenerationSpeedModeDetail(mode, language)}
+                      aria-pressed={slideGenerationSpeedMode === mode}
+                    >
+                      {getSlideGenerationSpeedModeLabel(mode, language)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate} title={generateDisabledReason || undefined}>
                 <span className="folder-studio-action-icon"><LuSparkles aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">
