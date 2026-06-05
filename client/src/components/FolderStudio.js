@@ -50,7 +50,7 @@ import {
   workspaceService,
 } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
-import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
+import { formatElapsedDuration, formatEta, getProgressCounterLabel, isActiveProgress, isProgressEtaReliable, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import {
   confirmGenerationReadiness,
   getReadinessLabel,
@@ -101,6 +101,18 @@ function debugSlideGen(payload) {
   console.debug('[SlideGen]', payload);
 }
 
+const getSlideGenProgressDebugSignature = (progress) => JSON.stringify({
+  jobId: progress?.jobId ?? null,
+  status: progress?.status ?? null,
+  percent: progress?.percent ?? null,
+  stage: progress?.stage ?? null,
+  message: progress?.message ?? null,
+  detail: progress?.detail ?? null,
+  current: progress?.current ?? null,
+  total: progress?.total ?? null,
+  speedMode: progress?.speedMode ?? null,
+});
+
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
   themeKey: 'editorial-sunrise',
@@ -146,6 +158,7 @@ const LANGUAGE_STYLE_OPTIONS = [
 ];
 const DECK_LENGTH_OPTIONS = [8, 12, 18];
 const DECK_MODE_OPTIONS = ['lecture', 'summary', 'exam-review', 'timeline'];
+const SLIDE_GENERATION_SPEED_MODES = ['fast', 'quality'];
 const EXCLUDED_SCOPE_CLASSES = ['FRONT_MATTER', 'TABLE_OF_CONTENTS', 'REFERENCE', 'APPENDIX', 'NOISE'];
 const SCOPE_TITLE_MAX_LENGTH = 90;
 const SCOPE_PREVIEW_MAX_LENGTH = 500;
@@ -156,6 +169,26 @@ const normalizeTextToken = (value) => {
   }
 
   return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+};
+
+const getSlideGenerationSpeedModeLabel = (mode, language) => {
+  if (mode === 'quality') {
+    return language === 'vi' ? 'Quality' : 'Quality';
+  }
+
+  return language === 'vi' ? 'Fast preview' : 'Fast preview';
+};
+
+const getSlideGenerationSpeedModeDetail = (mode, language) => {
+  if (mode === 'quality') {
+    return language === 'vi'
+      ? 'Dung PDF-region, vision render va tao anh khi can.'
+      : 'Uses PDF regions, vision render, and image generation when needed.';
+  }
+
+  return language === 'vi'
+    ? 'Bo render PDF/AI image de ra deck chinh sua nhanh.'
+    : 'Skips PDF render and AI images for a faster editable deck.';
 };
 
 const isTextOnlyValue = (value) => normalizeTextToken(value) === 'text_only';
@@ -663,6 +696,63 @@ function WorkspaceLinkAffordance({ block, label }) {
     </div>
   );
 }
+
+function getDeckProgressStageTitle(progress, language) {
+  const stage = String(progress?.stage || '').toLowerCase();
+  if (stage === 'section-summaries') {
+    return language === 'vi' ? 'Đang tóm tắt nội dung' : 'Summarizing content';
+  }
+  if (stage === 'generating-slides') {
+    return language === 'vi' ? 'Đang sinh nội dung slide' : 'Generating slide content';
+  }
+  if (stage === 'outline') {
+    return language === 'vi' ? 'Đang dựng outline' : 'Building outline';
+  }
+
+  if (progress?.stageLabel) {
+    return progress.stageLabel;
+  }
+
+  return language === 'vi' ? 'Đang xử lý' : 'Processing';
+}
+
+function getDeckProgressCounterLabel(progress, language) {
+  const stage = String(progress?.stage || '').toLowerCase();
+  if (
+    stage === 'section-summaries'
+    && typeof progress?.current === 'number'
+    && typeof progress?.total === 'number'
+    && progress.total > 0
+  ) {
+    return `Section ${progress.current}/${progress.total}`;
+  }
+
+  return getProgressCounterLabel(progress, { language });
+}
+
+function getDeckProgressElapsedLabel(progress, language) {
+  const elapsedLabel = formatElapsedDuration(progress?.elapsedSeconds, { language });
+  if (!elapsedLabel) {
+    return null;
+  }
+
+  return language === 'vi' ? `Đã chạy: ${elapsedLabel}` : `Elapsed: ${elapsedLabel}`;
+}
+
+function getDeckProgressEtaLabel(progress, language) {
+  if (isProgressEtaReliable(progress)) {
+    return formatEta(progress.estimatedRemainingSeconds, { language });
+  }
+
+  if (isActiveProgress(progress) && Number(progress?.percent || 0) < 25) {
+    return language === 'vi'
+      ? 'Đang ước tính thời gian còn lại...'
+      : 'Estimating remaining time...';
+  }
+
+  return language === 'vi' ? 'Đang ước tính thời gian còn lại...' : 'Estimating remaining time...';
+}
+
 function WorkspaceDeckProgressCard({ progress, language }) {
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const displayedPercent = useAnimatedProgress(percent);
@@ -671,8 +761,11 @@ function WorkspaceDeckProgressCard({ progress, language }) {
     return null;
   }
 
-  const counterLabel = getProgressCounterLabel(progress, { language });
-  const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
+  const counterLabel = getDeckProgressCounterLabel(progress, language);
+  const elapsedLabel = getDeckProgressElapsedLabel(progress, language);
+  const etaLabel = getDeckProgressEtaLabel(progress, language);
+  const stageTitle = getDeckProgressStageTitle(progress, language);
+  const reliableEta = isProgressEtaReliable(progress);
 
   return (
     <div className="workspace-generate-progress-card">
@@ -681,7 +774,7 @@ function WorkspaceDeckProgressCard({ progress, language }) {
           <p className="workspace-generate-kicker">
             {language === 'vi' ? 'Đang tạo slide deck' : 'Generating slide deck'}
           </p>
-          <h3>{progress.stageLabel || (language === 'vi' ? 'Đang xử lý' : 'Processing')}</h3>
+          <h3>{stageTitle}</h3>
         </div>
 
         <span className="workspace-generate-percent">{percent}%</span>
@@ -704,7 +797,8 @@ function WorkspaceDeckProgressCard({ progress, language }) {
 
       <div className="workspace-generate-meta">
         {counterLabel && <span>{counterLabel}</span>}
-        <span>ETA: {etaLabel}</span>
+        {elapsedLabel && <span>{elapsedLabel}</span>}
+        <span>{reliableEta ? `ETA: ${etaLabel}` : etaLabel}</span>
       </div>
     </div>
   );
@@ -796,6 +890,7 @@ function FolderStudioRuntime() {
   const [exportingFormat, setExportingFormat] = useState('');
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
+  const [slideGenerationSpeedMode, setSlideGenerationSpeedMode] = useState('fast');
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
   const [expandedSectionIds, setExpandedSectionIds] = useState([]);
@@ -814,6 +909,7 @@ function FolderStudioRuntime() {
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
   const isStartingGenerationRef = useRef(false);
+  const slideGenProgressDebugSignatureRef = useRef(null);
   const latestDeckRef = useRef(null);
   const latestDraftsRef = useRef({});
   const latestDirtyDraftsRef = useRef({});
@@ -1427,6 +1523,7 @@ function FolderStudioRuntime() {
 
     let cancelled = false;
     let intervalId = null;
+    slideGenProgressDebugSignatureRef.current = null;
 
     debugSlideGen({
       action: 'poll-start',
@@ -1454,24 +1551,30 @@ function FolderStudioRuntime() {
     const pollProgress = async () => {
       try {
         const previousProgress = progressRef.current || initialProgress;
-        const nextProgress = normalizeProgressState(
-          await slideService.getGenerateProgress(jobId),
-          previousProgress
-        );
+        const rawProgress = await slideService.getGenerateProgress(jobId);
+        const nextProgress = normalizeProgressState(rawProgress, previousProgress);
+        const debugProgress = {
+          ...nextProgress,
+          speedMode: rawProgress?.speedMode ?? rawProgress?.SpeedMode ?? null,
+        };
 
         if (cancelled) {
           return;
         }
 
-        debugSlideGen({
-          action: 'poll-progress',
-          jobId,
-          workspaceId,
-          documentId: nextProgress.documentId,
-          folderProjectId: nextProgress.folderProjectId,
-          slideDeckId: nextProgress.slideDeckId,
-          progress: nextProgress,
-        });
+        const nextDebugSignature = getSlideGenProgressDebugSignature(debugProgress);
+        if (nextDebugSignature !== slideGenProgressDebugSignatureRef.current) {
+          slideGenProgressDebugSignatureRef.current = nextDebugSignature;
+          debugSlideGen({
+            action: 'poll-progress',
+            jobId,
+            workspaceId,
+            documentId: debugProgress.documentId,
+            folderProjectId: debugProgress.folderProjectId,
+            slideDeckId: debugProgress.slideDeckId,
+            progress: debugProgress,
+          });
+        }
 
         setProgress(nextProgress);
 
@@ -1501,6 +1604,10 @@ function FolderStudioRuntime() {
         if (nextProgress.status === 'failed') {
           stopPolling('failed', nextProgress);
           setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
+          await loadWorkspace({ silent: true });
+        } else if (isTerminalProgress(nextProgress)) {
+          stopPolling(nextProgress.status, nextProgress);
+          setGenerationError('');
           await loadWorkspace({ silent: true });
         } else {
           setGenerationError('');
@@ -2548,6 +2655,7 @@ function FolderStudioRuntime() {
         sourceIds: [selectedSource.id],
         selectedSectionIds,
         mode: brief.mode,
+        speedMode: slideGenerationSpeedMode,
         scopePolicy: 'selected-sections-only',
         confirmLowConfidence: readinessDecision.confirmed,
       };
@@ -2886,15 +2994,22 @@ function FolderStudioRuntime() {
     : null;
   const topbarDeckProgressPercent = clampPercent(Number(topbarDeckProgress?.percent || 0)) ?? 0;
   const topbarProgress = topbarDeckProgress || runningSourceVm?.vm.progressState || null;
-  const topbarCounter = getProgressCounterLabel(topbarProgress, { language });
+  const topbarCounter = topbarDeckProgress
+    ? getDeckProgressCounterLabel(topbarDeckProgress, language)
+    : getProgressCounterLabel(topbarProgress, { language });
   const topbarEta = topbarProgress && isActiveProgress(topbarProgress)
-    ? (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating'))
+    ? (topbarDeckProgress
+        ? getDeckProgressEtaLabel(topbarDeckProgress, language)
+        : (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating')))
     : null;
+  const topbarEtaLabel = topbarDeckProgress && !isProgressEtaReliable(topbarDeckProgress)
+    ? (language === 'vi' ? 'Thời gian' : 'Time')
+    : 'ETA';
   const topbarLiveSummary = topbarDeckProgress
     ? [
         t('slides.generationStatus.liveTitle'),
         `${Math.round(topbarDeckProgressPercent)}%`,
-        topbarDeckProgress.stageLabel || topbarDeckProgress.message || t('slides.generatingSlides'),
+        getDeckProgressStageTitle(topbarDeckProgress, language) || topbarDeckProgress.message || t('slides.generatingSlides'),
       ].filter(Boolean).join(' · ')
     : runningSourceVm
       ? [
@@ -3268,7 +3383,7 @@ function FolderStudioRuntime() {
                 <span className={topbarLiveClass}>
                   {topbarLiveSummary}
                   {topbarCounter ? ` | ${topbarCounter}` : ''}
-                  {topbarEta ? ` | ETA ${topbarEta}` : ''}
+                  {topbarEta ? ` | ${topbarEtaLabel}: ${topbarEta}` : ''}
                 </span>
               )}
             </div>
@@ -3291,6 +3406,25 @@ function FolderStudioRuntime() {
           </div>
 
           <div className="folder-studio-topbar-actions">
+            <div
+              className="folder-studio-speed-toggle is-topbar"
+              role="group"
+              aria-label={language === 'vi' ? 'Che do tao slide' : 'Slide generation speed'}
+            >
+              {SLIDE_GENERATION_SPEED_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={slideGenerationSpeedMode === mode ? 'active' : ''}
+                  onClick={() => setSlideGenerationSpeedMode(mode)}
+                  disabled={isStartingGeneration || isActiveProgress(progress)}
+                  title={getSlideGenerationSpeedModeDetail(mode, language)}
+                  aria-pressed={slideGenerationSpeedMode === mode}
+                >
+                  {getSlideGenerationSpeedModeLabel(mode, language)}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               className="folder-studio-mini-btn"
@@ -4392,6 +4526,31 @@ function FolderStudioRuntime() {
 
             <div className="folder-studio-action-section">
               <div className="folder-studio-section-label">{language === 'vi' ? 'Tạo mới' : 'Create'}</div>
+              <div className="folder-studio-speed-card">
+                <div>
+                  <strong>{language === 'vi' ? 'Che do tao slide' : 'Slide generation mode'}</strong>
+                  <span>{getSlideGenerationSpeedModeDetail(slideGenerationSpeedMode, language)}</span>
+                </div>
+                <div
+                  className="folder-studio-speed-toggle"
+                  role="group"
+                  aria-label={language === 'vi' ? 'Che do tao slide' : 'Slide generation speed'}
+                >
+                  {SLIDE_GENERATION_SPEED_MODES.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={slideGenerationSpeedMode === mode ? 'active' : ''}
+                      onClick={() => setSlideGenerationSpeedMode(mode)}
+                      disabled={isStartingGeneration || isActiveProgress(progress)}
+                      title={getSlideGenerationSpeedModeDetail(mode, language)}
+                      aria-pressed={slideGenerationSpeedMode === mode}
+                    >
+                      {getSlideGenerationSpeedModeLabel(mode, language)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button type="button" className="folder-studio-action tone-primary" onClick={handleGenerateDeck} disabled={!canGenerate} title={generateDisabledReason || undefined}>
                 <span className="folder-studio-action-icon"><LuSparkles aria-hidden="true" /></span>
                 <span className="folder-studio-action-copy">

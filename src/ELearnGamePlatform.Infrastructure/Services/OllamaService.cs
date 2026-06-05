@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Diagnostics;
+using System.Globalization;
 
 namespace ELearnGamePlatform.Infrastructure.Services;
 
@@ -160,7 +161,7 @@ public class OllamaService : IOllamaService
             var repairResponse = await GenerateResponseResultAsync(
                 repairPrompt,
                 "You repair malformed JSON. Return only valid JSON that matches the requested shape.",
-                OllamaModelProfile.Generation);
+                profile);
             repairedText = repairResponse.Response;
             if (!string.IsNullOrWhiteSpace(repairResponse.Model))
             {
@@ -198,6 +199,7 @@ public class OllamaService : IOllamaService
         string? systemPrompt,
         OllamaModelProfile profile)
     {
+        var numCtx = ResolveContextTokens(profile);
         var request = new OllamaGenerateRequest
         {
             Model = model,
@@ -207,9 +209,18 @@ public class OllamaService : IOllamaService
             KeepAlive = ResolveKeepAlive(),
             Options = new OllamaGenerateOptions
             {
-                Temperature = ResolveTemperature(profile)
+                Temperature = ResolveTemperature(profile),
+                NumCtx = numCtx
             }
         };
+
+        _logger.LogInformation(
+            "[OllamaCall] Profile={Profile} Model={Model} NumCtx={NumCtx} PromptChars={PromptChars} SystemChars={SystemChars}",
+            FormatProfile(profile),
+            model,
+            numCtx?.ToString(CultureInfo.InvariantCulture) ?? "server-default",
+            prompt.Length,
+            systemPrompt?.Length ?? 0);
 
         var startedAt = Stopwatch.StartNew();
         var response = await _httpClient.PostAsJsonAsync("/api/generate", request, _jsonOptions);
@@ -253,6 +264,8 @@ public class OllamaService : IOllamaService
             OllamaModelProfile.Analysis when !string.IsNullOrWhiteSpace(_settings.AnalysisModel) => _settings.AnalysisModel!,
             OllamaModelProfile.Verification when !string.IsNullOrWhiteSpace(_settings.VerificationModel) => _settings.VerificationModel!,
             OllamaModelProfile.Generation when !string.IsNullOrWhiteSpace(_settings.GenerationModel) => _settings.GenerationModel!,
+            OllamaModelProfile.FastOutline when !string.IsNullOrWhiteSpace(_settings.GenerationModel) => _settings.GenerationModel!,
+            OllamaModelProfile.FastSlide when !string.IsNullOrWhiteSpace(_settings.GenerationModel) => _settings.GenerationModel!,
             _ => fallback
         };
     }
@@ -264,9 +277,40 @@ public class OllamaService : IOllamaService
             OllamaModelProfile.Analysis when _settings.AnalysisTemperature.HasValue => _settings.AnalysisTemperature.Value,
             OllamaModelProfile.Verification when _settings.VerificationTemperature.HasValue => _settings.VerificationTemperature.Value,
             OllamaModelProfile.Generation when _settings.GenerationTemperature.HasValue => _settings.GenerationTemperature.Value,
+            OllamaModelProfile.FastOutline when _settings.FastOutlineTemperature.HasValue => _settings.FastOutlineTemperature.Value,
+            OllamaModelProfile.FastSlide when _settings.FastSlideTemperature.HasValue => _settings.FastSlideTemperature.Value,
+            OllamaModelProfile.FastSlide when _settings.GenerationTemperature.HasValue => _settings.GenerationTemperature.Value,
             _ => _settings.Temperature
         };
     }
+
+    private int? ResolveContextTokens(OllamaModelProfile profile)
+    {
+        var configured = profile switch
+        {
+            OllamaModelProfile.Analysis => _settings.AnalysisContextTokens,
+            OllamaModelProfile.Generation => _settings.GenerationContextTokens,
+            OllamaModelProfile.Verification => _settings.VerificationContextTokens,
+            OllamaModelProfile.FastOutline => _settings.FastOutlineContextTokens,
+            OllamaModelProfile.FastSlide => _settings.FastSlideContextTokens,
+            _ => null
+        };
+
+        return configured.HasValue && configured.Value > 0
+            ? configured.Value
+            : null;
+    }
+
+    private static string FormatProfile(OllamaModelProfile profile)
+        => profile switch
+        {
+            OllamaModelProfile.FastOutline => "fast-outline",
+            OllamaModelProfile.FastSlide => "fast-slide",
+            OllamaModelProfile.Analysis => "analysis",
+            OllamaModelProfile.Generation => "generation",
+            OllamaModelProfile.Verification => "verification",
+            _ => profile.ToString()
+        };
 
     private string? ResolveKeepAlive()
     {
@@ -916,6 +960,10 @@ Output rules (must follow exactly):
     private sealed class OllamaGenerateOptions
     {
         public double Temperature { get; init; }
+
+        [JsonPropertyName("num_ctx")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? NumCtx { get; init; }
     }
 
     private sealed class OllamaResponse

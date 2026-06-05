@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -23,6 +24,11 @@ public class SlideGeneratorService : ISlideGenerator
     private const int EvidenceChunkLimit = 3;
     private const int PromptCoverageChunkLimit = 8;
     private const int PromptKeyFactLimit = 2;
+    private const int FastOutlineChunksPerSectionLimit = 3;
+    private const int FastOutlineChunkExcerptLimit = 650;
+    private const int FastOutlineContextCharLimit = 10_000;
+    private const int FastOutlineDefaultContextTokens = 8192;
+    private const int FastSlideDefaultContextTokens = 16384;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
     private const int SlideRepairThreshold = 86;
@@ -81,23 +87,34 @@ public class SlideGeneratorService : ISlideGenerator
         int desiredSlideCount,
         IProgress<SlideGenerationProgressUpdate>? progress = null,
         int? documentId = null,
-        string? correlationId = null)
+        string? correlationId = null,
+        string? speedMode = null)
     {
         correlationId ??= Guid.NewGuid().ToString("N");
+        var outlineStopwatch = Stopwatch.StartNew();
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
-        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId);
+        var fastMode = IsFastMode(speedMode);
+        if (fastMode)
+        {
+            Report(progress, 12, "preparing-content", "Preparing selected content", "Preparing selected content");
+        }
+
+        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId, documentId, speedMode);
         var targetCount = Math.Clamp(desiredSlideCount, 5, 18);
 
-        Report(
-            progress,
-            12,
-            "coverage-map",
-            processedContent?.CoverageMap.Any() == true
-                ? "Dang tai su dung coverage map da luu de lap outline"
-                : "Dang doc toan bo tai lieu de lap outline",
-            "Coverage map",
-            $"So phan doc duoc: {chunks.Count}, theme: {NormalizeThemeKey(brief?.ThemeKey)}");
+        if (!fastMode)
+        {
+            Report(
+                progress,
+                12,
+                "coverage-map",
+                processedContent?.CoverageMap.Any() == true
+                    ? "Dang tai su dung coverage map da luu de lap outline"
+                    : "Dang doc toan bo tai lieu de lap outline",
+                "Coverage map",
+                $"So phan doc duoc: {chunks.Count}, theme: {NormalizeThemeKey(brief?.ThemeKey)}");
+        }
 
         SlideOutlineDraft? currentDraft = null;
         var qualityIssues = new List<string>();
@@ -108,10 +125,27 @@ public class SlideGeneratorService : ISlideGenerator
             {
                 try
                 {
-                    var prompt = BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount);
+                    var promptPayload = fastMode
+                        ? BuildFastOutlinePrompt(processedContent, brief, chunks, sectionPlans, targetCount)
+                        : BuildOutlinePromptPayload(BuildOutlinePrompt(processedContent, brief, sectionPlans, targetCount));
+                    var prompt = promptPayload.Prompt;
+                    if (fastMode)
+                    {
+                        _logger.LogInformation(
+                            "[SlideGen:{JobId}] Phase=outline Step=prompt-built SpeedMode=fast SectionCount={SectionCount} ChunkCount={ChunkCount} PromptChars={PromptChars} ContextChars={ContextChars}",
+                            correlationId,
+                            sectionPlans.Count,
+                            promptPayload.ContextChunkCount,
+                            prompt.Length,
+                            promptPayload.ContextChars);
+                    }
+
+                    var outlineProfile = ResolveOutlineProfile(speedMode);
+                    LogSlideOllamaCall(correlationId, "outline", "initial", outlineProfile, prompt, "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
                     var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                         prompt,
-                        "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
+                        "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.",
+                        outlineProfile);
                     await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
                     currentDraft = generation.Value;
                 }
@@ -125,10 +159,15 @@ public class SlideGeneratorService : ISlideGenerator
             if (currentDraft != null)
             {
                 var outline = NormalizeOutlineResult(currentDraft, chunks, sectionPlans, processedContent, brief, targetCount);
-                outline = await PolishOutlineAsync(processedContent, brief, chunks, sectionPlans, targetCount, outline);
+                outline = await PolishOutlineAsync(processedContent, brief, chunks, sectionPlans, targetCount, outline, correlationId, speedMode);
 
                 if (IsOutlineQualityAcceptable(outline, targetCount, out qualityIssues))
                 {
+                    outlineStopwatch.Stop();
+                    _logger.LogInformation(
+                        "[SlideGen:{JobId}] Phase=outline Step=completed DurationMs={DurationMs}",
+                        correlationId,
+                        outlineStopwatch.ElapsedMilliseconds);
                     return outline;
                 }
             }
@@ -138,10 +177,16 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId);
+            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId, speedMode);
         }
 
-        return BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
+        var fallback = BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
+        outlineStopwatch.Stop();
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=outline Step=completed DurationMs={DurationMs}",
+            correlationId,
+            outlineStopwatch.ElapsedMilliseconds);
+        return fallback;
     }
 
     public async Task<SlideContentResult> GenerateSlideAsync(
@@ -153,9 +198,11 @@ public class SlideGeneratorService : ISlideGenerator
         int totalSlides,
         IProgress<SlideGenerationProgressUpdate>? progress = null,
         int? documentId = null,
-        string? correlationId = null)
+        string? correlationId = null,
+        string? speedMode = null)
     {
         correlationId ??= Guid.NewGuid().ToString("N");
+        var slideProfile = ResolveSlideProfile(speedMode);
         var chunks = GetCoverageChunks(NormalizeContent(content), processedContent);
         var sectionPlans = BuildSectionPlans(chunks);
         var evidence = SelectEvidenceChunks(chunks, outlineSlide);
@@ -172,9 +219,11 @@ public class SlideGeneratorService : ISlideGenerator
                 try
                 {
                     var prompt = BuildSlidePrompt(processedContent, brief, outlineSlide, evidence, sectionPlans);
+                    LogSlideOllamaCall(correlationId, "slide-generation", "initial", slideProfile, prompt, "You create concise grounded slides. Never invent facts outside allowed evidence.");
                     var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                         prompt,
-                        "You create concise grounded slides. Never invent facts outside allowed evidence.");
+                        "You create concise grounded slides. Never invent facts outside allowed evidence.",
+                        slideProfile);
                     await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
                     currentDraft = generation.Value;
                 }
@@ -188,12 +237,12 @@ public class SlideGeneratorService : ISlideGenerator
             if (currentDraft != null)
             {
                 var result = NormalizeSlideContent(currentDraft, outlineSlide, brief, evidence);
-                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, sectionPlans, result);
+                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, sectionPlans, result, correlationId, slideProfile);
 
                 if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, evidence, out qualityIssues))
                 {
-                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback);
-                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result, documentId, correlationId);
+                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback, correlationId);
+                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result, documentId, correlationId, slideProfile);
                     result.SuggestedStatus = DetermineSuggestedSlideStatus(result, evidence);
                     return result.SuggestedStatus == SlideItemStatus.Completed
                         ? result
@@ -206,12 +255,12 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues, documentId, correlationId);
+            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues, documentId, correlationId, slideProfile);
         }
 
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
-        await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
-        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback, documentId, correlationId);
+        await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true, correlationId);
+        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback, documentId, correlationId, slideProfile);
         fallback.SuggestedStatus = DetermineSuggestedSlideStatus(fallback, evidence);
         return ConvertToReviewRequiredSlideContent(fallback, outlineSlide);
     }
@@ -408,6 +457,81 @@ Return JSON:
   ]
 }}";
 
+    private static OutlinePromptPayload BuildOutlinePromptPayload(string prompt)
+        => new()
+        {
+            Prompt = prompt,
+            ContextChars = 0,
+            ContextChunkCount = 0
+        };
+
+    private static OutlinePromptPayload BuildFastOutlinePrompt(
+        ProcessedContent? processedContent,
+        SlideDeckBrief? brief,
+        List<DocumentChunk> chunks,
+        List<SlideSectionPlan> sectionPlans,
+        int targetCount)
+    {
+        var context = BuildFastOutlineContextBlock(sectionPlans, chunks, out var contextChunkCount);
+        var prompt = $@"You are creating a fast lesson deck outline from compact section evidence.
+
+Deck brief:
+{BuildBriefBlock(brief)}
+
+Compact document analysis:
+{BuildFastAnalyzedContentBlock(processedContent)}
+
+Compact outline context:
+{context}
+
+Requirements:
+1. Return one JSON object only.
+2. Write visible text in Vietnamese with proper diacritics.
+3. Create exactly {targetCount} slides.
+4. Slide 1 must be Title.
+5. Include one SectionDivider in the early deck.
+6. Each slide needs heading, optional subheading, short goal, keyMessage, and 1-3 preferredChunkIds.
+7. preferredChunkIds must come exactly from the compact outline context.
+8. Cover the supplied sections in order and keep a lesson flow for learners.
+9. Use section title, local summary, key facts, and source refs before using excerpts.
+10. Do not infer chapters, references, appendices, or facts outside the compact context.
+11. Headings and keyMessage must be concrete, not generic.
+12. If mode=lecture, make the deck feel like a chapter-based lesson: opening, learning objective, major subsections in order, synthesis, and review.
+13. If mode=summary, prioritize concise synthesis and retention.
+14. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
+15. If mode=timeline, emphasize chronology, turning points, and period transitions.
+
+Return JSON:
+{{
+  ""title"": ""ten deck"",
+  ""subtitle"": ""mo ta ngan"",
+  ""presentationContractVersion"": ""{PresentationExtractionContract.CurrentVersion}"",
+  ""themeKey"": ""editorial-sunrise"",
+  ""slides"": [
+    {{
+      ""slideIndex"": 1,
+      ""slideType"": ""Title"",
+      ""heading"": ""tieu de slide"",
+      ""subheading"": ""phu de"",
+      ""goal"": ""muc tieu ngan"",
+      ""keyMessage"": ""mot y chinh ro rang"",
+      ""preferredChunkIds"": [""C01""],
+      ""rhythm"": ""dense"",
+      ""visualRole"": ""process"",
+      ""chartIntent"": ""none"",
+      ""needsChartReview"": false
+    }}
+  ]
+}}";
+
+        return new OutlinePromptPayload
+        {
+            Prompt = prompt,
+            ContextChars = context.Length,
+            ContextChunkCount = contextChunkCount
+        };
+    }
+
     private static string BuildSlidePrompt(ProcessedContent? processedContent, SlideDeckBrief? brief, SlideOutlineSlide outlineSlide, List<DocumentChunk> evidence, List<SlideSectionPlan> sectionPlans)
         => $@"You are a system creating grounded study slides from source sections.
 
@@ -597,9 +721,11 @@ Return JSON:
         List<DocumentChunk> chunks,
         List<SlideSectionPlan> sectionPlans,
         int targetCount,
-        SlideOutlineResult outline)
+        SlideOutlineResult outline,
+        string correlationId,
+        string? speedMode)
     {
-        var polished = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline);
+        var polished = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline, correlationId, ResolveOutlineProfile(speedMode));
         ApplySectionPlanKeyMessages(polished, sectionPlans);
         return polished;
     }
@@ -609,7 +735,9 @@ Return JSON:
         SlideDeckBrief? brief,
         List<DocumentChunk> chunks,
         int targetCount,
-        SlideOutlineResult outline)
+        SlideOutlineResult outline,
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -640,10 +768,12 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            const string systemPrompt = "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.";
+            LogSlideOllamaCall(correlationId, "outline", "polish", profile, prompt, systemPrompt);
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
                 prompt,
-                "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             stopwatch.Stop();
             _logger.LogInformation(
                 "[SlideGen] Phase=outline Step=polish-completed TargetSlideCount={TargetSlideCount} ChunkCount={ChunkCount} DurationMs={DurationMs}",
@@ -673,9 +803,11 @@ Return JSON only:
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
         List<SlideSectionPlan> sectionPlans,
-        SlideContentResult content)
+        SlideContentResult content,
+        string correlationId,
+        OllamaModelProfile profile)
     {
-        var polished = await PolishSlideContentAsync(brief, outlineSlide, evidence, content);
+        var polished = await PolishSlideContentAsync(brief, outlineSlide, evidence, content, correlationId, profile);
         if (string.IsNullOrWhiteSpace(polished.KeyMessage))
         {
             polished.KeyMessage = outlineSlide.KeyMessage
@@ -691,7 +823,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
-        SlideContentResult content)
+        SlideContentResult content,
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -725,10 +859,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are a senior Vietnamese lesson editor. Polish slides without changing facts.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "polish", profile, prompt, systemPrompt);
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
                 prompt,
-                "You are a senior Vietnamese lesson editor. Polish slides without changing facts.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             stopwatch.Stop();
             _logger.LogInformation(
                 "[SlideGen] Phase=slide-generation Step=polish-completed SlideIndex={SlideIndex} EvidenceCount={EvidenceCount} DurationMs={DurationMs}",
@@ -759,7 +895,8 @@ Return JSON only:
         int targetCount,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        string? speedMode)
     {
         try
         {
@@ -786,10 +923,13 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            var profile = ResolveOutlineProfile(speedMode);
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "outline", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -807,7 +947,8 @@ Return JSON only:
         int targetCount,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        string? speedMode)
     {
         try
         {
@@ -836,10 +977,13 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            var profile = ResolveOutlineProfile(speedMode);
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "outline", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -858,7 +1002,8 @@ Return JSON only:
         List<SlideSectionPlan> sectionPlans,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         try
         {
@@ -896,10 +1041,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -917,7 +1064,8 @@ Return JSON only:
         List<DocumentChunk> evidence,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         try
         {
@@ -953,10 +1101,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -1203,12 +1353,13 @@ Return JSON only:
         SlideContentResult content,
         SlideItemType slideType,
         IReadOnlyCollection<DocumentChunk> evidence,
-        bool usedFallback)
+        bool usedFallback,
+        string correlationId)
     {
         ApplyLocalSlideVerifierMetadata(content, slideType, evidence, usedFallback);
 
         var stopwatch = Stopwatch.StartNew();
-        var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence);
+        var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence, correlationId);
         stopwatch.Stop();
         _logger.LogInformation(
             "[SlideGen] Phase=verification Step=ai-review-completed SlideType={SlideType} EvidenceCount={EvidenceCount} HasReview={HasReview} DurationMs={DurationMs}",
@@ -1269,7 +1420,8 @@ Return JSON only:
         List<DocumentChunk> evidence,
         SlideContentResult currentContent,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var bestContent = currentContent;
 
@@ -1291,7 +1443,7 @@ Return JSON only:
                 .Take(8)
                 .ToList();
 
-            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId);
+            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId, profile);
             if (repairedDraft == null)
             {
                 repairStopwatch.Stop();
@@ -1305,7 +1457,7 @@ Return JSON only:
             }
 
             var repairedContent = NormalizeSlideContent(repairedDraft, outlineSlide, brief, evidence);
-            repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent);
+            repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent, correlationId, profile);
             if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, evidence, out _))
             {
                 repairStopwatch.Stop();
@@ -1318,7 +1470,7 @@ Return JSON only:
                 break;
             }
 
-            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: repairedContent.UsedFallback);
+            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: repairedContent.UsedFallback, correlationId);
 
             if (!ShouldPreferRepairedSlide(bestContent, repairedContent))
             {
@@ -1791,7 +1943,8 @@ Return JSON only:
     private async Task<SlideAiVerificationResult?> VerifySlideWithAiAsync(
         SlideContentResult content,
         SlideItemType slideType,
-        IReadOnlyCollection<DocumentChunk> evidence)
+        IReadOnlyCollection<DocumentChunk> evidence,
+        string correlationId)
     {
         try
         {
@@ -1830,9 +1983,11 @@ Return JSON only:
   ""isGrounded"": true
 }}";
 
+            const string systemPrompt = "You are a strict presentation verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.";
+            LogSlideOllamaCall(correlationId, "verification", "ai-review", OllamaModelProfile.Verification, prompt, systemPrompt);
             return await _ollamaService.GenerateStructuredResponseAsync<SlideAiVerificationResult>(
                 prompt,
-                "You are a strict presentation verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.",
+                systemPrompt,
                 OllamaModelProfile.Verification);
         }
         catch (Exception ex)
@@ -2316,6 +2471,27 @@ Return JSON only:
         return $"- Language: {processedContent.Language}\n- Document type: {processedContent.DocumentType}\n- Title: {processedContent.Title}\n- Main content start page: {processedContent.MainContentStartPage}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {summary}";
     }
 
+    private static string BuildFastAnalyzedContentBlock(ProcessedContent? processedContent)
+    {
+        if (processedContent == null)
+        {
+            return "- No precomputed analysis. Use compact outline context only.";
+        }
+
+        var topics = processedContent.MainTopics
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Select(topic => NormalizeLine(topic, 70))
+            .Where(topic => !string.IsNullOrWhiteSpace(topic))
+            .Take(4);
+        var keyPoints = processedContent.KeyPoints
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Select(point => NormalizeLine(point, 90))
+            .Where(point => !string.IsNullOrWhiteSpace(point))
+            .Take(4);
+
+        return $"- Language: {NormalizeLine(processedContent.Language, 40) ?? "unknown"}\n- Document type: {NormalizeLine(processedContent.DocumentType, 60) ?? "unknown"}\n- Title: {NormalizeLine(processedContent.Title, 120) ?? "untitled"}\n- Main topics: {string.Join(", ", topics)}\n- Key points: {string.Join(" | ", keyPoints)}\n- Summary: {NormalizeLine(processedContent.Summary, 180) ?? "Khong co tom tat san."}";
+    }
+
     private static string BuildPresentationContractBlock(PresentationExtractionContract? contract)
     {
         if (contract == null)
@@ -2376,12 +2552,25 @@ Warnings:
     private async Task<List<SlideSectionPlan>> GenerateSectionPlansAsync(
         List<DocumentChunk> chunks,
         IProgress<SlideGenerationProgressUpdate>? progress,
-        string correlationId)
+        string correlationId,
+        int? documentId,
+        string? speedMode)
     {
         var plans = BuildSectionPlans(chunks);
+        if (IsFastMode(speedMode))
+        {
+            Report(progress, 18, "fast-outline", "Building fast outline", "Building fast outline");
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=section-summaries Step=fast-local-plans SkippedAi=true SectionCount={SectionCount}",
+                correlationId,
+                plans.Count);
+            return plans;
+        }
+
         _logger.LogInformation(
-            "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started SectionCount={SectionCount} ChunkCount={ChunkCount}",
+            "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started DocumentId={DocumentId} SectionCount={SectionCount} ChunkCount={ChunkCount}",
             correlationId,
+            documentId,
             plans.Count,
             chunks.Count);
 
@@ -2408,17 +2597,20 @@ Return JSON:
   ""learningSignificance"": ""ý nghĩa học tập ngắn""
 }}";
 
+                const string systemPrompt = "You summarize one source section for slide planning. Use only the supplied source.";
+                LogSlideOllamaCall(correlationId, "section-summaries", "section-ai", OllamaModelProfile.Analysis, prompt, systemPrompt);
                 var draft = await _ollamaService.GenerateStructuredResponseAsync<SlideSectionSummaryDraft>(
                     prompt,
-                    "You summarize one source section for slide planning. Use only the supplied source.",
+                    systemPrompt,
                     OllamaModelProfile.Analysis);
                 sectionStopwatch.Stop();
                 _logger.LogInformation(
-                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-completed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-completed DocumentId={DocumentId} Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
                     correlationId,
+                    documentId,
                     index + 1,
                     plans.Count,
-                    current.SectionId,
+                    ClampLogValue(current.SectionId, 160),
                     current.EvidenceExcerpt?.Length ?? 0,
                     sectionStopwatch.ElapsedMilliseconds);
 
@@ -2439,11 +2631,12 @@ Return JSON:
                 sectionStopwatch.Stop();
                 _logger.LogWarning(
                     ex,
-                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-failed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-failed DocumentId={DocumentId} Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
                     correlationId,
+                    documentId,
                     index + 1,
                     plans.Count,
-                    current.SectionId,
+                    ClampLogValue(current.SectionId, 160),
                     current.EvidenceExcerpt?.Length ?? 0,
                     sectionStopwatch.ElapsedMilliseconds);
             }
@@ -2471,6 +2664,8 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
             {
                 var ordered = group.OrderBy(chunk => chunk.ChunkNumber).ToList();
                 var first = ordered[0];
+                var rawSectionId = first.SectionKey ?? first.HeadingPath ?? first.ChunkId;
+                var rawTitle = first.HeadingText ?? first.NormalizedHeading ?? first.Label;
                 var keyIdeas = ordered
                     .SelectMany(chunk => chunk.KeyFacts)
                     .Select(fact => NormalizeLine(fact, 180))
@@ -2479,28 +2674,265 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
                     .Take(4)
                     .Cast<string>()
                     .ToList();
+                var excerpt = string.Join("\n", ordered.Select(chunk => chunk.EvidenceExcerpt).Where(text => !string.IsNullOrWhiteSpace(text)).Take(3));
 
                 return new SlideSectionPlan
                 {
-                    SectionId = first.SectionKey ?? first.HeadingPath ?? first.ChunkId,
-                    HeadingPath = first.HeadingPath,
-                    HeadingText = first.HeadingText ?? first.NormalizedHeading ?? first.Label,
-                    Summary = NormalizeLine(first.Summary, 220) ?? NormalizeLine(first.Label, 180) ?? first.ChunkId,
+                    SectionId = BuildStableSectionPlanId(rawSectionId, first.ChunkId, first.ChunkNumber),
+                    HeadingPath = NormalizeLine(first.HeadingPath, 160),
+                    HeadingText = BuildSectionPlanTitle(rawTitle, rawSectionId, first.ChunkId),
+                    Summary = BuildLocalSectionSummary(ordered, keyIdeas, excerpt),
                     KeyIdeas = keyIdeas,
                     LearningSignificance = keyIdeas.FirstOrDefault() ?? NormalizeLine(first.Summary, 180) ?? "không đủ dữ kiện",
-                    EvidenceExcerpt = string.Join("\n", ordered.Select(chunk => chunk.EvidenceExcerpt).Where(text => !string.IsNullOrWhiteSpace(text)).Take(3)),
+                    EvidenceExcerpt = NormalizeLine(excerpt, 900) ?? string.Empty,
                     SourceChunkIds = ordered.Select(chunk => chunk.ChunkId).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                    IsPrimarySection = ordered.Any(chunk => chunk.IsPrimarySection)
+                    IsPrimarySection = ordered.Any(chunk => chunk.IsPrimarySection),
+                    FirstChunkNumber = first.ChunkNumber
                 };
             })
-            .OrderBy(plan => plan.SourceChunkIds.FirstOrDefault())
+            .OrderBy(plan => plan.FirstChunkNumber)
             .ToList();
+
+    private static bool IsFastMode(string? speedMode)
+        => string.Equals(speedMode?.Trim(), "fast", StringComparison.OrdinalIgnoreCase);
+
+    private static OllamaModelProfile ResolveOutlineProfile(string? speedMode)
+        => IsFastMode(speedMode) ? OllamaModelProfile.FastOutline : OllamaModelProfile.Generation;
+
+    private static OllamaModelProfile ResolveSlideProfile(string? speedMode)
+        => IsFastMode(speedMode) ? OllamaModelProfile.FastSlide : OllamaModelProfile.Generation;
+
+    private void LogSlideOllamaCall(
+        string correlationId,
+        string phase,
+        string step,
+        OllamaModelProfile profile,
+        string prompt,
+        string? systemPrompt)
+    {
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase={Phase} Step=ollama-call Call={Call} Profile={Profile} NumCtx={NumCtx} PromptChars={PromptChars} SystemChars={SystemChars}",
+            correlationId,
+            phase,
+            step,
+            FormatOllamaProfile(profile),
+            ResolveExpectedNumCtx(profile),
+            prompt.Length,
+            systemPrompt?.Length ?? 0);
+    }
+
+    private static string ResolveExpectedNumCtx(OllamaModelProfile profile)
+        => profile switch
+        {
+            OllamaModelProfile.FastOutline => FastOutlineDefaultContextTokens.ToString(CultureInfo.InvariantCulture),
+            OllamaModelProfile.FastSlide => FastSlideDefaultContextTokens.ToString(CultureInfo.InvariantCulture),
+            _ => "server-default"
+        };
+
+    private static string FormatOllamaProfile(OllamaModelProfile profile)
+        => profile switch
+        {
+            OllamaModelProfile.FastOutline => "fast-outline",
+            OllamaModelProfile.FastSlide => "fast-slide",
+            OllamaModelProfile.Analysis => "analysis",
+            OllamaModelProfile.Generation => "generation",
+            OllamaModelProfile.Verification => "verification",
+            _ => profile.ToString()
+        };
+
+    private static string BuildStableSectionPlanId(string? rawSectionId, string fallbackChunkId, int chunkNumber)
+    {
+        var raw = NormalizeLine(rawSectionId, 360) ?? NormalizeLine(fallbackChunkId, 120) ?? $"chunk-{chunkNumber:00}";
+        var compact = Regex.Replace(raw, @"\s+", " ").Trim();
+        if (compact.Length <= 96)
+        {
+            return compact;
+        }
+
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(compact)))[..10].ToLowerInvariant();
+        return $"{compact[..Math.Min(84, compact.Length)].TrimEnd()}-{suffix}";
+    }
+
+    private static string BuildSectionPlanTitle(string? rawTitle, string? rawSectionId, string fallbackChunkId)
+    {
+        var title = NormalizeLine(rawTitle, 120)
+            ?? NormalizeLine(rawSectionId, 120)
+            ?? NormalizeLine(fallbackChunkId, 80)
+            ?? "Section";
+        return title.Length <= 120 ? title : $"{title[..117].TrimEnd()}...";
+    }
+
+    private static string BuildLocalSectionSummary(
+        IReadOnlyList<DocumentChunk> ordered,
+        IReadOnlyList<string> keyIdeas,
+        string excerpt)
+    {
+        var fromKeyFacts = keyIdeas.Any()
+            ? string.Join(" ", keyIdeas.Take(3))
+            : null;
+        var candidate = fromKeyFacts
+            ?? ordered.Select(chunk => NormalizeLine(chunk.Summary, 320)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? FirstSentences(excerpt, 2)
+            ?? ordered.Select(chunk => NormalizeLine(chunk.Label, 220)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? "Khong du du kien grounded.";
+        return NormalizeLine(candidate, 420) ?? "Khong du du kien grounded.";
+    }
+
+    private static string? FirstSentences(string? value, int sentenceCount)
+    {
+        var normalized = NormalizeLine(value, 900);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        var sentences = Regex.Split(normalized, @"(?<=[.!?。！？])\s+")
+            .Where(sentence => !string.IsNullOrWhiteSpace(sentence))
+            .Take(Math.Max(1, sentenceCount))
+            .ToList();
+        return sentences.Any()
+            ? NormalizeLine(string.Join(" ", sentences), 420)
+            : NormalizeLine(normalized, 420);
+    }
+
+    private static string ClampLogValue(string? value, int maxLength)
+        => NormalizeLine(value, maxLength) ?? string.Empty;
 
     private static string BuildSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans)
         => string.Join(
             Environment.NewLine,
             sectionPlans.Take(PromptCoverageChunkLimit).Select(plan =>
                 $"- {string.Join(", ", plan.SourceChunkIds)} | primary={plan.IsPrimarySection} | heading={NormalizeLine(plan.HeadingText, 80) ?? plan.SectionId} | summary={NormalizeLine(plan.Summary, 160) ?? "khong co"} | ideas={string.Join(" | ", plan.KeyIdeas.Take(3))} | significance={NormalizeLine(plan.LearningSignificance, 120) ?? "khong co"}"));
+
+    private static string BuildFastOutlineContextBlock(
+        IReadOnlyList<SlideSectionPlan> sectionPlans,
+        IReadOnlyList<DocumentChunk> chunks,
+        out int contextChunkCount)
+    {
+        var chunksById = chunks
+            .GroupBy(chunk => chunk.ChunkId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var context = new StringBuilder();
+        var usedChunkIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var plan in sectionPlans.OrderBy(plan => plan.FirstChunkNumber))
+        {
+            var representativeChunks = SelectFastOutlineRepresentativeChunks(plan, chunksById);
+            foreach (var chunk in representativeChunks)
+            {
+                usedChunkIds.Add(chunk.ChunkId);
+            }
+
+            var refs = representativeChunks.Any()
+                ? string.Join(", ", representativeChunks.Select(chunk => chunk.ChunkId))
+                : string.Join(", ", plan.SourceChunkIds.Take(FastOutlineChunksPerSectionLimit));
+            var facts = representativeChunks
+                .SelectMany(chunk => chunk.KeyFacts)
+                .Concat(plan.KeyIdeas)
+                .Select(fact => NormalizeLine(fact, 120))
+                .Where(fact => !string.IsNullOrWhiteSpace(fact))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(4)
+                .ToList();
+
+            AppendFastContextLine(context, $"Section: {NormalizeLine(plan.HeadingText, 120) ?? plan.SectionId}");
+            AppendFastContextLine(context, $"- refs: {refs}; sourceChunkCount={plan.SourceChunkIds.Count}; primary={plan.IsPrimarySection}");
+            AppendFastContextLine(context, $"- summary: {NormalizeLine(plan.Summary, 420) ?? "khong co"}");
+            AppendFastContextLine(context, $"- keyFacts: {(facts.Any() ? string.Join(" | ", facts) : "khong co")}");
+
+            foreach (var chunk in representativeChunks)
+            {
+                var excerpt = NormalizeLine(chunk.EvidenceExcerpt, FastOutlineChunkExcerptLimit)
+                    ?? NormalizeLine(chunk.Summary, 220)
+                    ?? NormalizeLine(chunk.Label, 120)
+                    ?? "khong co excerpt";
+                AppendFastContextLine(
+                    context,
+                    $"- excerpt {chunk.ChunkId}: heading={BuildHeadingMeta(chunk)}; label={NormalizeLine(chunk.Label, 70) ?? chunk.ChunkId}; {excerpt}");
+            }
+
+            AppendFastContextLine(context, string.Empty);
+            if (context.Length >= FastOutlineContextCharLimit)
+            {
+                break;
+            }
+        }
+
+        contextChunkCount = usedChunkIds.Count;
+        return context.Length == 0
+            ? "- Khong co compact outline context."
+            : context.ToString().TrimEnd();
+    }
+
+    private static List<DocumentChunk> SelectFastOutlineRepresentativeChunks(
+        SlideSectionPlan plan,
+        IReadOnlyDictionary<string, DocumentChunk> chunksById)
+    {
+        var candidates = plan.SourceChunkIds
+            .Select(chunkId => chunksById.TryGetValue(chunkId, out var chunk) ? chunk : null)
+            .Where(chunk => chunk != null)
+            .Cast<DocumentChunk>()
+            .ToList();
+
+        if (!candidates.Any())
+        {
+            return new List<DocumentChunk>();
+        }
+
+        var selected = new List<DocumentChunk>();
+        AddFastOutlineChunk(selected, candidates.FirstOrDefault(chunk => chunk.IsPrimarySection));
+        AddFastOutlineChunk(selected, candidates.OrderByDescending(chunk => chunk.TeachabilityScore).FirstOrDefault());
+        AddFastOutlineChunk(selected, candidates.OrderBy(chunk => chunk.ChunkNumber).FirstOrDefault());
+
+        foreach (var chunk in candidates.OrderBy(chunk => chunk.ChunkNumber))
+        {
+            if (selected.Count >= FastOutlineChunksPerSectionLimit)
+            {
+                break;
+            }
+
+            AddFastOutlineChunk(selected, chunk);
+        }
+
+        return selected
+            .OrderBy(chunk => chunk.ChunkNumber)
+            .Take(FastOutlineChunksPerSectionLimit)
+            .ToList();
+    }
+
+    private static void AddFastOutlineChunk(List<DocumentChunk> selected, DocumentChunk? chunk)
+    {
+        if (chunk == null || selected.Any(existing => string.Equals(existing.ChunkId, chunk.ChunkId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        selected.Add(chunk);
+    }
+
+    private static void AppendFastContextLine(StringBuilder builder, string line)
+    {
+        if (builder.Length >= FastOutlineContextCharLimit)
+        {
+            return;
+        }
+
+        var remaining = FastOutlineContextCharLimit - builder.Length;
+        if (remaining <= Environment.NewLine.Length)
+        {
+            return;
+        }
+
+        var normalized = string.IsNullOrWhiteSpace(line)
+            ? string.Empty
+            : NormalizeLine(line, remaining - Environment.NewLine.Length) ?? string.Empty;
+        if (normalized.Length == 0 && line.Length > 0)
+        {
+            return;
+        }
+
+        builder.AppendLine(normalized);
+    }
 
     private static string BuildRelevantSectionPlanBlock(IEnumerable<SlideSectionPlan> sectionPlans, IEnumerable<string> preferredChunkIds)
     {
@@ -3378,6 +3810,14 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
         public string EvidenceExcerpt { get; set; } = string.Empty;
         public List<string> SourceChunkIds { get; set; } = new();
         public bool IsPrimarySection { get; set; }
+        public int FirstChunkNumber { get; set; }
+    }
+
+    private sealed class OutlinePromptPayload
+    {
+        public string Prompt { get; init; } = string.Empty;
+        public int ContextChars { get; init; }
+        public int ContextChunkCount { get; init; }
     }
 
     private sealed class SlideSectionSummaryDraft

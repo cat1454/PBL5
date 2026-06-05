@@ -8,6 +8,10 @@ namespace ELearnGamePlatform.Services.DocumentProcessing;
 public class VisionPageImageProvider : IVisionPageImageProvider
 {
     private const int VisionPdfDpi = 180;
+    private static readonly object PdfToPpmPathLock = new();
+    private static string? _resolvedPdfToPpmPath;
+    private static string? _loggedPdfToPpmPath;
+
     private readonly ILogger<VisionPageImageProvider> _logger;
     private readonly string _pdfToPpmPath;
 
@@ -41,6 +45,7 @@ public class VisionPageImageProvider : IVisionPageImageProvider
         try
         {
             var outputPrefix = Path.Combine(tempDirectory, $"page_{pageNumber}");
+            var renderStopwatch = Stopwatch.StartNew();
             var startInfo = new ProcessStartInfo
             {
                 FileName = _pdfToPpmPath,
@@ -60,6 +65,7 @@ public class VisionPageImageProvider : IVisionPageImageProvider
 
             var stdErr = await process.StandardError.ReadToEndAsync(cancellationToken);
             await process.WaitForExitAsync(cancellationToken);
+            renderStopwatch.Stop();
 
             if (process.ExitCode != 0)
             {
@@ -71,6 +77,12 @@ public class VisionPageImageProvider : IVisionPageImageProvider
                 CleanupTempDirectory(tempDirectory);
                 return null;
             }
+
+            _logger.LogInformation(
+                "[PdfRender] Page={Page} Dpi={Dpi} DurationMs={DurationMs}",
+                pageNumber,
+                VisionPdfDpi,
+                renderStopwatch.ElapsedMilliseconds);
 
             var imagePath = Directory
                 .GetFiles(tempDirectory, $"page_{pageNumber}*.png")
@@ -123,6 +135,29 @@ public class VisionPageImageProvider : IVisionPageImageProvider
 
     private string ResolvePdfToPpmPath()
     {
+        if (_resolvedPdfToPpmPath != null)
+        {
+            LogResolvedPathOnce(_resolvedPdfToPpmPath);
+            return _resolvedPdfToPpmPath;
+        }
+
+        lock (PdfToPpmPathLock)
+        {
+            if (_resolvedPdfToPpmPath != null)
+            {
+                LogResolvedPathOnce(_resolvedPdfToPpmPath);
+                return _resolvedPdfToPpmPath;
+            }
+
+            _resolvedPdfToPpmPath = ResolvePdfToPpmPathCore();
+        }
+
+        LogResolvedPathOnce(_resolvedPdfToPpmPath);
+        return _resolvedPdfToPpmPath;
+    }
+
+    private string ResolvePdfToPpmPathCore()
+    {
         var candidates = new List<string>
         {
             Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "poppler-25.12.0", "Library", "bin", "pdftoppm.exe")),
@@ -133,12 +168,29 @@ public class VisionPageImageProvider : IVisionPageImageProvider
         {
             if (File.Exists(candidate))
             {
-                _logger.LogInformation("Using bundled pdftoppm executable for vision at {PdfToPpmPath}", candidate);
                 return candidate;
             }
         }
 
         return "pdftoppm";
+    }
+
+    private void LogResolvedPathOnce(string path)
+    {
+        lock (PdfToPpmPathLock)
+        {
+            if (string.Equals(_loggedPdfToPpmPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _loggedPdfToPpmPath = path;
+        }
+
+        if (Path.IsPathRooted(path))
+        {
+            _logger.LogInformation("Using bundled pdftoppm executable for vision at {PdfToPpmPath}", path);
+        }
     }
 
     private static void CleanupTempDirectory(string tempDirectory)

@@ -574,6 +574,7 @@ export const slideService = {
       sourceIds: payload?.sourceIds,
       selectedSectionIds: payload?.selectedSectionIds,
       mode: payload?.mode,
+      speedMode: payload?.speedMode,
       scopePolicy: payload?.scopePolicy,
       confirmLowConfidence: Boolean(payload?.confirmLowConfidence),
     });
@@ -600,6 +601,7 @@ export const slideService = {
       sourceIds: payload?.sourceIds,
       selectedSectionIds: payload?.selectedSectionIds,
       mode: payload?.mode,
+      speedMode: payload?.speedMode,
       scopePolicy: payload?.scopePolicy,
       confirmLowConfidence: Boolean(payload?.confirmLowConfidence),
     });

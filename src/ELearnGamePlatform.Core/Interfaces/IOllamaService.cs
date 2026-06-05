@@ -24,7 +24,9 @@ public enum OllamaModelProfile
 {
     Analysis,
     Generation,
-    Verification
+    Verification,
+    FastOutline,
+    FastSlide
 }
 
 public enum AutoRepairEvidenceModule

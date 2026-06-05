@@ -1,5 +1,5 @@
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'superseded', 'cancelled', 'canceled']);
 
 const normalizeString = (value, fallback = '') => (
   typeof value === 'string' ? value.trim() : fallback
@@ -23,6 +23,9 @@ const ENGLISH_STAGE_LABELS = {
   saving: 'Saving results',
   completed: 'Completed',
   failed: 'Failed',
+  superseded: 'Superseded',
+  cancelled: 'Cancelled',
+  canceled: 'Cancelled',
 };
 
 export const normalizeProgressState = (raw, fallback = {}) => {
@@ -97,6 +100,57 @@ export const formatEta = (seconds, options = {}) => {
   return language === 'vi'
     ? `${minutes}p ${remain}s`
     : `${minutes}m ${remain}s`;
+};
+
+export const formatElapsedDuration = (seconds, options = {}) => {
+  const language = options.language === 'en' ? 'en' : 'vi';
+
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remain = totalSeconds % 60;
+
+  if (minutes <= 0) {
+    return language === 'vi'
+      ? `${remain} giây`
+      : `${remain}s`;
+  }
+
+  return language === 'vi'
+    ? `${minutes} phút ${remain} giây`
+    : `${minutes}m ${remain}s`;
+};
+
+export const isProgressEtaReliable = (progress) => {
+  const etaSeconds = progress?.estimatedRemainingSeconds;
+
+  if (typeof etaSeconds !== 'number' || !Number.isFinite(etaSeconds)) {
+    return false;
+  }
+
+  if (!isActiveProgress(progress)) {
+    return etaSeconds >= 0;
+  }
+
+  const stage = normalizeString(progress?.stage).toLowerCase();
+  const percent = normalizeOptionalNumber(progress?.percent) ?? 0;
+
+  if (stage === 'section-summaries') {
+    return false;
+  }
+
+  if (percent < 25) {
+    return false;
+  }
+
+  if (percent < 35 && etaSeconds > 45 * 60) {
+    return false;
+  }
+
+  return etaSeconds >= 0;
 };
 
 export const getSubProgress = (current, total) => {
