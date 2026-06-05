@@ -99,11 +99,7 @@ function DashboardPage() {
         }
         break;
       case 'slides':
-        if (action.documentId) {
-          navigate(`/slides/${action.documentId}`);
-        } else {
-          navigate(vm.defaultWorkspace?.id ? `/workspaces/${vm.defaultWorkspace.id}` : '/workspaces');
-        }
+        navigate(vm.defaultWorkspace?.id ? `/workspaces/${vm.defaultWorkspace.id}` : '/workspaces');
         break;
       default:
         break;

@@ -7,7 +7,6 @@ import FolderStudio from '../components/FolderStudio';
 import PersonalAnalyticsDashboard from '../components/PersonalAnalyticsDashboard';
 import QuestionStudioPage from '../components/question-studio/QuestionStudioPage';
 import QuizGame from '../components/QuizGame';
-import SlideStudio from '../components/SlideStudio';
 import StreakGame from '../components/StreakGame';
 import StudyHub from '../components/StudyHub';
 import AdminRoute from '../components/auth/AdminRoute';
@@ -183,15 +182,6 @@ export const PROTECTED_ROUTES = [
     frame: 'standard',
     surface: 'study',
   },
-  {
-    id: 'slides',
-    path: '/slides/:documentId',
-    element: <SlideStudio />,
-    titleKey: 'app.pageTitle.slides',
-    frame: 'studio',
-    surface: 'slides',
-    showPageHeader: false,
-  },
 ];
 
 const PATH_MATCHERS = [
@@ -208,7 +198,6 @@ const PATH_MATCHERS = [
   { test: (pathname) => pathname.startsWith('/question-studio/'), id: 'questionStudio' },
   { test: (pathname) => pathname.startsWith('/flashcards/'), id: 'flashcards' },
   { test: (pathname) => pathname.startsWith('/streak/'), id: 'streak' },
-  { test: (pathname) => pathname.startsWith('/slides/'), id: 'slides' },
 ];
 
 export function getProtectedRoutes() {
@@ -229,7 +218,6 @@ export function getShellClassNames(routeMeta, isMainMenuOpen) {
     `app-frame-${routeMeta.frame}`,
     `app-surface-${routeMeta.surface}`,
     routeMeta.surface === 'workspace' ? 'app-shell-documents' : '',
-    routeMeta.id === 'slides' ? 'app-shell-slide-route' : '',
     isMainMenuOpen ? 'is-menu-open' : '',
   ].filter(Boolean).join(' ');
 }

@@ -164,7 +164,7 @@ Cap nhat: 2026-03-23
   - Lam lai flow generate question.
   - Them review state cho quality, verifier, auto-repair.
 - Ngay 5:
-  - Lam lai `SlideStudio`.
+  - Lam lai Workspace Studio slide editor.
   - Them khuon preview ro rang va san cho template picker.
 
 ### Tuan 2 - Tang gia tri demo va gia tri hoc tap

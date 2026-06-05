@@ -7,6 +7,8 @@ import {
   LuArrowLeft,
   LuBookOpen,
   LuBold,
+  LuChevronLeft,
+  LuChevronRight,
   LuDownload,
   LuFileDown,
   LuFilePlus2,
@@ -16,12 +18,10 @@ import {
   LuIndentIncrease,
   LuItalic,
   LuLayers,
-  LuLayoutTemplate,
   LuImage,
   LuLink2,
   LuList,
   LuListOrdered,
-  LuMousePointer2,
   LuPanelRightClose,
   LuPanelRightOpen,
   LuPalette,
@@ -63,9 +63,8 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import DocumentUnderstandingPanel from './DocumentUnderstandingPanel';
 import LayersPanel from './slide-studio/LayersPanel';
-import PropertiesPanel from './slide-studio/PropertiesPanel';
 import SlideCanvas from './slide-studio/SlideCanvas';
-import SlideStudioCanvaMockup from './slide-studio/SlideStudioCanvaMockup';
+import WorkspaceStudioCanvaMockup from './slide-studio/WorkspaceStudioCanvaMockup';
 import SlideThumbnail from './slide-studio/SlideThumbnail';
 import {
   addEditorElement,
@@ -76,6 +75,7 @@ import {
   duplicateEditorElement,
   findEditorElement,
   normalizeEditorState as normalizeSlideEditorState,
+  patchEditorCanvas,
   patchEditorElement,
   reorderEditorElement,
 } from './slide-studio/editorState';
@@ -83,6 +83,23 @@ import useSlideEditorAutosave from './slide-studio/useSlideEditorAutosave';
 import useSlideEditorHistory from './slide-studio/useSlideEditorHistory';
 import useSlideEditorRealtime from './slide-studio/useSlideEditorRealtime';
 import useSlideEditorShortcuts from './slide-studio/useSlideEditorShortcuts';
+import {
+  getBoundedPresentationIndex,
+  getNextPresentationIndex,
+  getPresentationCanvasScale,
+  getPresentationStartIndex,
+  isPresentationTextInputTarget,
+} from './slide-studio/presentationMode';
+
+const SLIDEGEN_DEBUG = process.env.NODE_ENV !== 'production';
+
+function debugSlideGen(payload) {
+  if (!SLIDEGEN_DEBUG) {
+    return;
+  }
+
+  console.debug('[SlideGen]', payload);
+}
 
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
@@ -132,6 +149,79 @@ const DECK_MODE_OPTIONS = ['lecture', 'summary', 'exam-review', 'timeline'];
 const EXCLUDED_SCOPE_CLASSES = ['FRONT_MATTER', 'TABLE_OF_CONTENTS', 'REFERENCE', 'APPENDIX', 'NOISE'];
 const SCOPE_TITLE_MAX_LENGTH = 90;
 const SCOPE_PREVIEW_MAX_LENGTH = 500;
+
+const normalizeTextToken = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+};
+
+const isTextOnlyValue = (value) => normalizeTextToken(value) === 'text_only';
+
+const isTextOnlySlide = (item) => {
+  if (!item) {
+    return false;
+  }
+
+  const visualSlot = item.visualSlot || item.VisualSlot || {};
+  const explicitTextOnly = [
+    item.visualType,
+    item.VisualType,
+    item.imageStrategy,
+    item.ImageStrategy,
+    visualSlot.type,
+    visualSlot.Type,
+    visualSlot.kind,
+    visualSlot.Kind,
+  ].some(isTextOnlyValue);
+
+  if (explicitTextOnly) {
+    return true;
+  }
+
+  return item.imageState?.needsImage === false
+    || item.ImageState?.NeedsImage === false
+    || item.image?.needsImage === false
+    || item.Image?.NeedsImage === false
+    || item.slideImage?.needsImage === false
+    || item.SlideImage?.NeedsImage === false;
+};
+
+const normalizeSlideType = (slideType) => {
+  if (typeof slideType === 'number' && Number.isFinite(slideType)) {
+    switch (slideType) {
+      case 0:
+        return 'cover';
+      case 1:
+        return 'section';
+      case 2:
+        return 'content';
+      case 3:
+        return 'quote';
+      case 4:
+        return 'highlight';
+      case 5:
+        return 'stat';
+      default:
+        return 'content';
+    }
+  }
+
+  if (typeof slideType === 'string') {
+    const normalized = slideType.trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (normalized === 'title') {
+      return 'cover';
+    }
+    if (normalized === 'sectiondivider') {
+      return 'section';
+    }
+    return normalized || 'content';
+  }
+
+  return 'content';
+};
 
 function buildScopedSectionId(sourceId, sectionKey) {
   return `${sourceId}::${sectionKey}`;
@@ -704,6 +794,7 @@ function FolderStudioRuntime() {
   const [mediaBusy, setMediaBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState('');
+  const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
@@ -712,13 +803,17 @@ function FolderStudioRuntime() {
   const [scopeRecommendation, setScopeRecommendation] = useState(null);
   const [filterText, setFilterText] = useState('');
   const [activeTool, setActiveTool] = useState('sources');
-  const [canvasMode, setCanvasMode] = useState('preview');
+  const [, setCanvasMode] = useState('layout');
   const [selectedElementId, setSelectedElementId] = useState(null);
   const [copiedElement, setCopiedElement] = useState(null);
   const [canvasStageSize, setCanvasStageSize] = useState({ width: 0, height: 0 });
+  const [isPresenting, setIsPresenting] = useState(false);
+  const [presentSlideIndex, setPresentSlideIndex] = useState(0);
+  const [presentationViewport, setPresentationViewport] = useState({ width: 1280, height: 720 });
   const [remoteSelections, setRemoteSelections] = useState({});
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
+  const isStartingGenerationRef = useRef(false);
   const latestDeckRef = useRef(null);
   const latestDraftsRef = useRef({});
   const latestDirtyDraftsRef = useRef({});
@@ -730,6 +825,8 @@ function FolderStudioRuntime() {
   const typewriterStateRef = useRef({});
   const animatedRevisionRef = useRef({});
   const realtimeThrottleRef = useRef({});
+  const imageReplacementElementIdRef = useRef(null);
+  const presentationRequestedFullscreenRef = useRef(false);
   const canvasHistory = useSlideEditorHistory();
   const canvasImportImageTypes = useMemo(() => new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']), []);
   const audienceLabels = t('slides.options.audiences');
@@ -1022,8 +1119,7 @@ function FolderStudioRuntime() {
   const selectedImageVm = selectedSlide ? buildSlideImageViewModel(selectedSlide) : null;
   const selectedCanvasState = selectedSlide ? normalizeSlideEditorState(selectedSlide) : null;
   const selectedCanvasElement = selectedCanvasState ? findEditorElement(selectedCanvasState, selectedElementId) : null;
-  const isLayoutEditMode = canvasMode === 'layout';
-  const isTextEditMode = canvasMode === 'text';
+  const isLayoutEditMode = true;
   const selectedCanvasHistory = selectedSlide ? canvasHistory.getHistory(selectedSlide.id) : { past: [], future: [] };
   const canvasRemoteSelections = selectedSlide
     ? Object.values(remoteSelections).filter((selection) => selection.slideId === selectedSlide.id)
@@ -1094,7 +1190,7 @@ function FolderStudioRuntime() {
   }, []);
 
   const canvasAutosave = useSlideEditorAutosave({
-    debounceMs: 1000,
+    debounceMs: AUTOSAVE_DEBOUNCE_MS,
     onSave: saveCanvasEditorState,
   });
 
@@ -1152,31 +1248,39 @@ function FolderStudioRuntime() {
     saved: language === 'vi' ? 'Da luu' : 'Saved',
     error: language === 'vi' ? 'Luu loi' : 'Save failed',
   }[canvasAutosaveStatus] || (language === 'vi' ? 'Da luu' : 'Saved');
-  const canvasModeHint = isLayoutEditMode
-    ? 'Edit layout: drag elements to move, drag corners to resize.'
-    : isTextEditMode
-      ? 'Edit text: update copy directly on the slide without changing layout.'
-      : 'Preview mode: editor controls are hidden.';
-  const handleEnterCanvasPreviewMode = useCallback(() => {
-    setCanvasMode('preview');
-    setSelectedElementId(null);
-    setSelectedEditorField(null);
-  }, []);
-  const handleEnterCanvasTextMode = useCallback(() => {
-    setCanvasMode('text');
-    setSelectedEditorField(null);
-    setSelectedElementId((current) => current || selectedCanvasState?.elements?.find((element) => element.type === 'text')?.id || null);
-  }, [selectedCanvasState]);
+  const canvasModeHint = language === 'vi'
+    ? 'Click element de sua truc tiep. Drag de di chuyen. Keo goc de resize.'
+    : 'Click any element to edit. Drag to move. Use handles to resize.';
   const handleEnterCanvasLayoutMode = useCallback(() => {
     setCanvasMode('layout');
+    setActiveTool('elements');
     setSelectedEditorField(null);
     setSelectedElementId((current) => current || selectedCanvasState?.elements?.[0]?.id || null);
   }, [selectedCanvasState]);
+  const handleSelectCanvasBackground = useCallback(() => {
+    setCanvasMode('layout');
+    setActiveTool(null);
+    setSelectedEditorField(null);
+    setSelectedElementId(null);
+  }, []);
   const canvasLabels = {
     emptyText: language === 'vi' ? 'Van ban trong' : 'Empty text',
     imageAlt: selectedSlide?.heading || (language === 'vi' ? 'Anh slide' : 'Slide image'),
     imagePlaceholderTitle: language === 'vi' ? 'Khung anh' : 'Image slot',
     imagePlaceholderBody: language === 'vi' ? 'Chon hoac lam moi anh trong panel media.' : 'Choose or refresh an image from the media panel.',
+    addImage: language === 'vi' ? 'Them anh' : 'Add image',
+    addText: language === 'vi' ? 'Them text' : 'Add text',
+    background: language === 'vi' ? 'Nen' : 'Background',
+    bold: language === 'vi' ? 'Dam' : 'Bold',
+    color: language === 'vi' ? 'Mau' : 'Color',
+    crop: language === 'vi' ? 'Crop' : 'Crop',
+    delete: language === 'vi' ? 'Xoa' : 'Delete',
+    duplicate: language === 'vi' ? 'Nhan doi' : 'Duplicate',
+    fit: language === 'vi' ? 'Fit' : 'Fit',
+    font: language === 'vi' ? 'Font' : 'Font',
+    fontSize: language === 'vi' ? 'Co chu' : 'Size',
+    replace: language === 'vi' ? 'Doi anh' : 'Replace',
+    theme: language === 'vi' ? 'Theme' : 'Theme',
   };
   const canvasPropertyLabels = {
     title: language === 'vi' ? 'Thuoc tinh element' : 'Element properties',
@@ -1316,31 +1420,76 @@ function FolderStudioRuntime() {
   }, []);
 
   useEffect(() => {
-    if (!jobId || !progress || isTerminalProgress(progress)) {
+    const initialProgress = progressRef.current;
+    if (!jobId || !initialProgress || isTerminalProgress(initialProgress)) {
       return undefined;
     }
 
     let cancelled = false;
+    let intervalId = null;
+
+    debugSlideGen({
+      action: 'poll-start',
+      jobId,
+      workspaceId,
+      documentId: initialProgress.documentId,
+      folderProjectId: initialProgress.folderProjectId,
+    });
+
+    const stopPolling = (reason, nextProgress = progressRef.current) => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+
+      debugSlideGen({
+        action: 'poll-stop',
+        reason,
+        jobId,
+        status: nextProgress?.status,
+        percent: nextProgress?.percent,
+      });
+    };
 
     const pollProgress = async () => {
       try {
+        const previousProgress = progressRef.current || initialProgress;
         const nextProgress = normalizeProgressState(
           await slideService.getGenerateProgress(jobId),
-          progressRef.current || progress
+          previousProgress
         );
 
         if (cancelled) {
           return;
         }
 
+        debugSlideGen({
+          action: 'poll-progress',
+          jobId,
+          workspaceId,
+          documentId: nextProgress.documentId,
+          folderProjectId: nextProgress.folderProjectId,
+          slideDeckId: nextProgress.slideDeckId,
+          progress: nextProgress,
+        });
+
         setProgress(nextProgress);
 
         if (nextProgress.status === 'completed') {
+          stopPolling('completed', nextProgress);
           setGenerationError('');
           const finalWorkspace = await loadWorkspace({ silent: true });
           if (cancelled) {
             return;
           }
+
+          debugSlideGen({
+            action: 'deck-reload-completed',
+            jobId,
+            workspaceId,
+            deckId: finalWorkspace?.deckData?.id,
+            itemCount: finalWorkspace?.deckData?.items?.length || 0,
+          });
 
           const newestSlideId = getNewestSlideId(finalWorkspace?.deckData);
           if (newestSlideId) {
@@ -1350,6 +1499,7 @@ function FolderStudioRuntime() {
         }
 
         if (nextProgress.status === 'failed') {
+          stopPolling('failed', nextProgress);
           setGenerationError(nextProgress.error || nextProgress.detail || t('slides.generationStatus.failedFallback'));
           await loadWorkspace({ silent: true });
         } else {
@@ -1372,6 +1522,7 @@ function FolderStudioRuntime() {
             : null;
 
           if (!persistedProgress || isTerminalProgress(persistedProgress)) {
+            stopPolling('job-not-found-terminal', persistedProgress);
             setProgress(persistedProgress);
             setJobId(persistedProgress?.jobId || null);
             setGenerationError('');
@@ -1386,14 +1537,14 @@ function FolderStudioRuntime() {
       }
     };
 
+    intervalId = setInterval(pollProgress, 1500);
     pollProgress();
-    const interval = setInterval(pollProgress, 1500);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopPolling('effect-cleanup');
     };
-  }, [jobId, loadWorkspace, progress, t]);
+  }, [jobId, loadWorkspace, t, workspaceId]);
 
   const sourceProcessingPollKey = useMemo(
     () => sources
@@ -1964,9 +2115,20 @@ function FolderStudioRuntime() {
     const element = createTextElement(selectedCanvasState, language === 'vi' ? 'Van ban moi' : 'New text');
     const nextState = addEditorElement(selectedCanvasState, element);
     setCanvasMode('layout');
+    setActiveTool(null);
     setSelectedElementId(element.id);
     commitCanvasState(selectedSlide.id, nextState, 'addElement', element.id);
   }, [commitCanvasState, language, selectedCanvasState, selectedSlide]);
+
+  const handlePatchCanvasBackground = useCallback((patch) => {
+    if (!selectedSlide || !selectedCanvasState) {
+      return;
+    }
+
+    const nextState = patchEditorCanvas(selectedCanvasState, patch);
+    setSelectedElementId(null);
+    commitCanvasState(selectedSlide.id, nextState, 'patchCanvas', null);
+  }, [commitCanvasState, selectedCanvasState, selectedSlide]);
 
   const readCanvasImageFile = useCallback((file) => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1980,8 +2142,18 @@ function FolderStudioRuntime() {
       return;
     }
 
+    imageReplacementElementIdRef.current = null;
     canvasImageInputRef.current?.click();
   }, [selectedCanvasState, selectedSlide]);
+
+  const handleReplaceCanvasImageClick = useCallback((elementId = selectedElementId) => {
+    if (!selectedSlide || !selectedCanvasState || !elementId) {
+      return;
+    }
+
+    imageReplacementElementIdRef.current = elementId;
+    canvasImageInputRef.current?.click();
+  }, [selectedCanvasState, selectedElementId, selectedSlide]);
 
   const handleAddCanvasImageChange = useCallback(async (event) => {
     const file = event.target.files?.[0];
@@ -2009,6 +2181,23 @@ function FolderStudioRuntime() {
 
     try {
       const src = await readCanvasImageFile(file);
+      const replacementElementId = imageReplacementElementIdRef.current;
+      imageReplacementElementIdRef.current = null;
+
+      if (replacementElementId) {
+        handleCommitCanvasElement(replacementElementId, {
+          src,
+          importedAssetName: file.name,
+        });
+        setSelectedElementId(replacementElementId);
+        showToast({
+          type: 'success',
+          message: language === 'vi' ? 'Da doi anh tren canvas.' : 'Canvas image replaced.',
+          description: file.name,
+        });
+        return;
+      }
+
       const element = createImageElement(selectedCanvasState, { src, name: file.name });
       const nextState = addEditorElement(selectedCanvasState, element);
       setCanvasMode('layout');
@@ -2026,7 +2215,7 @@ function FolderStudioRuntime() {
         message: language === 'vi' ? 'Khong the them anh nay.' : 'Could not add this image.',
       });
     }
-  }, [canvasImportImageTypes, commitCanvasState, language, readCanvasImageFile, selectedCanvasState, selectedSlide, showToast]);
+  }, [canvasImportImageTypes, commitCanvasState, handleCommitCanvasElement, language, readCanvasImageFile, selectedCanvasState, selectedSlide, showToast]);
 
   const handleDeleteCanvasElement = useCallback((elementId = selectedElementId) => {
     if (!selectedSlide || !selectedCanvasState || !elementId) {
@@ -2329,6 +2518,16 @@ function FolderStudioRuntime() {
   };
 
   const handleGenerateDeck = async () => {
+    if (isStartingGenerationRef.current) {
+      debugSlideGen({
+        action: 'generate-ignored',
+        reason: 'start-in-flight',
+        workspaceId,
+        selectedSourceId: selectedSource?.id,
+      });
+      return;
+    }
+
     if (generateDisabledReason) {
       setError(generateDisabledReason);
       return;
@@ -2340,42 +2539,67 @@ function FolderStudioRuntime() {
     }
 
     try {
-    setError('');
-    const response = await slideService.startGenerateSlidesForFolder(workspaceId, {
-      ...brief,
-      sourceIds: [selectedSource.id],
-      selectedSectionIds,
-      mode: brief.mode,
-      scopePolicy: 'selected-sections-only',
-      confirmLowConfidence: readinessDecision.confirmed,
-    });
+      isStartingGenerationRef.current = true;
+      setIsStartingGeneration(true);
+      setError('');
 
-    setScopeRecommendation(response.scopeRecommendation || null);
-    setJobId(response.jobId || response.progress?.jobId || null);
-    setProgress(normalizeProgressState(response.progress, {
-      jobId: response.jobId,
-      status: response.status,
-      stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
-      message: language === 'vi'
-        ? 'Đã tạo job sinh slide cấp workspace'
-        : 'Workspace slide generation job created',
-    }));
-    showToast({
-      type: 'info',
-      message: language === 'vi' ? 'Đã bắt đầu tạo slide deck.' : 'Started generating the slide deck.',
-      description: language === 'vi'
-        ? 'Tiến trình sẽ hiển thị trong progress card của workspace.'
-        : 'Progress will continue in the workspace progress card.',
-    });
+      const payload = {
+        ...brief,
+        sourceIds: [selectedSource.id],
+        selectedSectionIds,
+        mode: brief.mode,
+        scopePolicy: 'selected-sections-only',
+        confirmLowConfidence: readinessDecision.confirmed,
+      };
 
-    await loadWorkspace({ silent: true });
+      debugSlideGen({
+        action: 'generate-click',
+        workspaceId,
+        documentId: selectedSource?.documentId ?? selectedSource?.DocumentId ?? selectedSource?.id,
+        sourceId: selectedSource?.id,
+        selectedSectionIds,
+        payload,
+      });
+
+      const response = await slideService.startGenerateSlidesForFolder(workspaceId, payload);
+      const nextJobId = response.jobId || response.progress?.jobId || null;
+
+      debugSlideGen({
+        action: 'job-received',
+        workspaceId,
+        jobId: nextJobId,
+        response,
+      });
+
+      setScopeRecommendation(response.scopeRecommendation || null);
+      setJobId(nextJobId);
+      setProgress(normalizeProgressState(response.progress, {
+        jobId: response.jobId,
+        status: response.status,
+        stageLabel: language === 'vi' ? 'Chờ xử lý' : 'Queued',
+        message: language === 'vi'
+          ? 'Đã tạo job sinh slide cấp workspace'
+          : 'Workspace slide generation job created',
+      }));
+      showToast({
+        type: 'info',
+        message: language === 'vi' ? 'Đã bắt đầu tạo slide deck.' : 'Started generating the slide deck.',
+        description: language === 'vi'
+          ? 'Tiến trình sẽ hiển thị trong progress card của workspace.'
+          : 'Progress will continue in the workspace progress card.',
+      });
+
+      await loadWorkspace({ silent: true });
     } catch (err) {
-    console.error(err);
-    setError(isSlideSchemaUnavailable(err)
-      ? t('slides.errors.schemaUnavailable')
-      : (language === 'vi'
-        ? 'Không bắt đầu được quá trình sinh slide cấp workspace.'
-        : 'Could not start workspace slide generation.'));
+      console.error(err);
+      setError(isSlideSchemaUnavailable(err)
+        ? t('slides.errors.schemaUnavailable')
+        : (language === 'vi'
+          ? 'Không bắt đầu được quá trình sinh slide cấp workspace.'
+          : 'Could not start workspace slide generation.'));
+    } finally {
+      isStartingGenerationRef.current = false;
+      setIsStartingGeneration(false);
     }
   };
 
@@ -2545,7 +2769,111 @@ function FolderStudioRuntime() {
     }
   };
 
-  const slideItems = deck?.items || [];
+  const slideItems = useMemo(() => deck?.items || [], [deck?.items]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return;
+    }
+
+    setPresentSlideIndex((current) => getBoundedPresentationIndex(current, slideItems.length));
+    if (!slideItems.length) {
+      setIsPresenting(false);
+    }
+  }, [isPresenting, slideItems.length]);
+
+  const closePresentation = useCallback(() => {
+    setIsPresenting(false);
+    if (
+      presentationRequestedFullscreenRef.current
+      && document.fullscreenElement
+      && typeof document.exitFullscreen === 'function'
+    ) {
+      document.exitFullscreen().catch(() => {});
+    }
+    presentationRequestedFullscreenRef.current = false;
+  }, []);
+
+  const movePresentation = useCallback((direction) => {
+    setPresentSlideIndex((current) => getNextPresentationIndex(current, slideItems.length, direction));
+  }, [slideItems.length]);
+
+  const handleOpenPresentation = useCallback(() => {
+    if (!slideItems.length) {
+      return;
+    }
+
+    setPresentSlideIndex(getPresentationStartIndex(slideItems, selectedSlideId));
+    setIsPresenting(true);
+
+    if (
+      !document.fullscreenElement
+      && document.documentElement
+      && typeof document.documentElement.requestFullscreen === 'function'
+    ) {
+      document.documentElement.requestFullscreen()
+        .then(() => {
+          presentationRequestedFullscreenRef.current = true;
+        })
+        .catch(() => {
+          presentationRequestedFullscreenRef.current = false;
+          showToast({
+            type: 'info',
+            message: t('slides.feedback.presentationFullscreenFallback'),
+          });
+        });
+    }
+  }, [selectedSlideId, showToast, slideItems, t]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (isPresentationTextInputTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closePresentation();
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        movePresentation(-1);
+        return;
+      }
+
+      if (event.key === 'ArrowRight' || event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        movePresentation(1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closePresentation, isPresenting, movePresentation]);
+
+  useEffect(() => {
+    if (!isPresenting) {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setPresentationViewport({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isPresenting]);
+
   const normalizedFilter = filterText.trim().toLowerCase();
   const filteredSources = normalizedFilter
     ? sources.filter((source) => [source.fileName, source.summary]
@@ -2596,7 +2924,9 @@ function FolderStudioRuntime() {
   const selectedImage = selectedImageVm?.selectedImage || null;
   const selectedSlideNeedsMedia = selectedImageVm?.needsImage !== false;
   const deckProgressActive = Boolean(activeProgress && isActiveProgress(activeProgress));
-  const generateDisabledReason = deckProgressActive
+  const generateDisabledReason = isStartingGeneration
+    ? t('slides.folderGenerate.disabledGenerating')
+    : deckProgressActive
     ? t('slides.folderGenerate.disabledGenerating')
     : !selectedSource
       ? t('slides.folderGenerate.disabledNoSource')
@@ -2648,6 +2978,19 @@ function FolderStudioRuntime() {
   const previewProcessingVm = runningSourceVm?.vm || sourceViewModels.find(({ vm }) => vm.isPending || vm.isFailed)?.vm || null;
   const hasSelectedScope = selectedSectionIds.length > 0;
   const deckReady = Boolean(deck?.items?.length);
+  const presentationIndex = getBoundedPresentationIndex(presentSlideIndex, slideItems.length);
+  const presentationSlide = isPresenting ? slideItems[presentationIndex] : null;
+  const presentationEditorState = presentationSlide ? normalizeSlideEditorState(presentationSlide) : null;
+  const presentationImageVm = presentationSlide ? buildSlideImageViewModel(presentationSlide) : null;
+  const presentationSlideIsTextOnly = isTextOnlySlide(presentationSlide) || presentationImageVm?.needsImage === false;
+  const presentationCanvasScale = presentationEditorState
+    ? getPresentationCanvasScale({
+      viewportWidth: presentationViewport.width,
+      viewportHeight: presentationViewport.height,
+      canvasWidth: presentationEditorState.canvas.width,
+      canvasHeight: presentationEditorState.canvas.height,
+    })
+    : 1;
   const emptyStateCopy = !hasAnySources
     ? {
         tone: 'empty',
@@ -2752,8 +3095,6 @@ function FolderStudioRuntime() {
   };
 
   const editorInsertLabels = t('slides.editorInsert');
-  const activeEditorLabel = editorInsertLabels?.fields?.[selectedEditorField]
-    || (selectedEditorField || '').toUpperCase();
 
   const renderFloatingToolbar = (fieldKey) => {
     if (!selectedDraft || selectedEditorField !== fieldKey || activeField !== fieldKey || !activeFieldState) {
@@ -2852,173 +3193,6 @@ function FolderStudioRuntime() {
     );
   };
 
-  const renderAdvancedPropertiesPanel = () => {
-    if (!selectedEditorField || !selectedDraft || !activeFieldState) {
-      return null;
-    }
-
-    return (
-      <div className="folder-properties-panel">
-        <div className="folder-properties-head">
-          <div>
-            <div className="folder-studio-panel-title">{editorInsertLabels.propertiesTitle}</div>
-            <strong>{activeEditorLabel}</strong>
-          </div>
-          <button
-            type="button"
-            className="folder-studio-mini-btn"
-            onClick={() => {
-              setSelectedEditorField(null);
-              setInsertMenuField(null);
-            }}
-            aria-label={editorInsertLabels.closeProperties}
-            title={editorInsertLabels.closeProperties}
-          >
-            <LuX aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <div className="folder-studio-section-label">{toolbarLabels.emphasisGroup}</div>
-          <div className="folder-properties-select-grid">
-            <label className="folder-studio-form-row">
-              <span>{toolbarLabels.fontFamily}</span>
-              <select value={activeFieldState.fontFamily || 'Lexend'} onChange={(event) => handleStyleChange((block) => ({ ...block, fontFamily: event.target.value }))}>
-                {FONT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-            <label className="folder-studio-form-row">
-              <span>{toolbarLabels.fontSize}</span>
-              <select value={activeFieldState.fontSize || 18} onChange={(event) => handleStyleChange((block) => ({ ...block, fontSize: Number(event.target.value) }))}>
-                {FONT_SIZES.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="folder-properties-control-row">
-            <WorkspaceToolbarButton active={activeFieldState.bold} label={toolbarLabels.bold} onClick={() => handleStyleChange((block) => ({ ...block, bold: !block.bold }))}>
-              <LuBold aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={activeFieldState.italic} label={toolbarLabels.italic} onClick={() => handleStyleChange((block) => ({ ...block, italic: !block.italic }))}>
-              <LuItalic aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={activeFieldState.underline} label={toolbarLabels.underline} onClick={() => handleStyleChange((block) => ({ ...block, underline: !block.underline }))}>
-              <LuUnderline aria-hidden="true" />
-            </WorkspaceToolbarButton>
-          </div>
-          <div className="folder-properties-text-colors" role="group" aria-label={toolbarLabels.textColor}>
-            {TEXT_COLOR_OPTIONS.map((color) => (
-              <button
-                type="button"
-                key={color}
-                className={`folder-floating-color${activeTextColor === color ? ' active' : ''}`}
-                style={{ '--text-swatch': color }}
-                onClick={() => handleStyleChange((block) => ({ ...block, textColor: color }))}
-                aria-label={`${toolbarLabels.textColor}: ${color}`}
-                title={`${toolbarLabels.textColor}: ${color}`}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <div className="folder-studio-section-label">{toolbarLabels.alignGroup}</div>
-          <div className="folder-properties-control-row">
-            {alignOptions.map(({ key, label, icon: Icon }) => (
-              <WorkspaceToolbarButton key={key} active={activeFieldState.align === key} label={label} onClick={() => handleStyleChange((block) => ({ ...block, align: key }))}>
-                <Icon aria-hidden="true" />
-              </WorkspaceToolbarButton>
-            ))}
-          </div>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <label className="folder-studio-form-row">
-            <span>{toolbarLabels.lineHeight}</span>
-            <select value={activeLineHeight} onChange={(event) => handleStyleChange((block) => ({ ...block, lineHeight: Number(event.target.value) }))}>
-              {LINE_HEIGHT_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}x</option>
-              ))}
-            </select>
-          </label>
-          <div className="folder-properties-control-row">
-            <WorkspaceToolbarButton active={activeFieldState.strike} label={toolbarLabels.strike} onClick={() => handleStyleChange((block) => ({ ...block, strike: !block.strike }))}>
-              <LuStrikethrough aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={activeScript === 'superscript'} label={toolbarLabels.superscript} onClick={() => handleScriptChange('superscript')}>
-              <LuSuperscript aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={activeScript === 'subscript'} label={toolbarLabels.subscript} onClick={() => handleScriptChange('subscript')}>
-              <LuSubscript aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={Boolean(activeFieldState.linkUrl)} label={toolbarLabels.link} onClick={handleLinkPrompt}>
-              <LuLink2 aria-hidden="true" />
-            </WorkspaceToolbarButton>
-          </div>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <div className="folder-studio-section-label">{toolbarLabels.listGroup}</div>
-          <div className="folder-properties-control-row">
-            <WorkspaceToolbarButton active={activeListStyle === 'bullet'} disabled={activeField !== 'body'} label={toolbarLabels.bulletList} onClick={() => handleListStyleChange(activeListStyle === 'bullet' ? 'none' : 'bullet')}>
-              <LuList aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton active={activeListStyle === 'numbered'} disabled={activeField !== 'body'} label={toolbarLabels.numberedList} onClick={() => handleListStyleChange(activeListStyle === 'numbered' ? 'none' : 'numbered')}>
-              <LuListOrdered aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton label={toolbarLabels.outdent} onClick={() => handleIndentChange(-1)}>
-              <LuIndentDecrease aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton label={toolbarLabels.indent} onClick={() => handleIndentChange(1)}>
-              <LuIndentIncrease aria-hidden="true" />
-            </WorkspaceToolbarButton>
-          </div>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <div className="folder-studio-section-label">{toolbarLabels.colorGroup}</div>
-          <div className="folder-properties-color-grid">
-            {HIGHLIGHT_COLOR_OPTIONS.map((color) => (
-              <WorkspaceColorButton
-                key={color}
-                active={activeHighlightColor === color}
-                color={color}
-                icon={LuHighlighter}
-                label={color === DEFAULT_HIGHLIGHT_COLOR ? toolbarLabels.clearHighlight : `${toolbarLabels.highlight}: ${color}`}
-                onClick={() => handleStyleChange((block) => ({ ...block, highlightColor: color }))}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="folder-studio-action-section">
-          <div className="folder-studio-section-label">{toolbarLabels.historyGroup}</div>
-          <div className="folder-properties-control-row">
-            <WorkspaceToolbarButton disabled={!activeHistory.past.length} label={toolbarLabels.undo} onClick={handleUndo}>
-              <LuUndo2 aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton disabled={!activeHistory.future.length} label={toolbarLabels.redo} onClick={handleRedo}>
-              <LuRedo2 aria-hidden="true" />
-            </WorkspaceToolbarButton>
-            <WorkspaceToolbarButton disabled={!selectedSlide || !selectedSlideNeedsMedia} label={mediaOpen ? toolbarLabels.hideMedia : toolbarLabels.openMedia} onClick={() => setMediaOpen((current) => !current)}>
-              {mediaOpen ? <LuPanelRightClose aria-hidden="true" /> : <LuPanelRightOpen aria-hidden="true" />}
-            </WorkspaceToolbarButton>
-          </div>
-          <button type="button" className="folder-studio-action" onClick={handleSaveSlide} disabled={!selectedDraft}>
-            <span className="folder-studio-action-icon"><LuSave aria-hidden="true" /></span>
-            <span className="folder-studio-action-copy">
-              <strong>{language === 'vi' ? 'Luu slide hien tai' : 'Save current slide'}</strong>
-              <span>{language === 'vi' ? 'Luu cac thay doi cua block dang chon vao deck.' : 'Save the selected block changes into the deck.'}</span>
-            </span>
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   const getSourceScopeStatusLabel = (sourceVm, source) => {
     if (sourceVm.isActive) {
       return sourceVm.statusLabel;
@@ -3100,34 +3274,20 @@ function FolderStudioRuntime() {
             </div>
           </div>
 
-          <div className="folder-studio-topbar-modes" role="group" aria-label={language === 'vi' ? 'Che do studio' : 'Studio modes'}>
-            <button
-              type="button"
-              className={`folder-studio-mode-chip${canvasMode === 'preview' ? ' active' : ''}`}
-              disabled={!selectedSlide}
-              onClick={handleEnterCanvasPreviewMode}
-            >
-              <LuMousePointer2 aria-hidden="true" />
-              <span>Preview</span>
+          <div className="folder-studio-topbar-modes folder-studio-topbar-editor-actions" role="group" aria-label={language === 'vi' ? 'Cong cu canvas' : 'Canvas tools'}>
+            <button type="button" className="folder-studio-mode-chip" disabled={!selectedSlide} onClick={handleAddCanvasText}>
+              <LuPlus aria-hidden="true" />
+              <span>{language === 'vi' ? 'Add' : 'Add'}</span>
             </button>
-            <button
-              type="button"
-              className={`folder-studio-mode-chip${isTextEditMode ? ' active' : ''}`}
-              disabled={!selectedSlide}
-              onClick={handleEnterCanvasTextMode}
-            >
-              <LuType aria-hidden="true" />
-              <span>{language === 'vi' ? 'Sua text' : 'Edit text'}</span>
+            <button type="button" className="folder-studio-mode-chip" disabled={!selectedSlide} onClick={handleSelectCanvasBackground}>
+              <LuPalette aria-hidden="true" />
+              <span>{language === 'vi' ? 'Nen' : 'Background'}</span>
             </button>
-            <button
-              type="button"
-              className={`folder-studio-mode-chip${isLayoutEditMode ? ' active' : ''}`}
-              disabled={!selectedSlide}
-              onClick={handleEnterCanvasLayoutMode}
-            >
-              <LuPanelRightOpen aria-hidden="true" />
-              <span>{language === 'vi' ? 'Sua layout' : 'Edit layout'}</span>
+            <button type="button" className="folder-studio-mode-chip" disabled={!deckReady} onClick={() => setActiveTool('actions')}>
+              <LuDownload aria-hidden="true" />
+              <span>{language === 'vi' ? 'Export' : 'Export'}</span>
             </button>
+            <span className={`workspace-canvas-status tone-${canvasAutosaveStatus}`}>{canvasStatusLabel}</span>
           </div>
 
           <div className="folder-studio-topbar-actions">
@@ -3175,9 +3335,7 @@ function FolderStudioRuntime() {
 
         <nav className="folder-studio-rail" aria-label={language === 'vi' ? 'Cong cu studio' : 'Studio tools'}>
           {[
-            { key: 'slides', label: language === 'vi' ? 'Slides' : 'Slides', icon: LuLayoutTemplate },
             { key: 'sources', label: language === 'vi' ? 'Sources' : 'Sources', icon: LuBookOpen },
-            { key: 'text', label: language === 'vi' ? 'Text' : 'Text', icon: LuType },
             { key: 'elements', label: language === 'vi' ? 'Layers' : 'Layers', icon: LuLayers },
             { key: 'uploads', label: language === 'vi' ? 'Uploads' : 'Uploads', icon: LuUpload },
             { key: 'actions', label: language === 'vi' ? 'Actions' : 'Actions', icon: LuSparkles },
@@ -3186,7 +3344,13 @@ function FolderStudioRuntime() {
               key={key}
               type="button"
               className={activeTool === key ? 'active' : ''}
-              onClick={() => setActiveTool((current) => (current === key ? null : key))}
+              onClick={() => {
+                if (key === 'elements') {
+                  handleEnterCanvasLayoutMode();
+                  return;
+                }
+                setActiveTool((current) => (current === key ? null : key));
+              }}
               aria-label={label}
               title={label}
             >
@@ -3454,6 +3618,7 @@ function FolderStudioRuntime() {
             </div>
             </div>
 
+            {false && (
             <div className="folder-studio-slide-pane">
             <div className="folder-studio-section-label">{language === 'vi' ? 'Cấu trúc slide' : 'Slide structure'}</div>
             <div className="folder-studio-flow-list">
@@ -3488,20 +3653,12 @@ function FolderStudioRuntime() {
               ))}
             </div>
             </div>
+            )}
           </aside>
 
           <section className="folder-studio-center">
             <div className="folder-studio-toolbar folder-studio-toolbar-polished is-static-editor-toolbar" aria-label={toolbarLabels.label}>
-              <div className="folder-studio-toolbar-group workspace-canvas-mode-group" role="group" aria-label={language === 'vi' ? 'Che do canvas slide' : 'Slide canvas mode'}>
-                <WorkspaceToolbarButton active={canvasMode === 'preview'} disabled={!selectedSlide} label={language === 'vi' ? 'Preview Mode' : 'Preview Mode'} onClick={handleEnterCanvasPreviewMode}>
-                  <LuPanelRightClose aria-hidden="true" />
-                </WorkspaceToolbarButton>
-                <WorkspaceToolbarButton active={isTextEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Edit Text Mode' : 'Edit Text Mode'} onClick={handleEnterCanvasTextMode}>
-                  <LuType aria-hidden="true" />
-                </WorkspaceToolbarButton>
-                <WorkspaceToolbarButton active={isLayoutEditMode} disabled={!selectedSlide} label={language === 'vi' ? 'Edit Layout Mode' : 'Edit Layout Mode'} onClick={handleEnterCanvasLayoutMode}>
-                  <LuPanelRightOpen aria-hidden="true" />
-                </WorkspaceToolbarButton>
+              <div className="folder-studio-toolbar-group workspace-canvas-mode-group" role="group" aria-label={language === 'vi' ? 'Cong cu canvas slide' : 'Slide canvas tools'}>
                 <WorkspaceToolbarButton disabled={!isLayoutEditMode || !selectedCanvasHistory.past.length} label={language === 'vi' ? 'Hoan tac layout' : 'Undo layout'} onClick={handleCanvasUndo}>
                   <LuUndo2 aria-hidden="true" />
                 </WorkspaceToolbarButton>
@@ -3839,40 +3996,7 @@ function FolderStudioRuntime() {
                         {canvasRemoteSelections.map((selection) => selection.displayName).join(', ')}
                       </span>
                     )}
-                    <div className="workspace-canvas-mode-controls" role="group" aria-label="Workspace canvas mode controls">
-                      <button
-                        type="button"
-                        className={`workspace-canvas-mode-button${canvasMode === 'preview' ? ' active' : ''}`}
-                        aria-label="Preview"
-                        title="Preview"
-                        disabled={!selectedSlide}
-                        onClick={handleEnterCanvasPreviewMode}
-                      >
-                        <LuPanelRightClose aria-hidden="true" />
-                        <span>Preview</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`workspace-canvas-mode-button${isTextEditMode ? ' active' : ''}`}
-                        aria-label="Edit text"
-                        title="Edit text"
-                        disabled={!selectedSlide}
-                        onClick={handleEnterCanvasTextMode}
-                      >
-                        <LuType aria-hidden="true" />
-                        <span>Edit text</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`workspace-canvas-mode-button${isLayoutEditMode ? ' active' : ''}`}
-                        aria-label="Edit layout"
-                        title="Edit layout"
-                        disabled={!selectedSlide}
-                        onClick={handleEnterCanvasLayoutMode}
-                      >
-                        <LuPanelRightOpen aria-hidden="true" />
-                        <span>Edit layout</span>
-                      </button>
+                    <div className="workspace-canvas-mode-controls" role="group" aria-label={language === 'vi' ? 'Cong cu canvas' : 'Canvas tools'}>
                       <button
                         type="button"
                         className="workspace-canvas-mode-button"
@@ -3898,10 +4022,21 @@ function FolderStudioRuntime() {
                       <button
                         type="button"
                         className="workspace-canvas-mode-button"
+                        aria-label={language === 'vi' ? 'Nen slide' : 'Background'}
+                        title={language === 'vi' ? 'Nen slide' : 'Background'}
+                        disabled={!selectedSlide}
+                        onClick={handleSelectCanvasBackground}
+                      >
+                        <LuPalette aria-hidden="true" />
+                        <span>{language === 'vi' ? 'Nen' : 'Background'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="workspace-canvas-mode-button"
                         aria-label={language === 'vi' ? 'Thuyet trinh' : 'Present'}
                         title={language === 'vi' ? 'Thuyet trinh' : 'Present'}
-                        disabled={!selectedSourceDocumentId || !deckReady}
-                        onClick={() => navigate(`/slides/${selectedSourceDocumentId}`)}
+                        disabled={!deckReady}
+                        onClick={handleOpenPresentation}
                       >
                         <LuPresentation aria-hidden="true" />
                         <span>{language === 'vi' ? 'Thuyet trinh' : 'Present'}</span>
@@ -3948,13 +4083,19 @@ function FolderStudioRuntime() {
                       editorState={selectedCanvasState}
                       imageVm={selectedImageVm}
                       labels={canvasLabels}
-                      mode={isLayoutEditMode ? 'layout' : isTextEditMode ? 'text' : 'preview'}
-                      remoteSelections={isLayoutEditMode ? canvasRemoteSelections : []}
+                      mode="edit"
+                      onAddImage={handleAddCanvasImageClick}
+                      onAddText={handleAddCanvasText}
+                      onDeleteElement={handleDeleteCanvasElement}
+                      onDuplicateElement={handleDuplicateCanvasElement}
+                      onPatchCanvas={handlePatchCanvasBackground}
+                      onReplaceImage={handleReplaceCanvasImageClick}
+                      remoteSelections={canvasRemoteSelections}
                       scale={selectedCanvasScale}
-                      selectedElementId={isLayoutEditMode ? selectedElementId : null}
+                      selectedElementId={selectedElementId}
                       onCommitElement={handleCommitCanvasElement}
-                      onPatchElement={isTextEditMode ? handleCommitCanvasElement : handlePatchCanvasElement}
-                      onSelectElement={isLayoutEditMode ? handleSelectCanvasElement : undefined}
+                      onPatchElement={handlePatchCanvasElement}
+                      onSelectElement={handleSelectCanvasElement}
                     />
                   </article>
                   {false && (
@@ -4066,6 +4207,7 @@ function FolderStudioRuntime() {
                   </article>
                   )}
 
+                  {false && (
                   <div className="folder-studio-panels">
                     <section className="folder-studio-panel-card">
                       <div className="folder-studio-panel-card-head">
@@ -4141,46 +4283,95 @@ function FolderStudioRuntime() {
                     </section>
                     )}
                   </div>
+                  )}
                 </>
               )}
             </div>
           </section>
 
-          {((isLayoutEditMode && selectedCanvasElement) || selectedEditorField) && (
-            <aside className="folder-studio-floating-inspector">
-              {isLayoutEditMode && selectedCanvasElement && (
-                <PropertiesPanel
-                  element={selectedCanvasElement}
-                  labels={canvasPropertyLabels}
-                  onPatch={(elementId, patch) => handleCommitCanvasElement(elementId, patch)}
-                />
-              )}
-              {selectedEditorField && renderAdvancedPropertiesPanel()}
-            </aside>
-          )}
-
           <aside className={`folder-studio-rpanel drawer-${activeTool || 'closed'}`}>
             {activeTool === 'text' && (
               <div className="folder-studio-action-section folder-studio-text-drawer-section">
                 <div className="folder-studio-section-label">{language === 'vi' ? 'Text' : 'Text'}</div>
+                {selectedSlide && selectedDraft ? (
+                  <div className="folder-studio-text-editor-panel">
+                    <label className="folder-studio-form-row">
+                      <span>{language === 'vi' ? 'Tieu de' : 'Title'}</span>
+                      <textarea
+                        spellCheck={false}
+                        rows={2}
+                        value={selectedDraft.title.text}
+                        onFocus={() => selectEditorField('title')}
+                        onChange={(event) => handleFieldTextChange('title', event.target.value)}
+                      />
+                    </label>
+                    <label className="folder-studio-form-row">
+                      <span>{language === 'vi' ? 'Phu de' : 'Subtitle'}</span>
+                      <textarea
+                        spellCheck={false}
+                        rows={2}
+                        value={selectedDraft.subtitle.text}
+                        onFocus={() => selectEditorField('subtitle')}
+                        onChange={(event) => handleFieldTextChange('subtitle', event.target.value)}
+                      />
+                    </label>
+                    <label className="folder-studio-form-row">
+                      <span>{language === 'vi' ? 'Muc tieu' : 'Goal'}</span>
+                      <textarea
+                        spellCheck={false}
+                        rows={2}
+                        value={selectedDraft.goal.text}
+                        onFocus={() => selectEditorField('goal')}
+                        onChange={(event) => handleFieldTextChange('goal', event.target.value)}
+                      />
+                    </label>
+                    <label className="folder-studio-form-row">
+                      <span>{language === 'vi' ? 'Noi dung' : 'Body'}</span>
+                      <textarea
+                        spellCheck={false}
+                        rows={8}
+                        value={selectedDraft.body.text}
+                        onFocus={() => selectEditorField('body')}
+                        onChange={(event) => handleFieldTextChange('body', event.target.value)}
+                      />
+                    </label>
+                    <label className="folder-studio-form-row">
+                      <span>{language === 'vi' ? 'Ghi chu thuyet trinh' : 'Speaker notes'}</span>
+                      <textarea
+                        spellCheck={false}
+                        rows={5}
+                        value={selectedDraft.notes.text}
+                        onFocus={() => selectEditorField('notes')}
+                        onChange={(event) => handleFieldTextChange('notes', event.target.value)}
+                      />
+                    </label>
+                    <button type="button" className="folder-studio-action tone-primary" onClick={handleSaveSlide}>
+                      <span className="folder-studio-action-icon"><LuSave aria-hidden="true" /></span>
+                      <span className="folder-studio-action-copy">
+                        <strong>{language === 'vi' ? 'Luu noi dung slide' : 'Save slide text'}</strong>
+                        <span>{canvasStatusLabel}</span>
+                      </span>
+                      <span className="folder-studio-action-badge">Save</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="folder-studio-scope-hint">
+                    {language === 'vi' ? 'Chon thumbnail slide de sua text.' : 'Select a slide thumbnail to edit text.'}
+                  </div>
+                )}
                 <button
                   type="button"
-                  className="folder-studio-action tone-primary"
+                  className="folder-studio-action"
                   onClick={handleAddCanvasText}
                   disabled={!selectedSlide}
                 >
                   <span className="folder-studio-action-icon"><LuType aria-hidden="true" /></span>
                   <span className="folder-studio-action-copy">
-                    <strong>{language === 'vi' ? 'Them text vao canvas' : 'Add text to canvas'}</strong>
-                    <span>{language === 'vi' ? 'Tao text element moi va chuyen sang edit layout.' : 'Create a new text element and switch to layout editing.'}</span>
+                    <strong>{language === 'vi' ? 'Them text element' : 'Add text element'}</strong>
+                    <span>{language === 'vi' ? 'Tao element moi va chuyen sang sua layout.' : 'Create a new element and switch to layout editing.'}</span>
                   </span>
-                  <span className="folder-studio-action-badge">Text</span>
+                  <span className="folder-studio-action-badge">Layout</span>
                 </button>
-                <div className="folder-studio-scope-hint">
-                  {language === 'vi'
-                    ? 'Edit text truc tiep tren slide: chon Edit text roi click vao text element.'
-                    : 'Edit text inline on the slide: choose Edit text, then click a text element.'}
-                </div>
               </div>
             )}
             {isLayoutEditMode && selectedCanvasState && (
@@ -4457,6 +4648,16 @@ function FolderStudioRuntime() {
               <strong>{item.heading || 'Untitled'}</strong>
             </button>
           ))}
+          <button
+            type="button"
+            className="folder-studio-filmstrip-add"
+            onClick={handleGenerateDeck}
+            disabled={!canGenerate}
+            title={generateDisabledReason || (language === 'vi' ? 'Them slide bang cach tao lai deck voi source da chon' : 'Add slides by regenerating from the selected sources')}
+          >
+            <LuPlus aria-hidden="true" />
+            <span>{language === 'vi' ? 'Them slide' : 'Add slide'}</span>
+          </button>
           {!slideItems.length && (
             <div className="folder-studio-filmstrip-empty">
               {hasSelectedScope
@@ -4466,6 +4667,71 @@ function FolderStudioRuntime() {
           )}
         </footer>
       </section>
+
+      {isPresenting && presentationSlide && presentationEditorState && (
+        <section
+          className="slide-presentation-overlay"
+          aria-label={t('slides.presentation.presentMode')}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="slide-presentation-toolbar">
+            <div>
+              <span className="studio-kicker">{t('slides.presentation.presentMode')}</span>
+              <strong>{presentationSlide.heading || deck?.title || t('slides.previewFallbackTitle')}</strong>
+            </div>
+            <span className="slide-presentation-counter">
+              {t('slides.presentation.presentationCounter', {
+                current: presentationIndex + 1,
+                total: slideItems.length,
+              })}
+            </span>
+            <button
+              type="button"
+              className="slide-presentation-close"
+              onClick={closePresentation}
+              title={t('slides.presentation.exitPresent')}
+              aria-label={t('slides.presentation.exitPresent')}
+            >
+              <LuX aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="slide-presentation-stage">
+            <button
+              type="button"
+              className="slide-presentation-nav previous"
+              onClick={() => movePresentation(-1)}
+              disabled={presentationIndex === 0}
+              title={t('slides.presentation.previousSlide')}
+              aria-label={t('slides.presentation.previousSlide')}
+            >
+              <LuChevronLeft aria-hidden="true" />
+            </button>
+
+            <article className={`slide-presentation-frame studio-slide-frame slide-preview-${normalizeSlideType(presentationSlide.slideType)}${presentationSlideIsTextOnly ? ' text-only-slide' : ''} layout-edit-slide`}>
+              <SlideCanvas
+                editorState={presentationEditorState}
+                imageVm={presentationImageVm}
+                labels={canvasLabels}
+                mode="clean"
+                scale={presentationCanvasScale}
+              />
+            </article>
+
+            <button
+              type="button"
+              className="slide-presentation-nav next"
+              onClick={() => movePresentation(1)}
+              disabled={presentationIndex >= slideItems.length - 1}
+              title={t('slides.presentation.nextSlide')}
+              aria-label={t('slides.presentation.nextSlide')}
+            >
+              <LuChevronRight aria-hidden="true" />
+            </button>
+          </div>
+        </section>
+      )}
 
       {isScopePickerOpen && selectedSource && (
         <div className="scope-picker-backdrop" onClick={handleCloseScopePicker}>
@@ -4581,7 +4847,7 @@ function FolderStudio() {
   const showStudioMockup = searchParams.get('studioMockup') === '1';
 
   if (showStudioMockup) {
-    return <SlideStudioCanvaMockup workspaceName={`Workspace ${workspaceId || 'demo'}`} />;
+    return <WorkspaceStudioCanvaMockup workspaceName={`Workspace ${workspaceId || 'demo'}`} />;
   }
 
   return <FolderStudioRuntime />;

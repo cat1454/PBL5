@@ -10,6 +10,7 @@ const getEffectClass = (effectPreset) => {
 };
 
 function SlideElement({ element, imageVm, labels, mode = 'layout', scale, selected, onCommit, onPatch, onSelect }) {
+  const isEditMode = mode === 'layout' || mode === 'edit';
   const effectClass = getEffectClass(element.effectPreset);
   const elementStyle = {
     zIndex: element.zIndex,
@@ -26,7 +27,7 @@ function SlideElement({ element, imageVm, labels, mode = 'layout', scale, select
 
   const handleMouseDown = (event) => {
     event.stopPropagation();
-    if (mode === 'layout') {
+    if (isEditMode) {
       onSelect?.(element.id);
     }
   };
@@ -36,12 +37,13 @@ function SlideElement({ element, imageVm, labels, mode = 'layout', scale, select
       element={element}
       imageVm={imageVm}
       labels={labels}
-      mode={mode}
+      mode={isEditMode ? 'edit' : mode}
       onTextChange={(elementId, text) => onPatch?.(elementId, { text })}
+      onTextCommit={(elementId, text) => onCommit?.(elementId, { text })}
     />
   );
 
-  if (mode !== 'layout') {
+  if (!isEditMode) {
     return (
       <div
         className={`slide-canvas-element mode-${mode}${effectClass}`}

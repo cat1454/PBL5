@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -85,7 +86,7 @@ public class SlideGeneratorService : ISlideGenerator
         correlationId ??= Guid.NewGuid().ToString("N");
         var normalized = NormalizeContent(content);
         var chunks = GetCoverageChunks(normalized, processedContent);
-        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress);
+        var sectionPlans = await GenerateSectionPlansAsync(chunks, progress, correlationId);
         var targetCount = Math.Clamp(desiredSlideCount, 5, 18);
 
         Report(
@@ -610,6 +611,7 @@ Return JSON:
         int targetCount,
         SlideOutlineResult outline)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var prompt = $@"Polish the learner-facing presentation outline below.
@@ -642,6 +644,12 @@ Return JSON only:
                 prompt,
                 "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.",
                 OllamaModelProfile.Generation);
+            stopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen] Phase=outline Step=polish-completed TargetSlideCount={TargetSlideCount} ChunkCount={ChunkCount} DurationMs={DurationMs}",
+                targetCount,
+                chunks.Count,
+                stopwatch.ElapsedMilliseconds);
 
             return polished == null
                 ? outline
@@ -649,7 +657,13 @@ Return JSON only:
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polishing slide outline.");
+            stopwatch.Stop();
+            _logger.LogWarning(
+                ex,
+                "[SlideGen] Phase=outline Step=polish-failed TargetSlideCount={TargetSlideCount} ChunkCount={ChunkCount} DurationMs={DurationMs}",
+                targetCount,
+                chunks.Count,
+                stopwatch.ElapsedMilliseconds);
             return outline;
         }
     }
@@ -679,6 +693,7 @@ Return JSON only:
         List<DocumentChunk> evidence,
         SlideContentResult content)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var prompt = $@"Polish the learner-facing slide below.
@@ -714,12 +729,25 @@ Return JSON only:
                 prompt,
                 "You are a senior Vietnamese lesson editor. Polish slides without changing facts.",
                 OllamaModelProfile.Generation);
+            stopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen] Phase=slide-generation Step=polish-completed SlideIndex={SlideIndex} EvidenceCount={EvidenceCount} DurationMs={DurationMs}",
+                outlineSlide.SlideIndex,
+                evidence.Count,
+                stopwatch.ElapsedMilliseconds);
 
             return ApplySlidePolishDraft(content, polished, outlineSlide, brief, evidence);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error polishing slide content for {Heading}", outlineSlide.Heading);
+            stopwatch.Stop();
+            _logger.LogWarning(
+                ex,
+                "[SlideGen] Phase=slide-generation Step=polish-failed SlideIndex={SlideIndex} Heading={Heading} EvidenceCount={EvidenceCount} DurationMs={DurationMs}",
+                outlineSlide.SlideIndex,
+                outlineSlide.Heading,
+                evidence.Count,
+                stopwatch.ElapsedMilliseconds);
             return content;
         }
     }
@@ -1179,7 +1207,15 @@ Return JSON only:
     {
         ApplyLocalSlideVerifierMetadata(content, slideType, evidence, usedFallback);
 
+        var stopwatch = Stopwatch.StartNew();
         var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence);
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "[SlideGen] Phase=verification Step=ai-review-completed SlideType={SlideType} EvidenceCount={EvidenceCount} HasReview={HasReview} DurationMs={DurationMs}",
+            slideType,
+            evidence.Count,
+            aiReview != null,
+            stopwatch.ElapsedMilliseconds);
         if (aiReview == null)
         {
             return;
@@ -1244,6 +1280,7 @@ Return JSON only:
                 break;
             }
 
+            var repairStopwatch = Stopwatch.StartNew();
             var repairIssues = bestContent.VerifierIssues
                 .Concat(new[]
                 {
@@ -1257,6 +1294,13 @@ Return JSON only:
             var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId);
             if (repairedDraft == null)
             {
+                repairStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{CorrelationId}] Phase=auto-repair Step=repair-skipped-null SlideIndex={SlideIndex} Attempt={Attempt} DurationMs={DurationMs}",
+                    correlationId,
+                    outlineSlide.SlideIndex,
+                    attempt + 1,
+                    repairStopwatch.ElapsedMilliseconds);
                 break;
             }
 
@@ -1264,6 +1308,13 @@ Return JSON only:
             repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent);
             if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, evidence, out _))
             {
+                repairStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{CorrelationId}] Phase=auto-repair Step=repair-rejected-quality SlideIndex={SlideIndex} Attempt={Attempt} DurationMs={DurationMs}",
+                    correlationId,
+                    outlineSlide.SlideIndex,
+                    attempt + 1,
+                    repairStopwatch.ElapsedMilliseconds);
                 break;
             }
 
@@ -1271,14 +1322,25 @@ Return JSON only:
 
             if (!ShouldPreferRepairedSlide(bestContent, repairedContent))
             {
+                repairStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{CorrelationId}] Phase=auto-repair Step=repair-not-preferred SlideIndex={SlideIndex} Attempt={Attempt} DurationMs={DurationMs}",
+                    correlationId,
+                    outlineSlide.SlideIndex,
+                    attempt + 1,
+                    repairStopwatch.ElapsedMilliseconds);
                 break;
             }
 
+            repairStopwatch.Stop();
             _logger.LogInformation(
-                "Slide auto-repair improved heading {Heading} score from {OldScore} to {NewScore}",
+                "[SlideGen:{CorrelationId}] Phase=auto-repair Step=repair-improved SlideIndex={SlideIndex} Heading={Heading} OldScore={OldScore} NewScore={NewScore} DurationMs={DurationMs}",
+                correlationId,
+                outlineSlide.SlideIndex,
                 outlineSlide.Heading,
                 bestContent.VerifierScore,
-                repairedContent.VerifierScore);
+                repairedContent.VerifierScore,
+                repairStopwatch.ElapsedMilliseconds);
 
             bestContent = repairedContent;
         }
@@ -2313,13 +2375,20 @@ Warnings:
 
     private async Task<List<SlideSectionPlan>> GenerateSectionPlansAsync(
         List<DocumentChunk> chunks,
-        IProgress<SlideGenerationProgressUpdate>? progress)
+        IProgress<SlideGenerationProgressUpdate>? progress,
+        string correlationId)
     {
         var plans = BuildSectionPlans(chunks);
+        _logger.LogInformation(
+            "[SlideGen:{CorrelationId}] Phase=section-summaries Step=started SectionCount={SectionCount} ChunkCount={ChunkCount}",
+            correlationId,
+            plans.Count,
+            chunks.Count);
 
         for (var index = 0; index < plans.Count; index++)
         {
             var current = plans[index];
+            var sectionStopwatch = Stopwatch.StartNew();
             try
             {
                 var prompt = $@"Summarize this section for grounded slide planning.
@@ -2343,6 +2412,15 @@ Return JSON:
                     prompt,
                     "You summarize one source section for slide planning. Use only the supplied source.",
                     OllamaModelProfile.Analysis);
+                sectionStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-completed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    correlationId,
+                    index + 1,
+                    plans.Count,
+                    current.SectionId,
+                    current.EvidenceExcerpt?.Length ?? 0,
+                    sectionStopwatch.ElapsedMilliseconds);
 
                 if (draft != null)
                 {
@@ -2358,7 +2436,16 @@ Return JSON:
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not summarize slide section {SectionId}", current.SectionId);
+                sectionStopwatch.Stop();
+                _logger.LogWarning(
+                    ex,
+                    "[SlideGen:{CorrelationId}] Phase=section-summaries Step=section-ai-failed Section={Index}/{Total} SectionId={SectionId} TextLength={TextLength} DurationMs={DurationMs}",
+                    correlationId,
+                    index + 1,
+                    plans.Count,
+                    current.SectionId,
+                    current.EvidenceExcerpt?.Length ?? 0,
+                    sectionStopwatch.ElapsedMilliseconds);
             }
 
             Report(progress, MapProgress(12, 22, index + 1, plans.Count), "section-summaries", $"Dang tom tat section {index + 1}/{plans.Count}", "Section summaries");

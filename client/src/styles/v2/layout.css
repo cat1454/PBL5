@@ -91,7 +91,7 @@
   padding: 24px;
 }
 
-.v2-shell:not(.app-shell-documents):not(.app-shell-slide-route) .v2-shell-content-inner {
+.v2-shell:not(.app-shell-documents) .v2-shell-content-inner {
   box-sizing: border-box;
   width: min(calc(100% - 40px), 1320px);
   max-width: 1320px !important;
@@ -106,7 +106,7 @@
 @media (max-width: 760px) {
   .v2-topbar-inner,
   .v2-shell-content-inner,
-  .v2-shell:not(.app-shell-documents):not(.app-shell-slide-route) .v2-shell-content-inner {
+  .v2-shell:not(.app-shell-documents) .v2-shell-content-inner {
     width: 100%;
     padding-left: 14px;
     padding-right: 14px;

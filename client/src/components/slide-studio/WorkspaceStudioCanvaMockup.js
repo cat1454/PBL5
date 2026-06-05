@@ -119,7 +119,7 @@ const tools = [
   { id: 'actions', icon: LuSparkles },
 ];
 
-function SlideStudioCanvaMockup({ workspaceName = 'Workspace demo' }) {
+function WorkspaceStudioCanvaMockup({ workspaceName = 'Workspace demo' }) {
   const { language } = useLanguage();
   const c = copy[language === 'vi' ? 'vi' : 'en'];
   const [activeTool, setActiveTool] = useState('slides');
@@ -336,4 +336,4 @@ function SlideStudioCanvaMockup({ workspaceName = 'Workspace demo' }) {
   );
 }
 
-export default SlideStudioCanvaMockup;
+export default WorkspaceStudioCanvaMockup;

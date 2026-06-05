@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ELearnGamePlatform.API.Contracts;
@@ -450,9 +451,19 @@ public class SlidesController : AuthenticatedControllerBase
     private async Task RunGenerateSlidesJobAsync(string jobId, SlideGenerationTarget target)
     {
         SlideDeck? persistedDeck = null;
+        var totalStopwatch = Stopwatch.StartNew();
 
         try
         {
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=job Step=started FolderId={FolderId} DocumentId={DocumentId} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} DesiredSlideCount={DesiredSlideCount}",
+                jobId,
+                target.FolderProjectId,
+                target.DocumentId,
+                target.SourceIds == null ? string.Empty : string.Join(",", target.SourceIds),
+                target.SelectedSectionIds?.Count ?? 0,
+                target.DesiredSlideCount);
+
             using var scope = _scopeFactory.CreateScope();
             var documentRepository = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
             var folderProjectRepository = scope.ServiceProvider.GetRequiredService<IFolderProjectRepository>();
@@ -477,7 +488,19 @@ public class SlidesController : AuthenticatedControllerBase
                 UpdateEta(state);
             });
 
+            var contextStopwatch = Stopwatch.StartNew();
             var context = await ResolveGenerationContextAsync(target, documentRepository, folderProjectRepository, generationReadinessService);
+            contextStopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=validation Step=context-resolved FolderId={FolderId} DocumentId={DocumentId} Success={Success} SectionCount={SectionCount} ChunkCount={ChunkCount} TextLength={TextLength} DurationMs={DurationMs}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId,
+                context.Success,
+                context.ProcessedContent.Structure?.Count ?? 0,
+                context.ProcessedContent.CoverageMap.Count,
+                context.ExtractedText.Length,
+                contextStopwatch.ElapsedMilliseconds);
             if (!context.Success)
             {
                 FailJob(jobId, context.Error ?? "Khong the tao slide deck", context.ErrorMessage ?? "Khong the tao slide deck");
@@ -493,6 +516,7 @@ public class SlidesController : AuthenticatedControllerBase
                 });
             });
 
+            var outlineStopwatch = Stopwatch.StartNew();
             var outline = await slideGenerator.GenerateOutlineAsync(
                 context.ExtractedText,
                 context.ProcessedContent,
@@ -501,6 +525,14 @@ public class SlidesController : AuthenticatedControllerBase
                 outlineProgress,
                 context.DocumentId,
                 jobId);
+            outlineStopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=outline Step=completed FolderId={FolderId} DocumentId={DocumentId} SlideCount={SlideCount} DurationMs={DurationMs}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId,
+                outline.Slides.Count,
+                outlineStopwatch.ElapsedMilliseconds);
 
             var deck = new SlideDeck
             {
@@ -518,9 +550,19 @@ public class SlidesController : AuthenticatedControllerBase
                 .Select(CreatePlaceholderItem)
                 .ToList();
 
+            var saveOutlineStopwatch = Stopwatch.StartNew();
             persistedDeck = context.FolderProjectId.HasValue
                 ? await slideDeckRepository.ReplaceForFolderAsync(deck, placeholderItems)
                 : await slideDeckRepository.ReplaceForDocumentAsync(deck, placeholderItems);
+            saveOutlineStopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=db Step=placeholder-deck-saved FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} SlideCount={SlideCount} DurationMs={DurationMs}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId,
+                persistedDeck.Id,
+                persistedDeck.Items.Count,
+                saveOutlineStopwatch.ElapsedMilliseconds);
 
             UpdateJob(jobId, state =>
             {
@@ -540,6 +582,7 @@ public class SlidesController : AuthenticatedControllerBase
             {
                 var item = slideItems[index];
                 var outlineSlide = outline.Slides.First(slide => slide.SlideIndex == item.SlideIndex);
+                var slideStopwatch = Stopwatch.StartNew();
 
                 item.Status = SlideItemStatus.Generating;
                 await slideDeckRepository.UpdateItemAsync(item);
@@ -596,6 +639,17 @@ public class SlidesController : AuthenticatedControllerBase
                     slideProgress,
                     context.DocumentId,
                     jobId);
+                slideStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{JobId}] Phase=slide-generation Step=content-completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} Heading={Heading} DurationMs={DurationMs}",
+                    jobId,
+                    context.FolderProjectId,
+                    context.DocumentId,
+                    persistedDeck.Id,
+                    index + 1,
+                    slideItems.Count,
+                    outlineSlide.Heading,
+                    slideStopwatch.ElapsedMilliseconds);
                 EnforceEvidenceScope(content, context.AllowedChunkIds);
 
                 item.Heading = content.Heading ?? item.Heading;
@@ -634,9 +688,32 @@ public class SlidesController : AuthenticatedControllerBase
                         state.StageCount = 6;
                         UpdateEta(state);
                     });
+                    var imageStopwatch = Stopwatch.StartNew();
                     await slideImageService.SourceImagesForItemAsync(item);
+                    imageStopwatch.Stop();
+                    _logger.LogInformation(
+                        "[SlideGen:{JobId}] Phase=image-sourcing Step=completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} DurationMs={DurationMs}",
+                        jobId,
+                        context.FolderProjectId,
+                        context.DocumentId,
+                        persistedDeck.Id,
+                        index + 1,
+                        slideItems.Count,
+                        imageStopwatch.ElapsedMilliseconds);
                 }
+                var saveSlideStopwatch = Stopwatch.StartNew();
                 await slideDeckRepository.UpdateItemAsync(item);
+                saveSlideStopwatch.Stop();
+                _logger.LogInformation(
+                    "[SlideGen:{JobId}] Phase=db Step=slide-saved FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} Status={Status} DurationMs={DurationMs}",
+                    jobId,
+                    context.FolderProjectId,
+                    context.DocumentId,
+                    persistedDeck.Id,
+                    index + 1,
+                    slideItems.Count,
+                    item.Status,
+                    saveSlideStopwatch.ElapsedMilliseconds);
 
                 UpdateJob(jobId, state =>
                 {
@@ -658,7 +735,16 @@ public class SlidesController : AuthenticatedControllerBase
             persistedDeck.Status = SlideDeckStatus.Completed;
             persistedDeck.CompletedAt = DateTime.UtcNow;
             persistedDeck.UpdatedAt = DateTime.UtcNow;
+            var saveCompletedStopwatch = Stopwatch.StartNew();
             await slideDeckRepository.UpdateDeckAsync(persistedDeck);
+            saveCompletedStopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=db Step=deck-completed-saved FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} DurationMs={DurationMs}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId,
+                persistedDeck.Id,
+                saveCompletedStopwatch.ElapsedMilliseconds);
 
             var finalItems = persistedDeck.Items.ToList();
             var plannedImageCount = finalItems.Count(item => item.GetImagePlan()?.NeedsImage == true);
@@ -689,9 +775,19 @@ public class SlidesController : AuthenticatedControllerBase
                 state.EstimatedRemainingSeconds = 0;
                 UpdateEta(state);
             });
+            totalStopwatch.Stop();
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=job Step=completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} SlideCount={SlideCount} DurationMs={DurationMs}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId,
+                persistedDeck.Id,
+                slideItems.Count,
+                totalStopwatch.ElapsedMilliseconds);
         }
         catch (PostgresException ex) when (IsSlideSchemaMissing(ex))
         {
+            totalStopwatch.Stop();
             _logger.LogError(ex, "Slide schema is unavailable for job {JobId}", jobId);
             if (persistedDeck != null)
             {
@@ -713,9 +809,14 @@ public class SlidesController : AuthenticatedControllerBase
                 jobId,
                 ex.Message,
                 "Slide schema chưa sẵn sàng. Hãy chạy migration/backend update trước khi tạo deck.");
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=job Step=failed ErrorType=schema-unavailable DurationMs={DurationMs}",
+                jobId,
+                totalStopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
+            totalStopwatch.Stop();
             _logger.LogError(ex, "Error generating slides for job {JobId}", jobId);
             if (persistedDeck != null)
             {
@@ -734,6 +835,10 @@ public class SlidesController : AuthenticatedControllerBase
             }
 
             FailJob(jobId, ex.Message, "Sinh slide that bai");
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=job Step=failed ErrorType=unexpected DurationMs={DurationMs}",
+                jobId,
+                totalStopwatch.ElapsedMilliseconds);
         }
     }
 
@@ -1489,7 +1594,22 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     private void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
-        => _jobStore.UpdateJob(jobId, updater);
+        => _jobStore.UpdateJob(jobId, state =>
+        {
+            updater(state);
+            _logger.LogDebug(
+                "[SlideGen:{JobId}] Phase={Phase} Step=progress-emitted DocumentId={DocumentId} FolderId={FolderId} DeckId={DeckId} Percent={Percent} Status={Status} Current={Current} Total={Total} EtaSeconds={EtaSeconds}",
+                jobId,
+                state.Stage,
+                state.DocumentId,
+                state.FolderProjectId,
+                state.SlideDeckId,
+                state.Percent,
+                state.Status,
+                state.Current,
+                state.Total,
+                state.EstimatedRemainingSeconds);
+        });
 
     private static void ApplyGeneratorProgress(
         SlideGenerationJobState state,
@@ -1580,6 +1700,15 @@ public class SlidesController : AuthenticatedControllerBase
     [HttpPost("folders/{folderId}/generate/start")]
     public async Task<IActionResult> StartGenerateSlidesForFolder(int folderId, [FromBody] GenerateFolderSlidesRequest request)
     {
+        _logger.LogInformation(
+            "[SlideGen] Phase=request Step=received FolderId={FolderId} DesiredSlideCount={DesiredSlideCount} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount} Mode={Mode} ScopePolicy={ScopePolicy}",
+            folderId,
+            request.DesiredSlideCount,
+            request.SourceIds == null ? string.Empty : string.Join(",", request.SourceIds),
+            request.SelectedSectionIds?.Count ?? 0,
+            request.Mode,
+            request.ScopePolicy);
+
         if (!IsValidSlideCount(request.DesiredSlideCount))
         {
             return BadRequest("DesiredSlideCount must be between 5 and 18");
@@ -1630,6 +1759,12 @@ public class SlidesController : AuthenticatedControllerBase
 
         var jobId = _jobStore.CreateFolderJob(folderId, request.DesiredSlideCount, CurrentUserIdAsString);
         _jobStore.TryGetJob(jobId, out var state);
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=request Step=job-created FolderId={FolderId} SourceIds={SourceIds} SelectedSectionCount={SelectedSectionCount}",
+            jobId,
+            folderId,
+            request.SourceIds == null ? string.Empty : string.Join(",", request.SourceIds),
+            request.SelectedSectionIds?.Count ?? 0);
         _ = Task.Run(() => RunGenerateSlidesJobAsync(jobId, new SlideGenerationTarget
         {
             FolderProjectId = folderId,

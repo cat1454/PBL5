@@ -94,7 +94,7 @@ Dùng `slide-studio` khi task bắt đầu ở:
 - `SlideGeneratorService`
 - `SlideImageService`
 - `SlideDeckRepository`
-- `SlideStudio*`
+- `FolderStudio` slide editor hoac `components/slide-studio/*`
 - deck HTML preview
 
 Call path mặc định cần đọc:

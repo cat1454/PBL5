@@ -1621,7 +1621,7 @@
   left: 16px;
   right: 16px;
   z-index: 5;
-  max-width: calc(100% - 352px);
+  max-width: calc(100% - 32px);
   padding: 0;
   border: 0;
   background: transparent;
@@ -1635,7 +1635,7 @@
   min-height: 100%;
   display: grid !important;
   place-items: center;
-  padding: 48px 340px 34px 28px !important;
+  padding: 48px 28px 34px !important;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
@@ -1646,7 +1646,7 @@
 .app-surface-workspace .folder-studio-shell.tool-slides .workspace-slide-canvas-card,
 .app-surface-workspace .folder-studio-shell.tool-sources .workspace-slide-canvas-card,
 .app-surface-workspace .folder-studio-shell.tool-uploads .workspace-slide-canvas-card {
-  padding-right: 340px !important;
+  padding-right: 28px !important;
 }
 
 .app-surface-workspace .folder-studio-shell.tool-actions .workspace-slide-canvas-card,
@@ -1658,6 +1658,100 @@
 .app-surface-workspace .workspace-slide-canvas-card .studio-editable-slide-viewport {
   max-width: min(100%, 1040px);
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.app-surface-workspace .studio-editable-slide {
+  overflow: visible;
+}
+
+.app-surface-workspace .slide-canvas-text[contenteditable='true'] {
+  cursor: text;
+  outline: 0;
+  caret-color: currentColor;
+}
+
+.app-surface-workspace .slide-canvas-element {
+  cursor: move;
+}
+
+.app-surface-workspace .slide-canvas-element.selected {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.app-surface-workspace .slide-mini-toolbar {
+  position: absolute;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, calc(100% - 24px));
+  min-height: 38px;
+  padding: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.24);
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.app-surface-workspace .slide-mini-toolbar button,
+.app-surface-workspace .slide-mini-toolbar select,
+.app-surface-workspace .slide-mini-toolbar input[type='number'] {
+  min-height: 28px;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.app-surface-workspace .slide-mini-toolbar button {
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.app-surface-workspace .slide-mini-toolbar button:hover,
+.app-surface-workspace .slide-mini-toolbar button:focus-visible,
+.app-surface-workspace .slide-mini-toolbar button.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: 0;
+}
+
+.app-surface-workspace .slide-mini-toolbar button.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.app-surface-workspace .slide-mini-toolbar input[type='number'] {
+  width: 58px;
+  padding: 0 6px;
+}
+
+.app-surface-workspace .slide-mini-toolbar input[type='color'] {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.app-surface-workspace .slide-background-toolbar {
+  flex-wrap: wrap;
+}
+
+.app-surface-workspace .slide-color-swatch {
+  width: 28px;
+  min-width: 28px;
+  padding: 0 !important;
+  background: var(--swatch-color) !important;
 }
 
 .app-surface-workspace .folder-studio-floating-inspector {
@@ -1684,6 +1778,22 @@
 
 .app-surface-workspace .folder-studio-rpanel > .slide-properties-panel {
   display: none !important;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel .folder-studio-form-row {
+  display: grid;
+  gap: 6px;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
 }
 
 .app-surface-workspace .folder-studio-shell.tool-text .folder-studio-rpanel > .slide-layers-panel,
@@ -1796,6 +1906,40 @@
 .app-surface-workspace .folder-studio-filmstrip-empty {
   color: #64748b;
   font-size: 13px;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add {
+  width: 86px;
+  flex: 0 0 86px;
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  min-height: 76px;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add svg {
+  width: 18px;
+  height: 18px;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add:hover:not(:disabled),
+.app-surface-workspace .folder-studio-filmstrip-add:focus-visible {
+  border-color: #1f6f8b;
+  background: #e4f6f5;
+  color: #0f5d75;
+  outline: 0;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 @media (max-width: 1180px) {

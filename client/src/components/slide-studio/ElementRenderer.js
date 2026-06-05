@@ -14,11 +14,12 @@ const pickImageSource = (element, imageVm) => {
     || '';
 };
 
-function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChange }) {
-  const isTextMode = mode === 'text';
+function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChange, onTextCommit }) {
+  const isTextMode = mode === 'text' || mode === 'edit' || mode === 'layout';
   const textRef = useRef(null);
   const text = element.text || '';
-  const displayText = text || (mode === 'preview' ? '' : labels?.emptyText);
+  const isCleanMode = mode === 'preview' || mode === 'clean';
+  const displayText = text || (isCleanMode ? '' : labels?.emptyText);
 
   useEffect(() => {
     if (element.type === 'image') {
@@ -63,10 +64,13 @@ function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChan
       ref={textRef}
       className={`slide-canvas-text role-${element.role}`}
       contentEditable={isTextMode}
+      spellCheck={false}
       suppressContentEditableWarning
       onInput={isTextMode ? (event) => onTextChange?.(element.id, event.currentTarget.textContent || '') : undefined}
+      onBlur={isTextMode ? (event) => onTextCommit?.(element.id, event.currentTarget.textContent || '') : undefined}
       style={{
         color: element.color,
+        fontFamily: element.fontFamily,
         fontSize: element.fontSize,
         fontWeight: element.bold ? 800 : 500,
         textAlign: element.align,

@@ -26,7 +26,7 @@ function SlideThumbnail({ editorState, imageVm, labels }) {
         editorState={editorState}
         imageVm={imageVm}
         labels={labels}
-        mode="preview"
+        mode="clean"
         scale={scale}
       />
     </span>
