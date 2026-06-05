@@ -101,6 +101,18 @@ function debugSlideGen(payload) {
   console.debug('[SlideGen]', payload);
 }
 
+const getSlideGenProgressDebugSignature = (progress) => JSON.stringify({
+  jobId: progress?.jobId ?? null,
+  status: progress?.status ?? null,
+  percent: progress?.percent ?? null,
+  stage: progress?.stage ?? null,
+  message: progress?.message ?? null,
+  detail: progress?.detail ?? null,
+  current: progress?.current ?? null,
+  total: progress?.total ?? null,
+  speedMode: progress?.speedMode ?? null,
+});
+
 const DEFAULT_BRIEF = {
   desiredSlideCount: 12,
   themeKey: 'editorial-sunrise',
@@ -897,6 +909,7 @@ function FolderStudioRuntime() {
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
   const isStartingGenerationRef = useRef(false);
+  const slideGenProgressDebugSignatureRef = useRef(null);
   const latestDeckRef = useRef(null);
   const latestDraftsRef = useRef({});
   const latestDirtyDraftsRef = useRef({});
@@ -1510,6 +1523,7 @@ function FolderStudioRuntime() {
 
     let cancelled = false;
     let intervalId = null;
+    slideGenProgressDebugSignatureRef.current = null;
 
     debugSlideGen({
       action: 'poll-start',
@@ -1537,24 +1551,30 @@ function FolderStudioRuntime() {
     const pollProgress = async () => {
       try {
         const previousProgress = progressRef.current || initialProgress;
-        const nextProgress = normalizeProgressState(
-          await slideService.getGenerateProgress(jobId),
-          previousProgress
-        );
+        const rawProgress = await slideService.getGenerateProgress(jobId);
+        const nextProgress = normalizeProgressState(rawProgress, previousProgress);
+        const debugProgress = {
+          ...nextProgress,
+          speedMode: rawProgress?.speedMode ?? rawProgress?.SpeedMode ?? null,
+        };
 
         if (cancelled) {
           return;
         }
 
-        debugSlideGen({
-          action: 'poll-progress',
-          jobId,
-          workspaceId,
-          documentId: nextProgress.documentId,
-          folderProjectId: nextProgress.folderProjectId,
-          slideDeckId: nextProgress.slideDeckId,
-          progress: nextProgress,
-        });
+        const nextDebugSignature = getSlideGenProgressDebugSignature(debugProgress);
+        if (nextDebugSignature !== slideGenProgressDebugSignatureRef.current) {
+          slideGenProgressDebugSignatureRef.current = nextDebugSignature;
+          debugSlideGen({
+            action: 'poll-progress',
+            jobId,
+            workspaceId,
+            documentId: debugProgress.documentId,
+            folderProjectId: debugProgress.folderProjectId,
+            slideDeckId: debugProgress.slideDeckId,
+            progress: debugProgress,
+          });
+        }
 
         setProgress(nextProgress);
 
