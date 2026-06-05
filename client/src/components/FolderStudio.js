@@ -50,7 +50,7 @@ import {
   workspaceService,
 } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
-import { formatEta, getProgressCounterLabel, isActiveProgress, isTerminalProgress, normalizeProgressState } from '../services/progress';
+import { formatElapsedDuration, formatEta, getProgressCounterLabel, isActiveProgress, isProgressEtaReliable, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import {
   confirmGenerationReadiness,
   getReadinessLabel,
@@ -663,6 +663,63 @@ function WorkspaceLinkAffordance({ block, label }) {
     </div>
   );
 }
+
+function getDeckProgressStageTitle(progress, language) {
+  const stage = String(progress?.stage || '').toLowerCase();
+  if (stage === 'section-summaries') {
+    return language === 'vi' ? 'Đang tóm tắt nội dung' : 'Summarizing content';
+  }
+  if (stage === 'generating-slides') {
+    return language === 'vi' ? 'Đang sinh nội dung slide' : 'Generating slide content';
+  }
+  if (stage === 'outline') {
+    return language === 'vi' ? 'Đang dựng outline' : 'Building outline';
+  }
+
+  if (progress?.stageLabel) {
+    return progress.stageLabel;
+  }
+
+  return language === 'vi' ? 'Đang xử lý' : 'Processing';
+}
+
+function getDeckProgressCounterLabel(progress, language) {
+  const stage = String(progress?.stage || '').toLowerCase();
+  if (
+    stage === 'section-summaries'
+    && typeof progress?.current === 'number'
+    && typeof progress?.total === 'number'
+    && progress.total > 0
+  ) {
+    return `Section ${progress.current}/${progress.total}`;
+  }
+
+  return getProgressCounterLabel(progress, { language });
+}
+
+function getDeckProgressElapsedLabel(progress, language) {
+  const elapsedLabel = formatElapsedDuration(progress?.elapsedSeconds, { language });
+  if (!elapsedLabel) {
+    return null;
+  }
+
+  return language === 'vi' ? `Đã chạy: ${elapsedLabel}` : `Elapsed: ${elapsedLabel}`;
+}
+
+function getDeckProgressEtaLabel(progress, language) {
+  if (isProgressEtaReliable(progress)) {
+    return formatEta(progress.estimatedRemainingSeconds, { language });
+  }
+
+  if (isActiveProgress(progress) && Number(progress?.percent || 0) < 25) {
+    return language === 'vi'
+      ? 'Đang ước tính thời gian còn lại...'
+      : 'Estimating remaining time...';
+  }
+
+  return language === 'vi' ? 'Đang ước tính thời gian còn lại...' : 'Estimating remaining time...';
+}
+
 function WorkspaceDeckProgressCard({ progress, language }) {
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const displayedPercent = useAnimatedProgress(percent);
@@ -671,8 +728,11 @@ function WorkspaceDeckProgressCard({ progress, language }) {
     return null;
   }
 
-  const counterLabel = getProgressCounterLabel(progress, { language });
-  const etaLabel = formatEta(progress.estimatedRemainingSeconds, { language }) || (language === 'vi' ? 'Đang ước tính...' : 'Estimating...');
+  const counterLabel = getDeckProgressCounterLabel(progress, language);
+  const elapsedLabel = getDeckProgressElapsedLabel(progress, language);
+  const etaLabel = getDeckProgressEtaLabel(progress, language);
+  const stageTitle = getDeckProgressStageTitle(progress, language);
+  const reliableEta = isProgressEtaReliable(progress);
 
   return (
     <div className="workspace-generate-progress-card">
@@ -681,7 +741,7 @@ function WorkspaceDeckProgressCard({ progress, language }) {
           <p className="workspace-generate-kicker">
             {language === 'vi' ? 'Đang tạo slide deck' : 'Generating slide deck'}
           </p>
-          <h3>{progress.stageLabel || (language === 'vi' ? 'Đang xử lý' : 'Processing')}</h3>
+          <h3>{stageTitle}</h3>
         </div>
 
         <span className="workspace-generate-percent">{percent}%</span>
@@ -704,7 +764,8 @@ function WorkspaceDeckProgressCard({ progress, language }) {
 
       <div className="workspace-generate-meta">
         {counterLabel && <span>{counterLabel}</span>}
-        <span>ETA: {etaLabel}</span>
+        {elapsedLabel && <span>{elapsedLabel}</span>}
+        <span>{reliableEta ? `ETA: ${etaLabel}` : etaLabel}</span>
       </div>
     </div>
   );
@@ -2886,15 +2947,22 @@ function FolderStudioRuntime() {
     : null;
   const topbarDeckProgressPercent = clampPercent(Number(topbarDeckProgress?.percent || 0)) ?? 0;
   const topbarProgress = topbarDeckProgress || runningSourceVm?.vm.progressState || null;
-  const topbarCounter = getProgressCounterLabel(topbarProgress, { language });
+  const topbarCounter = topbarDeckProgress
+    ? getDeckProgressCounterLabel(topbarDeckProgress, language)
+    : getProgressCounterLabel(topbarProgress, { language });
   const topbarEta = topbarProgress && isActiveProgress(topbarProgress)
-    ? (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating'))
+    ? (topbarDeckProgress
+        ? getDeckProgressEtaLabel(topbarDeckProgress, language)
+        : (formatEta(topbarProgress?.estimatedRemainingSeconds, { language }) || t('slides.sourceProcessing.etaEstimating')))
     : null;
+  const topbarEtaLabel = topbarDeckProgress && !isProgressEtaReliable(topbarDeckProgress)
+    ? (language === 'vi' ? 'Thời gian' : 'Time')
+    : 'ETA';
   const topbarLiveSummary = topbarDeckProgress
     ? [
         t('slides.generationStatus.liveTitle'),
         `${Math.round(topbarDeckProgressPercent)}%`,
-        topbarDeckProgress.stageLabel || topbarDeckProgress.message || t('slides.generatingSlides'),
+        getDeckProgressStageTitle(topbarDeckProgress, language) || topbarDeckProgress.message || t('slides.generatingSlides'),
       ].filter(Boolean).join(' · ')
     : runningSourceVm
       ? [
@@ -3268,7 +3336,7 @@ function FolderStudioRuntime() {
                 <span className={topbarLiveClass}>
                   {topbarLiveSummary}
                   {topbarCounter ? ` | ${topbarCounter}` : ''}
-                  {topbarEta ? ` | ETA ${topbarEta}` : ''}
+                  {topbarEta ? ` | ${topbarEtaLabel}: ${topbarEta}` : ''}
                 </span>
               )}
             </div>
