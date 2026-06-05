@@ -109,7 +109,8 @@ public class SlideExportServiceTests
             int totalSlides,
             IProgress<SlideGenerationProgressUpdate>? progress = null,
             int? documentId = null,
-            string? correlationId = null)
+            string? correlationId = null,
+            string? speedMode = null)
             => Task.FromResult(new SlideContentResult());
 
         public string RenderDeckHtml(SlideDeck deck, IReadOnlyList<SlideItem> items) => string.Empty;

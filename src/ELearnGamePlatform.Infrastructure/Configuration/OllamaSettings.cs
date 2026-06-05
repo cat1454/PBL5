@@ -14,4 +14,11 @@ public class OllamaSettings
     public double? AnalysisTemperature { get; set; }
     public double? GenerationTemperature { get; set; }
     public double? VerificationTemperature { get; set; }
+    public double? FastOutlineTemperature { get; set; } = 0.3;
+    public double? FastSlideTemperature { get; set; }
+    public int? AnalysisContextTokens { get; set; }
+    public int? GenerationContextTokens { get; set; }
+    public int? VerificationContextTokens { get; set; }
+    public int? FastOutlineContextTokens { get; set; } = 8192;
+    public int? FastSlideContextTokens { get; set; } = 16384;
 }

@@ -23,7 +23,8 @@ public interface ISlideGenerator
         int totalSlides,
         IProgress<SlideGenerationProgressUpdate>? progress = null,
         int? documentId = null,
-        string? correlationId = null);
+        string? correlationId = null,
+        string? speedMode = null);
 
     string RenderDeckHtml(SlideDeck deck, IReadOnlyList<SlideItem> items);
 }

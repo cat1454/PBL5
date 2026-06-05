@@ -27,6 +27,8 @@ public class SlideGeneratorService : ISlideGenerator
     private const int FastOutlineChunksPerSectionLimit = 3;
     private const int FastOutlineChunkExcerptLimit = 650;
     private const int FastOutlineContextCharLimit = 10_000;
+    private const int FastOutlineDefaultContextTokens = 8192;
+    private const int FastSlideDefaultContextTokens = 16384;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
     private const int SlideRepairThreshold = 86;
@@ -138,9 +140,12 @@ public class SlideGeneratorService : ISlideGenerator
                             promptPayload.ContextChars);
                     }
 
+                    var outlineProfile = ResolveOutlineProfile(speedMode);
+                    LogSlideOllamaCall(correlationId, "outline", "initial", outlineProfile, prompt, "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
                     var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                         prompt,
-                        "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.");
+                        "You are a Vietnamese lesson designer. Build grounded, learner-friendly slide outlines.",
+                        outlineProfile);
                     await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
                     currentDraft = generation.Value;
                 }
@@ -154,7 +159,7 @@ public class SlideGeneratorService : ISlideGenerator
             if (currentDraft != null)
             {
                 var outline = NormalizeOutlineResult(currentDraft, chunks, sectionPlans, processedContent, brief, targetCount);
-                outline = await PolishOutlineAsync(processedContent, brief, chunks, sectionPlans, targetCount, outline);
+                outline = await PolishOutlineAsync(processedContent, brief, chunks, sectionPlans, targetCount, outline, correlationId, speedMode);
 
                 if (IsOutlineQualityAcceptable(outline, targetCount, out qualityIssues))
                 {
@@ -172,7 +177,7 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId);
+            currentDraft = await RetryGenerateOutlineAsync(processedContent, brief, sectionPlans, targetCount, qualityIssues, documentId, correlationId, speedMode);
         }
 
         var fallback = BuildFallbackOutline(processedContent, brief, chunks, sectionPlans, targetCount);
@@ -193,9 +198,11 @@ public class SlideGeneratorService : ISlideGenerator
         int totalSlides,
         IProgress<SlideGenerationProgressUpdate>? progress = null,
         int? documentId = null,
-        string? correlationId = null)
+        string? correlationId = null,
+        string? speedMode = null)
     {
         correlationId ??= Guid.NewGuid().ToString("N");
+        var slideProfile = ResolveSlideProfile(speedMode);
         var chunks = GetCoverageChunks(NormalizeContent(content), processedContent);
         var sectionPlans = BuildSectionPlans(chunks);
         var evidence = SelectEvidenceChunks(chunks, outlineSlide);
@@ -212,9 +219,11 @@ public class SlideGeneratorService : ISlideGenerator
                 try
                 {
                     var prompt = BuildSlidePrompt(processedContent, brief, outlineSlide, evidence, sectionPlans);
+                    LogSlideOllamaCall(correlationId, "slide-generation", "initial", slideProfile, prompt, "You create concise grounded slides. Never invent facts outside allowed evidence.");
                     var generation = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                         prompt,
-                        "You create concise grounded slides. Never invent facts outside allowed evidence.");
+                        "You create concise grounded slides. Never invent facts outside allowed evidence.",
+                        slideProfile);
                     await LogAutoRepairEvidenceAsync(documentId, correlationId, generation);
                     currentDraft = generation.Value;
                 }
@@ -228,12 +237,12 @@ public class SlideGeneratorService : ISlideGenerator
             if (currentDraft != null)
             {
                 var result = NormalizeSlideContent(currentDraft, outlineSlide, brief, evidence);
-                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, sectionPlans, result);
+                result = await PolishSlideContentAsync(brief, outlineSlide, evidence, sectionPlans, result, correlationId, slideProfile);
 
                 if (IsSlideQualityAcceptable(result, outlineSlide.SlideType, evidence, out qualityIssues))
                 {
-                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback);
-                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result, documentId, correlationId);
+                    await ApplySlideVerifierMetadataAsync(result, outlineSlide.SlideType, evidence, usedFallback: result.UsedFallback, correlationId);
+                    result = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, result, documentId, correlationId, slideProfile);
                     result.SuggestedStatus = DetermineSuggestedSlideStatus(result, evidence);
                     return result.SuggestedStatus == SlideItemStatus.Completed
                         ? result
@@ -246,12 +255,12 @@ public class SlideGeneratorService : ISlideGenerator
                 break;
             }
 
-            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues, documentId, correlationId);
+            currentDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, sectionPlans, qualityIssues, documentId, correlationId, slideProfile);
         }
 
         var fallback = BuildFallbackSlideContent(outlineSlide, brief, evidence);
-        await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true);
-        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback, documentId, correlationId);
+        await ApplySlideVerifierMetadataAsync(fallback, outlineSlide.SlideType, evidence, usedFallback: true, correlationId);
+        fallback = await AutoRepairSlideIfNeededAsync(processedContent, brief, outlineSlide, evidence, fallback, documentId, correlationId, slideProfile);
         fallback.SuggestedStatus = DetermineSuggestedSlideStatus(fallback, evidence);
         return ConvertToReviewRequiredSlideContent(fallback, outlineSlide);
     }
@@ -712,9 +721,11 @@ Return JSON:
         List<DocumentChunk> chunks,
         List<SlideSectionPlan> sectionPlans,
         int targetCount,
-        SlideOutlineResult outline)
+        SlideOutlineResult outline,
+        string correlationId,
+        string? speedMode)
     {
-        var polished = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline);
+        var polished = await PolishOutlineAsync(processedContent, brief, chunks, targetCount, outline, correlationId, ResolveOutlineProfile(speedMode));
         ApplySectionPlanKeyMessages(polished, sectionPlans);
         return polished;
     }
@@ -724,7 +735,9 @@ Return JSON:
         SlideDeckBrief? brief,
         List<DocumentChunk> chunks,
         int targetCount,
-        SlideOutlineResult outline)
+        SlideOutlineResult outline,
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -755,10 +768,12 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            const string systemPrompt = "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.";
+            LogSlideOllamaCall(correlationId, "outline", "polish", profile, prompt, systemPrompt);
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideOutlineDraft>(
                 prompt,
-                "You are a Vietnamese lesson editor. Polish outlines without inventing new facts.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             stopwatch.Stop();
             _logger.LogInformation(
                 "[SlideGen] Phase=outline Step=polish-completed TargetSlideCount={TargetSlideCount} ChunkCount={ChunkCount} DurationMs={DurationMs}",
@@ -788,9 +803,11 @@ Return JSON only:
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
         List<SlideSectionPlan> sectionPlans,
-        SlideContentResult content)
+        SlideContentResult content,
+        string correlationId,
+        OllamaModelProfile profile)
     {
-        var polished = await PolishSlideContentAsync(brief, outlineSlide, evidence, content);
+        var polished = await PolishSlideContentAsync(brief, outlineSlide, evidence, content, correlationId, profile);
         if (string.IsNullOrWhiteSpace(polished.KeyMessage))
         {
             polished.KeyMessage = outlineSlide.KeyMessage
@@ -806,7 +823,9 @@ Return JSON only:
         SlideDeckBrief? brief,
         SlideOutlineSlide outlineSlide,
         List<DocumentChunk> evidence,
-        SlideContentResult content)
+        SlideContentResult content,
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -840,10 +859,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are a senior Vietnamese lesson editor. Polish slides without changing facts.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "polish", profile, prompt, systemPrompt);
             var polished = await _ollamaService.GenerateStructuredResponseAsync<SlideContentDraft>(
                 prompt,
-                "You are a senior Vietnamese lesson editor. Polish slides without changing facts.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             stopwatch.Stop();
             _logger.LogInformation(
                 "[SlideGen] Phase=slide-generation Step=polish-completed SlideIndex={SlideIndex} EvidenceCount={EvidenceCount} DurationMs={DurationMs}",
@@ -874,7 +895,8 @@ Return JSON only:
         int targetCount,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        string? speedMode)
     {
         try
         {
@@ -901,10 +923,13 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            var profile = ResolveOutlineProfile(speedMode);
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "outline", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -922,7 +947,8 @@ Return JSON only:
         int targetCount,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        string? speedMode)
     {
         try
         {
@@ -951,10 +977,13 @@ Requirements:
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
+            var profile = ResolveOutlineProfile(speedMode);
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "outline", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideOutlineDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson outline. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -973,7 +1002,8 @@ Return JSON only:
         List<SlideSectionPlan> sectionPlans,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         try
         {
@@ -1011,10 +1041,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -1032,7 +1064,8 @@ Return JSON only:
         List<DocumentChunk> evidence,
         IReadOnlyList<string> issues,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         try
         {
@@ -1068,10 +1101,12 @@ Requirements:
 Return JSON only:
 {BuildSlideContentExample()}";
 
+            const string systemPrompt = "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.";
+            LogSlideOllamaCall(correlationId, "slide-generation", "retry", profile, prompt, systemPrompt);
             var result = await _ollamaService.GenerateStructuredResponseWithMetadataAsync<SlideContentDraft>(
                 prompt,
-                "You are retrying a grounded Vietnamese lesson slide. Return strict JSON only.",
-                OllamaModelProfile.Generation);
+                systemPrompt,
+                profile);
             await LogAutoRepairEvidenceAsync(documentId, correlationId, result);
             return result.Value;
         }
@@ -1318,12 +1353,13 @@ Return JSON only:
         SlideContentResult content,
         SlideItemType slideType,
         IReadOnlyCollection<DocumentChunk> evidence,
-        bool usedFallback)
+        bool usedFallback,
+        string correlationId)
     {
         ApplyLocalSlideVerifierMetadata(content, slideType, evidence, usedFallback);
 
         var stopwatch = Stopwatch.StartNew();
-        var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence);
+        var aiReview = await VerifySlideWithAiAsync(content, slideType, evidence, correlationId);
         stopwatch.Stop();
         _logger.LogInformation(
             "[SlideGen] Phase=verification Step=ai-review-completed SlideType={SlideType} EvidenceCount={EvidenceCount} HasReview={HasReview} DurationMs={DurationMs}",
@@ -1384,7 +1420,8 @@ Return JSON only:
         List<DocumentChunk> evidence,
         SlideContentResult currentContent,
         int? documentId,
-        string correlationId)
+        string correlationId,
+        OllamaModelProfile profile)
     {
         var bestContent = currentContent;
 
@@ -1406,7 +1443,7 @@ Return JSON only:
                 .Take(8)
                 .ToList();
 
-            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId);
+            var repairedDraft = await RetryGenerateSlideContentAsync(processedContent, brief, outlineSlide, evidence, repairIssues, documentId, correlationId, profile);
             if (repairedDraft == null)
             {
                 repairStopwatch.Stop();
@@ -1420,7 +1457,7 @@ Return JSON only:
             }
 
             var repairedContent = NormalizeSlideContent(repairedDraft, outlineSlide, brief, evidence);
-            repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent);
+            repairedContent = await PolishSlideContentAsync(brief, outlineSlide, evidence, repairedContent, correlationId, profile);
             if (!IsSlideQualityAcceptable(repairedContent, outlineSlide.SlideType, evidence, out _))
             {
                 repairStopwatch.Stop();
@@ -1433,7 +1470,7 @@ Return JSON only:
                 break;
             }
 
-            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: repairedContent.UsedFallback);
+            await ApplySlideVerifierMetadataAsync(repairedContent, outlineSlide.SlideType, evidence, usedFallback: repairedContent.UsedFallback, correlationId);
 
             if (!ShouldPreferRepairedSlide(bestContent, repairedContent))
             {
@@ -1906,7 +1943,8 @@ Return JSON only:
     private async Task<SlideAiVerificationResult?> VerifySlideWithAiAsync(
         SlideContentResult content,
         SlideItemType slideType,
-        IReadOnlyCollection<DocumentChunk> evidence)
+        IReadOnlyCollection<DocumentChunk> evidence,
+        string correlationId)
     {
         try
         {
@@ -1945,9 +1983,11 @@ Return JSON only:
   ""isGrounded"": true
 }}";
 
+            const string systemPrompt = "You are a strict presentation verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.";
+            LogSlideOllamaCall(correlationId, "verification", "ai-review", OllamaModelProfile.Verification, prompt, systemPrompt);
             return await _ollamaService.GenerateStructuredResponseAsync<SlideAiVerificationResult>(
                 prompt,
-                "You are a strict presentation verifier. Use only the supplied evidence, never invent facts, and return concise JSON only.",
+                systemPrompt,
                 OllamaModelProfile.Verification);
         }
         catch (Exception ex)
@@ -2557,9 +2597,11 @@ Return JSON:
   ""learningSignificance"": ""ý nghĩa học tập ngắn""
 }}";
 
+                const string systemPrompt = "You summarize one source section for slide planning. Use only the supplied source.";
+                LogSlideOllamaCall(correlationId, "section-summaries", "section-ai", OllamaModelProfile.Analysis, prompt, systemPrompt);
                 var draft = await _ollamaService.GenerateStructuredResponseAsync<SlideSectionSummaryDraft>(
                     prompt,
-                    "You summarize one source section for slide planning. Use only the supplied source.",
+                    systemPrompt,
                     OllamaModelProfile.Analysis);
                 sectionStopwatch.Stop();
                 _logger.LogInformation(
@@ -2653,6 +2695,50 @@ private static int MapProgress(int startPercent, int endPercent, int currentStep
 
     private static bool IsFastMode(string? speedMode)
         => string.Equals(speedMode?.Trim(), "fast", StringComparison.OrdinalIgnoreCase);
+
+    private static OllamaModelProfile ResolveOutlineProfile(string? speedMode)
+        => IsFastMode(speedMode) ? OllamaModelProfile.FastOutline : OllamaModelProfile.Generation;
+
+    private static OllamaModelProfile ResolveSlideProfile(string? speedMode)
+        => IsFastMode(speedMode) ? OllamaModelProfile.FastSlide : OllamaModelProfile.Generation;
+
+    private void LogSlideOllamaCall(
+        string correlationId,
+        string phase,
+        string step,
+        OllamaModelProfile profile,
+        string prompt,
+        string? systemPrompt)
+    {
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase={Phase} Step=ollama-call Call={Call} Profile={Profile} NumCtx={NumCtx} PromptChars={PromptChars} SystemChars={SystemChars}",
+            correlationId,
+            phase,
+            step,
+            FormatOllamaProfile(profile),
+            ResolveExpectedNumCtx(profile),
+            prompt.Length,
+            systemPrompt?.Length ?? 0);
+    }
+
+    private static string ResolveExpectedNumCtx(OllamaModelProfile profile)
+        => profile switch
+        {
+            OllamaModelProfile.FastOutline => FastOutlineDefaultContextTokens.ToString(CultureInfo.InvariantCulture),
+            OllamaModelProfile.FastSlide => FastSlideDefaultContextTokens.ToString(CultureInfo.InvariantCulture),
+            _ => "server-default"
+        };
+
+    private static string FormatOllamaProfile(OllamaModelProfile profile)
+        => profile switch
+        {
+            OllamaModelProfile.FastOutline => "fast-outline",
+            OllamaModelProfile.FastSlide => "fast-slide",
+            OllamaModelProfile.Analysis => "analysis",
+            OllamaModelProfile.Generation => "generation",
+            OllamaModelProfile.Verification => "verification",
+            _ => profile.ToString()
+        };
 
     private static string BuildStableSectionPlanId(string? rawSectionId, string fallbackChunkId, int chunkNumber)
     {

@@ -673,7 +673,8 @@ public class SlidesController : AuthenticatedControllerBase
                     slideItems.Count,
                     slideProgress,
                     context.DocumentId,
-                    jobId);
+                    jobId,
+                    speedMode);
                 slideStopwatch.Stop();
                 if (!IsJobStillCurrent(jobId, context))
                 {
