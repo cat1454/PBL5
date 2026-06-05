@@ -653,7 +653,6 @@
 }
 
 .app-shell-body,
-.app-shell-slide-route .app-shell-body,
 .app-shell-documents .app-shell-body {
   display: block;
   min-height: calc(100vh - 64px);
@@ -678,8 +677,7 @@
   min-width: 0;
 }
 
-.app-shell-documents .app-shell-content-inner,
-.app-shell-slide-route .app-shell-content-inner {
+.app-shell-documents .app-shell-content-inner {
   width: 100%;
   max-width: none !important;
 }
@@ -812,11 +810,7 @@
 .app-sidebar-link,
 .app-sidebar-icon,
 .app-sidebar-label,
-.sidebar-emoji,
-.app-shell-slide-route .app-sidebar,
-.app-shell-slide-route .app-sidebar-link,
-.app-shell-slide-route .app-sidebar-label,
-.app-shell-slide-route .app-sidebar-icon {
+.sidebar-emoji {
   display: none !important;
 }
 
@@ -960,14 +954,12 @@
   }
 
   .app-shell-body,
-  .app-shell-slide-route .app-shell-body,
   .app-shell-documents .app-shell-body {
     min-height: calc(100vh - 72px);
   }
 
   .app-shell-content-inner,
-  .app-shell-documents .app-shell-content-inner,
-  .app-shell-slide-route .app-shell-content-inner {
+  .app-shell-documents .app-shell-content-inner {
     padding: 0 12px 20px !important;
   }
 

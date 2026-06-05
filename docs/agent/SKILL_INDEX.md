@@ -36,7 +36,7 @@ Nếu task cần dùng hoặc chuyển đổi từ `ECC/`, đọc `docs/agent/EC
   - thêm `ai-ocr` nếu đang chạm prompt/grounding
 - `client/src/services/api.js`
   - `react-frontend`
-- `client/src/components/SlideStudio*`
+- `client/src/components/FolderStudio.js` hoac `client/src/components/slide-studio/*`
   - `slide-studio`
 - `client/src/i18n/**`
   - `react-frontend`

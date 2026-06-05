@@ -138,11 +138,13 @@ Nguồn tra cứu nhanh:
 
 ### Slide generation -> Preview -> Editor
 
+Current routing note: slide editing is owned by Workspace Studio (`/workspaces/:workspaceId` via `FolderStudio`). The document-level `/slides/:documentId` frontend route has been retired.
+
 1. Frontend gọi `slideService.startGenerateSlides*`.
 2. `SlidesController` điều phối generation và lưu deck/items.
 3. `SlideGeneratorService` tạo outline, slide content, HTML preview.
 4. `SlideImageService` xử lý image candidates, select/refresh, local asset storage.
-5. Frontend preview/editor routed chạy qua `SlideStudio`; legacy slide screen đã retire.
+5. Frontend preview/editor chinh chay trong Workspace Studio (`FolderStudio`); document-level `/slides/:documentId` route da retire.
 
 Nguồn tra cứu nhanh:
 
@@ -150,8 +152,8 @@ Nguồn tra cứu nhanh:
 - `src/ELearnGamePlatform.API/Services/SlideImageService.cs`
 - `src/ELearnGamePlatform.Infrastructure/Repositories/SlideDeckRepository.cs`
 - `src/ELearnGamePlatform.Services/AI/SlideGeneratorService.cs`
-- `client/src/components/SlideStudio.js`
-- `client/src/components/SlideStudio.js`
+- `client/src/components/FolderStudio.js`
+- `client/src/components/slide-studio/*`
 
 ## Điều không nên giả định
 

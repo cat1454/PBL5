@@ -1,6 +1,6 @@
 # Implementation Checklist: Slide System
 
-Historical note: this working note predates the workspace-first route pivot. Treat `/documents` references below as legacy design context; the active public surfaces are `/workspaces`, `/workspaces/:workspaceId`, and `/slides/:documentId`.
+Historical note: this working note predates the workspace-first route pivot. Treat `/documents` and `/slides/:documentId` references below as legacy design context; the active public surfaces are `/workspaces` and `/workspaces/:workspaceId`.
 
 Tai lieu nay bien `design.md` thanh checklist co the implement theo pha. Muc tieu la giao hang tung buoc, tranh mo rong pham vi qua som, va giu frontend/backend di cung mot huong.
 
@@ -9,7 +9,7 @@ Tai lieu nay bien `design.md` thanh checklist co the implement theo pha. Muc tie
 Muc tieu:
 
 - Tao shared image view model cho frontend
-- Chen media placeholders vao `/documents` va `/slides/:documentId`
+- Chen media placeholders vao legacy `/documents` va retired `/slides/:documentId` design surfaces
 - Chuan bi cho payload anh trong tuong lai ma khong lam vo contract hien tai
 
 Checklist:
@@ -17,13 +17,13 @@ Checklist:
 - [x] Tao checklist implementation tach rieng khoi `design.md`
 - [x] Tao utility normalize `slide image state`, `selected image`, `image candidates`
 - [x] Hien image badge + media placeholder trong legacy document-list screen
-- [x] Hien media block + candidate tray scaffold trong `SlideStudio.js`
+- [x] Hien media block + candidate tray scaffold trong retired `SlideStudio.js`; active editor now lives in `FolderStudio.js`
 - [x] Them CSS cho image shell, source badge, attribution, candidate tray
 - [x] Chay sanity check frontend sau khi sua
 
 Exit criteria:
 
-- `/documents` va `/slides/:documentId` deu co vung media ro rang
+- Legacy `/documents` va retired `/slides/:documentId` design surfaces deu co vung media ro rang
 - Frontend khong phu thuoc vao backend image contract moi de render duoc
 
 Ghi chu sanity check:

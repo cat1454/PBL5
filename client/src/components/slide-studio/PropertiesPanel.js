@@ -40,6 +40,7 @@ function PropertiesPanel({ element, labels, onPatch }) {
         <label className="gamma-field">
           <span>{labels.text}</span>
           <textarea
+            spellCheck={false}
             rows={5}
             value={element.text}
             onChange={(event) => onPatch(element.id, { text: event.target.value })}

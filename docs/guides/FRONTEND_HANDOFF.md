@@ -88,7 +88,7 @@ Useful optional fields:
 - Surface `stageLabel`, `message`, `detail`, and `error`
 - Prefer the document progress endpoint instead of guessing status from document entity only
 
-3. Keep `client/src/components/SlideStudio.js` aligned with the same progress UI
+3. Keep Workspace Studio slide editing aligned with the same progress UI
 
 - Reuse the same status language
 - Show ETA only when available

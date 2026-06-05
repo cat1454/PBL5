@@ -1,12 +1,12 @@
 # slide-studio
 
-## Khi nào dùng
+## Khi nao dung
 
-- Task bắt đầu ở slide generation, slide deck persistence, image sourcing, preview HTML, hoặc Slide Studio editor.
-- Cần kiểm tra sự khớp nhau giữa backend deck/item shape và frontend preview/editor.
-- Cần lần theo flow từ generate request đến rendered slide deck.
+- Task bat dau o slide generation, slide deck persistence, image sourcing, preview HTML, hoac Workspace Studio slide editor.
+- Can kiem tra su khop nhau giua backend deck/item shape va frontend preview/editor.
+- Can lan theo flow tu generate request den rendered slide deck.
 
-## File/thư mục liên quan
+## File/thu muc lien quan
 
 - `src/ELearnGamePlatform.API/Controllers/SlidesController.cs`
 - `src/ELearnGamePlatform.API/Services/SlideImageService.cs`
@@ -14,35 +14,37 @@
 - `src/ELearnGamePlatform.Core/Entities/SlideDeck.cs`
 - `src/ELearnGamePlatform.Core/Entities/SlideEditorState.cs`
 - `src/ELearnGamePlatform.Services/AI/SlideGeneratorService.cs`
-- `client/src/components/SlideStudio.js`
+- `client/src/components/FolderStudio.js`
+- `client/src/components/slide-studio/*`
 - `client/src/services/api.js`
 
-## Điều cấm
+## Dieu cam
 
-- Không sửa riêng backend hoặc frontend của slide nếu chưa đọc phía còn lại.
-- Không đổi deck/item shape mà không kiểm tra preview/editor và API consumer.
-- Không nhập pattern slide từ external repo nếu trái với persisted shape hoặc UX hiện tại của PBL5.
-- Không bỏ qua image candidate flow, stale deck behavior, hoặc HTML preview khi task chạm slide pipeline.
+- Khong sua rieng backend hoac frontend cua slide neu chua doc phia con lai.
+- Khong doi deck/item shape ma khong kiem tra preview/editor va API consumer.
+- Khong nhap pattern slide tu external repo neu trai voi persisted shape hoac UX hien tai cua PBL5.
+- Khong bo qua image candidate flow, stale deck behavior, hoac HTML preview khi task cham slide pipeline.
 
-## Checklist trước khi sửa
+## Checklist truoc khi sua
 
-- Xác định task nằm ở generation, persistence, image pipeline, preview, hay editor.
-- Đọc `SlidesController` entrypoint tương ứng.
-- Đọc `SlideGeneratorService` hoặc `SlideImageService` nếu logic nằm ở generation/image.
-- Đọc `SlideDeckRepository` và entity nếu task có persisted shape.
-- Đọc `SlideStudio` để thấy frontend consume payload như thế nào. Legacy slide screen đã retire.
+- Current routing note: slide editing is owned by Workspace Studio (`FolderStudio` plus shared `components/slide-studio/*`). The document-level `/slides/:documentId` frontend route has been retired.
+- Xac dinh task nam o generation, persistence, image pipeline, preview, hay editor.
+- Doc `SlidesController` entrypoint tuong ung.
+- Doc `SlideGeneratorService` hoac `SlideImageService` neu logic nam o generation/image.
+- Doc `SlideDeckRepository` va entity neu task co persisted shape.
+- Doc `FolderStudio` de thay frontend consume payload nhu the nao.
 
-## Checklist sau khi sửa
+## Checklist sau khi sua
 
-- Xác nhận deck/item shape vẫn khớp giữa backend và frontend.
-- Xác nhận progress/state/image candidate/select flow vẫn nhất quán.
-- Xác nhận HTML preview và editor không drift nhau ở field quan trọng.
-- Nếu task chạm folder/workspace deck, kiểm tra thêm stale deck logic và source selection impact.
+- Xac nhan deck/item shape van khop giua backend va frontend.
+- Xac nhan progress/state/image candidate/select flow van nhat quan.
+- Xac nhan HTML preview va editor khong drift nhau o field quan trong.
+- Neu task cham folder/workspace deck, kiem tra them stale deck logic va source selection impact.
 
-## Lệnh kiểm tra phù hợp
+## Lenh kiem tra phu hop
 
 ```powershell
 dotnet build ELearnGamePlatform.sln
 cd client; npm run build
-rg -n "SlidesController|SlideGeneratorService|SlideImageService|SlideDeck|SlideItem|SlideStudio|imageCandidates|editorState|html" src client/src
+rg -n "SlidesController|SlideGeneratorService|SlideImageService|SlideDeck|SlideItem|FolderStudio|imageCandidates|editorState|html" src client/src
 ```

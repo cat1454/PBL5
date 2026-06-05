@@ -124,7 +124,7 @@ Slide module is implemented, not just planned:
 6. `SlideDeck` and `SlideItem` are persisted.
 7. HTML preview, HTML export, print HTML, PPTX basic export, and slide item edits are available.
 
-Frontend `SlideStudio` uses live APIs from `client/src/services/api.js`; it is not a mock-only screen.
+Workspace Studio slide editing uses live APIs from `client/src/services/api.js`; it is not a mock-only screen.
 
 ## API Surface
 

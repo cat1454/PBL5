@@ -19,15 +19,21 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   margin-bottom: 10px;
   overflow: visible;
 }
 
 .workspace-canvas-mode-controls {
+  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   overflow: visible;
 }
 
@@ -37,6 +43,7 @@
   justify-content: center;
   gap: 7px;
   min-height: 34px;
+  flex: 0 0 auto;
   padding: 7px 11px;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -50,6 +57,17 @@
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.workspace-canvas-mode-button[aria-label='Add text'],
+.workspace-canvas-mode-button[aria-label='Add image'],
+.workspace-canvas-mode-button[aria-label='Present'],
+.workspace-canvas-mode-button[aria-label='Them text'],
+.workspace-canvas-mode-button[aria-label='Them anh'],
+.workspace-canvas-mode-button[aria-label='Thuyet trinh'] {
+  border-color: #b9b2ff;
+  background: #ffffff;
+  color: #3730a3;
 }
 
 .workspace-canvas-mode-button svg {
@@ -138,6 +156,9 @@
 .workspace-slide-canvas-card {
   display: flex;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: auto;
   min-height: 560px;
 }
@@ -297,6 +318,8 @@
 }
 
 .app-surface-workspace .folder-studio-center {
+  min-width: 0 !important;
+  max-width: 100% !important;
   overflow: hidden;
   border: 1px solid #e2e8f0;
   border-radius: 18px;
@@ -350,8 +373,20 @@
 
 .app-surface-workspace .folder-studio-canvas {
   position: relative;
-  justify-items: stretch;
+  justify-items: stretch !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+  overflow-x: hidden !important;
   padding: 20px;
+}
+
+.app-surface-workspace .folder-studio-canvas > * {
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 .app-surface-workspace .folder-autosave-status {
@@ -1397,5 +1432,578 @@
 
   .app-surface-workspace.app-frame-standard .folder-card-meta span {
     white-space: normal;
+  }
+}
+
+/* Workspace Slide Studio: Canva-like canvas-first layout */
+.app-surface-workspace .folder-studio-shell {
+  --workspace-studio-topbar-h: 58px;
+  --workspace-studio-rail-w: 64px;
+  --workspace-studio-drawer-w: 316px;
+  --workspace-studio-filmstrip-h: 104px;
+  position: relative;
+  display: grid !important;
+  grid-template-columns: var(--workspace-studio-rail-w) minmax(0, 1fr) !important;
+  grid-template-rows: var(--workspace-studio-topbar-h) minmax(0, 1fr) var(--workspace-studio-filmstrip-h) !important;
+  height: calc(100vh - 104px);
+  min-height: 680px;
+  overflow: hidden;
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  background: #eef2f7;
+}
+
+.app-surface-workspace .folder-studio-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-height: var(--workspace-studio-topbar-h) !important;
+  padding: 0 14px !important;
+  gap: 12px;
+  border-bottom: 1px solid #dce5f2;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.app-surface-workspace .folder-studio-topbar-copy {
+  flex: 1 1 220px;
+}
+
+.app-surface-workspace .folder-studio-topbar-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.app-surface-workspace .folder-studio-mode-chip {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: #334155;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.app-surface-workspace .folder-studio-mode-chip.active {
+  color: #ffffff;
+  background: #1f6f8b;
+}
+
+.app-surface-workspace .folder-studio-mode-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-surface-workspace .folder-studio-rail {
+  grid-column: 1;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: var(--workspace-studio-rail-w);
+  padding: 12px 8px;
+  border-right: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.app-surface-workspace .folder-studio-rail button {
+  width: 48px;
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 8px;
+  color: #475569;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-surface-workspace .folder-studio-rail button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.app-surface-workspace .folder-studio-rail button span {
+  max-width: 48px;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-surface-workspace .folder-studio-rail button.active {
+  color: #0f5d75;
+  background: #e4f6f5;
+}
+
+.app-surface-workspace .folder-studio-main,
+.app-surface-workspace .folder-studio-main.action-closed,
+.app-surface-workspace .folder-studio-main.action-open {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  display: flex !important;
+  min-width: 0;
+  min-height: 0;
+  gap: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+
+.app-surface-workspace .folder-studio-sidebar,
+.app-surface-workspace .folder-studio-rpanel {
+  width: var(--workspace-studio-drawer-w);
+  flex: 0 0 var(--workspace-studio-drawer-w);
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto !important;
+  border: 0;
+  border-right: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.app-surface-workspace .folder-studio-sidebar,
+.app-surface-workspace .folder-studio-rpanel {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-slides .folder-studio-sidebar,
+.app-surface-workspace .folder-studio-shell.tool-sources .folder-studio-sidebar,
+.app-surface-workspace .folder-studio-shell.tool-uploads .folder-studio-sidebar,
+.app-surface-workspace .folder-studio-shell.tool-text .folder-studio-rpanel,
+.app-surface-workspace .folder-studio-shell.tool-elements .folder-studio-rpanel,
+.app-surface-workspace .folder-studio-shell.tool-actions .folder-studio-rpanel {
+  display: block !important;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-uploads .folder-studio-sidebar .folder-studio-slide-pane,
+.app-surface-workspace .folder-studio-shell.tool-uploads .folder-studio-sidebar .folder-studio-scope-list,
+.app-surface-workspace .folder-studio-shell.tool-uploads .folder-studio-sidebar .folder-studio-section-label + .folder-studio-source-list {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-sidebar-tabs {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-center {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden !important;
+  padding: 0 !important;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    #eef2f7;
+  background-size: 28px 28px;
+}
+
+.app-surface-workspace .folder-studio-toolbar-polished.is-static-editor-toolbar {
+  display: none !important;
+}
+
+.app-surface-workspace .workspace-canvas-status-row {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 5;
+  max-width: calc(100% - 32px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.app-surface-workspace .workspace-canvas-mode-controls {
+  display: none !important;
+}
+
+.app-surface-workspace .workspace-slide-canvas-card {
+  min-height: 100%;
+  display: grid !important;
+  place-items: center;
+  padding: 48px 28px 34px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-none .workspace-slide-canvas-card,
+.app-surface-workspace .folder-studio-shell.tool-slides .workspace-slide-canvas-card,
+.app-surface-workspace .folder-studio-shell.tool-sources .workspace-slide-canvas-card,
+.app-surface-workspace .folder-studio-shell.tool-uploads .workspace-slide-canvas-card {
+  padding-right: 28px !important;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-actions .workspace-slide-canvas-card,
+.app-surface-workspace .folder-studio-shell.tool-elements .workspace-slide-canvas-card,
+.app-surface-workspace .folder-studio-shell.tool-text .workspace-slide-canvas-card {
+  padding-right: 28px !important;
+}
+
+.app-surface-workspace .workspace-slide-canvas-card .studio-editable-slide-viewport {
+  max-width: min(100%, 1040px);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.app-surface-workspace .studio-editable-slide {
+  overflow: visible;
+}
+
+.app-surface-workspace .slide-canvas-text[contenteditable='true'] {
+  cursor: text;
+  outline: 0;
+  caret-color: currentColor;
+}
+
+.app-surface-workspace .slide-canvas-element {
+  cursor: move;
+}
+
+.app-surface-workspace .slide-canvas-element.selected {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.app-surface-workspace .slide-mini-toolbar {
+  position: absolute;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, calc(100% - 24px));
+  min-height: 38px;
+  padding: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.24);
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.app-surface-workspace .slide-mini-toolbar button,
+.app-surface-workspace .slide-mini-toolbar select,
+.app-surface-workspace .slide-mini-toolbar input[type='number'] {
+  min-height: 28px;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.app-surface-workspace .slide-mini-toolbar button {
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.app-surface-workspace .slide-mini-toolbar button:hover,
+.app-surface-workspace .slide-mini-toolbar button:focus-visible,
+.app-surface-workspace .slide-mini-toolbar button.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: 0;
+}
+
+.app-surface-workspace .slide-mini-toolbar button.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.app-surface-workspace .slide-mini-toolbar input[type='number'] {
+  width: 58px;
+  padding: 0 6px;
+}
+
+.app-surface-workspace .slide-mini-toolbar input[type='color'] {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.app-surface-workspace .slide-background-toolbar {
+  flex-wrap: wrap;
+}
+
+.app-surface-workspace .slide-color-swatch {
+  width: 28px;
+  min-width: 28px;
+  padding: 0 !important;
+  background: var(--swatch-color) !important;
+}
+
+.app-surface-workspace .folder-studio-floating-inspector {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 20;
+  width: 304px;
+  max-height: calc(100% - 36px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.2);
+}
+
+.app-surface-workspace .folder-studio-floating-inspector .studio-inspector-block,
+.app-surface-workspace .folder-studio-floating-inspector .folder-studio-action-section {
+  padding: 0;
+}
+
+.app-surface-workspace .folder-studio-rpanel > .slide-properties-panel {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel .folder-studio-form-row {
+  display: grid;
+  gap: 6px;
+}
+
+.app-surface-workspace .folder-studio-text-editor-panel textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-text .folder-studio-rpanel > .slide-layers-panel,
+.app-surface-workspace .folder-studio-shell.tool-actions .folder-studio-rpanel > .slide-layers-panel {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-shell.tool-text .folder-studio-rpanel > .folder-studio-panel-title,
+.app-surface-workspace .folder-studio-shell.tool-text .folder-studio-rpanel > .folder-studio-action-section:not(.folder-studio-text-drawer-section),
+.app-surface-workspace .folder-studio-shell.tool-elements .folder-studio-rpanel > .folder-studio-panel-title,
+.app-surface-workspace .folder-studio-shell.tool-elements .folder-studio-rpanel > .folder-studio-action-section:not(.folder-studio-text-drawer-section),
+.app-surface-workspace .folder-studio-shell.tool-actions .folder-studio-rpanel > .folder-studio-text-drawer-section {
+  display: none !important;
+}
+
+.app-surface-workspace .folder-studio-filmstrip {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 16px;
+  border-top: 1px solid #dce5f2;
+  background: #ffffff;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-item {
+  width: 128px;
+  flex: 0 0 128px;
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  color: #334155;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  align-content: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  padding: 10px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #c8eff0, #f6d18a);
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb.is-real-preview {
+  display: block;
+  padding: 0;
+  background: #0f172a;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb.is-real-preview .studio-editable-slide-viewport {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb.is-real-preview .studio-editable-slide {
+  pointer-events: none;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb.is-real-preview .slide-canvas-element {
+  border-radius: 5px;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-item.active .folder-studio-filmstrip-thumb {
+  border-color: #1f6f8b;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb i {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  color: #0f172a;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-thumb:not(.is-real-preview) > span {
+  display: block;
+  height: 6px;
+  margin-left: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.app-surface-workspace .folder-studio-filmstrip-item strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-empty {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add {
+  width: 86px;
+  flex: 0 0 86px;
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  min-height: 76px;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add svg {
+  width: 18px;
+  height: 18px;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add:hover:not(:disabled),
+.app-surface-workspace .folder-studio-filmstrip-add:focus-visible {
+  border-color: #1f6f8b;
+  background: #e4f6f5;
+  color: #0f5d75;
+  outline: 0;
+}
+
+.app-surface-workspace .folder-studio-filmstrip-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+@media (max-width: 1180px) {
+  .app-surface-workspace .folder-studio-shell {
+    height: calc(100vh - 88px);
+  }
+
+  .app-surface-workspace .folder-studio-sidebar,
+  .app-surface-workspace .folder-studio-rpanel {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 25;
+    width: min(var(--workspace-studio-drawer-w), calc(100vw - var(--workspace-studio-rail-w) - 28px));
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  }
+
+  .app-surface-workspace .workspace-slide-canvas-card,
+  .app-surface-workspace .folder-studio-shell.tool-none .workspace-slide-canvas-card,
+  .app-surface-workspace .folder-studio-shell.tool-slides .workspace-slide-canvas-card,
+  .app-surface-workspace .folder-studio-shell.tool-sources .workspace-slide-canvas-card,
+  .app-surface-workspace .folder-studio-shell.tool-uploads .workspace-slide-canvas-card {
+    padding: 54px 18px 22px !important;
+  }
+
+  .app-surface-workspace .workspace-canvas-status-row {
+    max-width: calc(100% - 32px);
+  }
+
+  .app-surface-workspace .folder-studio-floating-inspector {
+    top: auto;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    width: auto;
+    max-height: 250px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-surface-workspace .folder-studio-shell {
+    --workspace-studio-topbar-h: 112px;
+    min-height: 720px;
+  }
+
+  .app-surface-workspace .folder-studio-topbar {
+    align-content: center;
+    align-items: center;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+  }
+
+  .app-surface-workspace .folder-studio-topbar-actions {
+    width: auto !important;
+    flex-direction: row !important;
+  }
+
+  .app-surface-workspace .folder-studio-topbar-modes {
+    order: 5;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .app-surface-workspace .folder-studio-filmstrip-item {
+    width: 112px;
+    flex-basis: 112px;
   }
 }

@@ -1,13 +1,13 @@
 # Design Spec: Full Slide System
 
-Historical note: this working note predates the workspace-first route pivot. Treat `/documents` references below as legacy design context; the active public surfaces are `/workspaces`, `/workspaces/:workspaceId`, and `/slides/:documentId`.
+Historical note: this working note predates the workspace-first route pivot. Treat `/documents` and `/slides/:documentId` references below as legacy design context; the active public surfaces are `/workspaces` and `/workspaces/:workspaceId`.
 
 ## 1. Mục tiêu
 
 Tài liệu này chốt hướng UI/UX để duyệt trước khi code cho full slide system của sản phẩm. Phạm vi bao gồm:
 
 - Màn hình `/documents`, theo thiết kế cũ dùng legacy document-list screen
-- Màn hình `/slides/:documentId`, hiện đang dùng `client/src/components/SlideStudio.js`
+- Màn hình `/slides/:documentId` là design surface đã retire; active slide editing hiện nằm trong `client/src/components/FolderStudio.js`
 - Handoff giữa hai màn hình để người dùng đi từ tài liệu sang deck và sang chỉnh sửa chi tiết mà không mất ngữ cảnh
 
 Mục tiêu sản phẩm:
@@ -30,12 +30,12 @@ Nguyên tắc thiết kế:
 ### Routes đang chạy
 
 - `client/src/app/routes.js` hiện redirect `/documents` sang workspace flow
-- `client/src/App.js` route `/slides/:documentId` trỏ tới `SlideStudio`
+- `client/src/app/routes.js` không còn expose `/slides/:documentId`; Workspace Studio owns active slide editing
 
 ### Hình dạng UI hiện tại
 
 - Legacy document-list screen đã có document cards, progress panel, inline slide preview, nút mở Studio, nút HTML/PDF
-- `SlideStudio.js` đã có tinh thần Gamma-style: brief panel, live outline, preview canvas, theme cards, edit nội dung từng slide
+- Workspace Studio có tinh thần Gamma-style: brief panel, live outline, preview canvas, theme cards, edit nội dung từng slide
 - `App.css` đã có hai cụm style rõ ràng:
   - `.slide-inline-*` cho preview trong `/documents`
   - `.gamma-*` và `.slide-preview-*` cho studio
@@ -44,7 +44,7 @@ Nguyên tắc thiết kế:
 
 - Không viết lại toàn bộ visual language từ đầu
 - Kế thừa ngôn ngữ card-based hiện có, nhưng chuẩn hóa để thêm ảnh và media workflow
-- Theo thiết kế cũ, document-list screen là điểm bắt đầu chính của người dùng; hiện tại workspace flow là entrypoint chính và `SlideStudio.js` là nơi tinh chỉnh sâu
+- Theo thiết kế cũ, document-list screen là điểm bắt đầu chính của người dùng; hiện tại workspace flow là entrypoint chính và `FolderStudio.js` là nơi tinh chỉnh slide
 
 ## 3. North Star
 
@@ -55,7 +55,7 @@ Trải nghiệm mong muốn:
 3. Hệ thống tạo outline trước, sau đó tạo từng slide text.
 4. Tiếp theo hệ thống tìm hoặc sinh ảnh theo mô tả ảnh đã được local AI làm sạch.
 5. Ngay tại `/documents`, người dùng đã thấy deck, ảnh mặc định của từng slide, và có thể đổi nhanh.
-6. Khi cần chỉnh sâu hơn, họ mở `/slides/:documentId` với cùng deck, cùng ảnh đã chọn, cùng trạng thái.
+6. Khi cần chỉnh sâu hơn, họ tiếp tục trong `/workspaces/:workspaceId` với cùng deck, cùng ảnh đã chọn, cùng trạng thái.
 
 Mục tiêu UX:
 
@@ -849,7 +849,7 @@ Không nên có:
 - drag-drop tự do ở v1
 - nhiều modal lồng nhau
 
-## 15. Handoff contract giữa `/documents` và `/slides/:documentId`
+## 15. Handoff contract giữa legacy document flow và Workspace Studio
 
 Thông tin cần được giữ đồng nhất:
 
@@ -899,7 +899,7 @@ Không nằm trong pha đầu:
 - Pha này chưa đổi API, DB hay backend contract
 - Pha code sau sẽ bám source UI thật đang chạy:
   - legacy document-list screen
-  - `client/src/components/SlideStudio.js`
+  - `client/src/components/FolderStudio.js`
   - `client/src/App.css`
 - Theme hiện có trong repo sẽ được tận dụng, không thay thương hiệu toàn cục
 - Image worker internet là luồng riêng, không làm local AI phải gửi raw document content ra ngoài
@@ -908,7 +908,7 @@ Không nằm trong pha đầu:
 
 - Chọn hướng `Gamma x Canva`, không clone bên nào
 - `/documents` là nơi review và quick replace
-- `/slides/:documentId` là nơi chỉnh sâu và export
+- `/workspaces/:workspaceId` là nơi chỉnh sâu và export
 - Một slide mặc định có 1 ảnh đã chọn nếu cần ảnh
 - `Đổi ảnh` mở candidate tray inline, không dùng modal ở v1
 - Badge nguồn và attribution là bắt buộc khi dùng ảnh web
