@@ -9,8 +9,13 @@ public interface ISlideGenerationJobStore
     bool TryGetJob(string jobId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForDocument(int documentId, out SlideGenerationJobState? state);
     bool TryGetLatestJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
+    bool TryGetLatestActiveJobForDocument(int documentId, out SlideGenerationJobState? state);
     bool TryGetLatestActiveJobForFolder(int folderProjectId, out SlideGenerationJobState? state);
     bool IsLatestJob(string jobId, int? documentId, int? folderProjectId);
+    bool PauseJob(string jobId);
+    bool ResumeJob(string jobId);
+    bool CancelJob(string jobId);
+    Task<bool> WaitForExecutionAsync(string jobId);
     void UpdateJob(string jobId, Action<SlideGenerationJobState> updater);
 }
 
@@ -116,7 +121,131 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             return false;
         }
 
-        return state.Status is "queued" or "running";
+        return state.Status is "queued" or "running" or "paused";
+    }
+
+    public bool TryGetLatestActiveJobForDocument(int documentId, out SlideGenerationJobState? state)
+    {
+        if (!TryGetLatestJobForDocument(documentId, out state) || state == null)
+        {
+            return false;
+        }
+
+        return state.Status is "queued" or "running" or "paused";
+    }
+
+    public bool PauseJob(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var state))
+        {
+            return false;
+        }
+
+        lock (state)
+        {
+            if (state.Status is not ("queued" or "running") || state.IsCancelled || state.IsSuperseded)
+            {
+                return false;
+            }
+
+            state.IsPaused = true;
+            state.Status = "paused";
+            state.StageLabel = "Paused";
+            state.Message = "Slide generation is paused.";
+            state.Detail = "Resume to continue from the next safe checkpoint.";
+            state.EstimatedRemainingSeconds = null;
+            state.ResumeSignal = NewResumeSignal();
+            state.UpdatedAt = DateTime.UtcNow;
+            return true;
+        }
+    }
+
+    public bool ResumeJob(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var state))
+        {
+            return false;
+        }
+
+        TaskCompletionSource<bool>? signal;
+        lock (state)
+        {
+            if (!state.IsPaused || state.Status != "paused" || state.IsCancelled || state.IsSuperseded)
+            {
+                return false;
+            }
+
+            state.IsPaused = false;
+            state.Status = "running";
+            state.StageLabel = "Resuming";
+            state.Message = "Slide generation is resuming.";
+            state.Detail = "The background job will continue from its next checkpoint.";
+            state.UpdatedAt = DateTime.UtcNow;
+            signal = state.ResumeSignal;
+        }
+
+        signal.TrySetResult(true);
+        return true;
+    }
+
+    public bool CancelJob(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var state))
+        {
+            return false;
+        }
+
+        TaskCompletionSource<bool>? signal;
+        lock (state)
+        {
+            if (state.Status is "completed" or "failed" or "cancelled" or "superseded" || state.IsCancelled)
+            {
+                return false;
+            }
+
+            state.IsPaused = false;
+            state.IsCancelled = true;
+            state.Status = "cancelled";
+            state.Stage = "cancelled";
+            state.StageLabel = "Cancelled";
+            state.Message = "Slide generation was cancelled.";
+            state.Detail = "No later generation phase will update or complete this deck.";
+            state.EstimatedRemainingSeconds = 0;
+            state.UpdatedAt = DateTime.UtcNow;
+            signal = state.ResumeSignal;
+        }
+
+        signal.TrySetResult(false);
+        return true;
+    }
+
+    public async Task<bool> WaitForExecutionAsync(string jobId)
+    {
+        while (_jobs.TryGetValue(jobId, out var state))
+        {
+            Task<bool>? waitTask = null;
+            lock (state)
+            {
+                if (state.IsCancelled || state.IsSuperseded)
+                {
+                    return false;
+                }
+
+                if (!state.IsPaused)
+                {
+                    return true;
+                }
+
+                waitTask = state.ResumeSignal.Task;
+            }
+
+            if (!await waitTask.ConfigureAwait(false))
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     public void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
@@ -128,7 +257,7 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 
         lock (state)
         {
-            if (state.IsSuperseded)
+            if (state.IsSuperseded || state.IsCancelled || state.IsPaused)
             {
                 return;
             }
@@ -177,8 +306,12 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
             state.Detail = "This older job will no longer update progress or save a deck.";
             state.EstimatedRemainingSeconds = 0;
             state.UpdatedAt = now;
+            state.ResumeSignal.TrySetResult(false);
         }
     }
+
+    private static TaskCompletionSource<bool> NewResumeSignal()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
 public class SlideGenerationJobState
@@ -207,4 +340,8 @@ public class SlideGenerationJobState
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsSuperseded { get; set; }
+    public bool IsPaused { get; set; }
+    public bool IsCancelled { get; set; }
+    internal TaskCompletionSource<bool> ResumeSignal { get; set; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

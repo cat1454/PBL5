@@ -2362,6 +2362,11 @@ translations.vi.questionStudio = {
   reject: 'Bỏ',
   quarantine: 'Cách ly',
   restore: 'Khôi phục',
+  pauseRun: 'Tạm dừng',
+  resumeRun: 'Tiếp tục',
+  cancelRun: 'Hủy tiến trình',
+  deleteBank: 'Xóa ngân hàng câu hỏi',
+  confirmDeleteBank: 'Xóa toàn bộ câu hỏi đang hoạt động của tài liệu này? Draft và lịch sử run vẫn được giữ lại.',
   modes: {
     fast: 'Fast',
     balanced: 'Balanced',
@@ -2377,6 +2382,10 @@ translations.vi.questionStudio = {
   feedback: {
     started: 'Đã tạo run Question Studio.',
     imported: 'Đã import {{count}} draft, bỏ qua {{skipped}} draft.',
+    paused: 'Đã tạm dừng Question Studio run.',
+    resumed: 'Đã tiếp tục Question Studio run.',
+    cancelled: 'Đã hủy Question Studio run.',
+    bankDeleted: 'Đã xóa ngân hàng câu hỏi đang hoạt động.',
   },
   errors: {
     loadFailed: 'Không tải được Question Studio.',
@@ -2386,6 +2395,8 @@ translations.vi.questionStudio = {
     actionFailed: 'Không cập nhật được draft.',
     importFailed: 'Không import được draft.',
     saveFailed: 'Không lưu được draft.',
+    controlFailed: 'Không cập nhật được trạng thái Question Studio run.',
+    deleteBankFailed: 'Không xóa được ngân hàng câu hỏi.',
   },
 };
 
@@ -2428,6 +2439,11 @@ translations.en.questionStudio = {
   reject: 'Reject',
   quarantine: 'Quarantine',
   restore: 'Restore',
+  pauseRun: 'Pause',
+  resumeRun: 'Resume',
+  cancelRun: 'Cancel generation',
+  deleteBank: 'Delete question bank',
+  confirmDeleteBank: 'Delete all active questions for this document? Drafts and run history will be kept.',
   modes: {
     fast: 'Fast',
     balanced: 'Balanced',
@@ -2443,6 +2459,10 @@ translations.en.questionStudio = {
   feedback: {
     started: 'Question Studio run created.',
     imported: 'Imported {{count}} drafts and skipped {{skipped}} drafts.',
+    paused: 'Question Studio run paused.',
+    resumed: 'Question Studio run resumed.',
+    cancelled: 'Question Studio run cancelled.',
+    bankDeleted: 'Active question bank deleted.',
   },
   errors: {
     loadFailed: 'Could not load Question Studio.',
@@ -2452,6 +2472,8 @@ translations.en.questionStudio = {
     actionFailed: 'Could not update the draft.',
     importFailed: 'Could not import drafts.',
     saveFailed: 'Could not save the draft.',
+    controlFailed: 'Could not update the Question Studio run.',
+    deleteBankFailed: 'Could not delete the question bank.',
   },
 };
 

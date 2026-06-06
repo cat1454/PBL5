@@ -582,6 +582,7 @@ public class SlideImagePlannerServiceTests
         public Task<SlideDeck?> GetLatestByDocumentIdAsync(int documentId) => Task.FromResult<SlideDeck?>(null);
         public Task<SlideDeck?> GetLatestByFolderIdAsync(int folderProjectId) => Task.FromResult<SlideDeck?>(null);
         public Task<bool> UpdateDeckAsync(SlideDeck deck) => Task.FromResult(true);
+        public Task<bool> DeleteDeckAsync(int deckId) => Task.FromResult(true);
         public Task<bool> ReplaceItemsAsync(int deckId, IEnumerable<SlideItem> items) => Task.FromResult(true);
         public Task<SlideItem?> GetItemAsync(int deckId, int itemId) => Task.FromResult<SlideItem?>(null);
         public Task<bool> UpdateItemAsync(SlideItem item) => Task.FromResult(true);

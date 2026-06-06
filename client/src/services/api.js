@@ -339,6 +339,10 @@ export const questionService = {
     return response.data;
   },
 
+  deleteQuestionBank: async (documentId) => {
+    await apiClient.delete(`/questions/document/${documentId}`);
+  },
+
   getQuestionMetrics: async (documentId) => {
     const response = await apiClient.get(`/questions/document/${documentId}/metrics`);
     return response.data;
@@ -359,6 +363,26 @@ export const questionStudioService = {
 
   getRun: async (runId) => {
     const response = await apiClient.get(`/question-studio/runs/${runId}`);
+    return response.data;
+  },
+
+  getActiveRun: async (documentId) => {
+    const response = await apiClient.get(`/question-studio/documents/${documentId}/runs/active`);
+    return response.status === 204 ? null : response.data;
+  },
+
+  pauseRun: async (runId) => {
+    const response = await apiClient.post(`/question-studio/runs/${runId}/pause`);
+    return response.data;
+  },
+
+  resumeRun: async (runId) => {
+    const response = await apiClient.post(`/question-studio/runs/${runId}/resume`);
+    return response.data;
+  },
+
+  cancelRun: async (runId) => {
+    const response = await apiClient.post(`/question-studio/runs/${runId}/cancel`);
     return response.data;
   },
 
@@ -584,6 +608,25 @@ export const slideService = {
   getGenerateProgress: async (jobId) => {
     const response = await apiClient.get(`/slides/generate/progress/${jobId}`);
     return response.data;
+  },
+
+  pauseGenerate: async (jobId) => {
+    const response = await apiClient.post(`/slides/generate/${jobId}/pause`);
+    return response.data;
+  },
+
+  resumeGenerate: async (jobId) => {
+    const response = await apiClient.post(`/slides/generate/${jobId}/resume`);
+    return response.data;
+  },
+
+  cancelGenerate: async (jobId) => {
+    const response = await apiClient.post(`/slides/generate/${jobId}/cancel`);
+    return response.data;
+  },
+
+  deleteDeck: async (deckId) => {
+    await apiClient.delete(`/slides/${deckId}`);
   },
 
   startGenerateSlidesForFolder: async (folderId, options = 8) => {

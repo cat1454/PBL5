@@ -1,4 +1,4 @@
-const ACTIVE_STATUSES = new Set(['queued', 'running']);
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'paused']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'superseded', 'cancelled', 'canceled']);
 
 const normalizeString = (value, fallback = '') => (
@@ -78,6 +78,20 @@ export const isTerminalProgress = (progressOrStatus) => {
     : progressOrStatus?.status;
 
   return TERMINAL_STATUSES.has(String(status || '').toLowerCase());
+};
+
+export const getGenerationControlCapabilities = (progressOrStatus) => {
+  const status = String(
+    typeof progressOrStatus === 'string'
+      ? progressOrStatus
+      : progressOrStatus?.status || ''
+  ).toLowerCase();
+
+  return {
+    canPause: status === 'queued' || status === 'running',
+    canResume: status === 'paused',
+    canCancel: status === 'queued' || status === 'running' || status === 'paused',
+  };
 };
 
 export const formatEta = (seconds, options = {}) => {

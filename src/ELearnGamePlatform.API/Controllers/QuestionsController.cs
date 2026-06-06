@@ -465,6 +465,25 @@ public class QuestionsController : AuthenticatedControllerBase
         return Ok(metrics);
     }
 
+    [HttpDelete("document/{documentId}")]
+    public async Task<IActionResult> DeleteQuestionBank(int documentId)
+    {
+        var document = await _documentRepository.GetByIdAsync(documentId);
+        if (document == null)
+        {
+            return ApiNotFound("document_not_found", "Document not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        await _questionRepository.DeleteByDocumentIdAsync(documentId);
+        return NoContent();
+    }
+
     [HttpGet("{id}")]
     public async Task<IActionResult> GetQuestion(int id)
     {

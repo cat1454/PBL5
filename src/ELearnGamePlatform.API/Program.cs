@@ -171,6 +171,7 @@ builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 });
 builder.Services.AddSingleton<IDocumentProcessingJobStore, DocumentProcessingJobStore>();
 builder.Services.AddSingleton<IQuestionGenerationJobStore, QuestionGenerationJobStore>();
+builder.Services.AddSingleton<IQuestionStudioRunControlStore, QuestionStudioRunControlStore>();
 builder.Services.AddSingleton<ISlideGenerationJobStore, SlideGenerationJobStore>();
 
 // Configure CORS

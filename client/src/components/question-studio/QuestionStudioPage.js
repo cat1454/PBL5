@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { documentService, getApiErrorMessage, questionStudioService } from '../../services/api';
+import { LuPause, LuPlay, LuTrash2, LuX } from 'react-icons/lu';
+import { documentService, getApiErrorMessage, questionService, questionStudioService } from '../../services/api';
 import { trackEvent } from '../../services/analytics';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -89,11 +90,18 @@ function QuestionStudioPage() {
       setLoading(true);
       setError('');
       try {
-        const documentData = await documentService.getDocument(documentId);
+        const [documentData, activeRun] = await Promise.all([
+          documentService.getDocument(documentId),
+          questionStudioService.getActiveRun(documentId),
+        ]);
         if (!active) {
           return;
         }
         setDocumentMeta(documentData);
+        if (activeRun?.runId) {
+          setRun(activeRun);
+          setRunId(activeRun.runId);
+        }
       } catch (err) {
         if (active) {
           setError(getApiErrorMessage(err, t('questionStudio.errors.loadFailed')));
@@ -199,6 +207,53 @@ function QuestionStudioPage() {
 
   const selectVisible = () => {
     setSelectedDraftIds(getVisibleImportableDraftIds(drafts));
+  };
+
+  const controlRun = async (action) => {
+    if (!runId || busy) {
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setFeedback('');
+    try {
+      const nextRun = action === 'pause'
+        ? await questionStudioService.pauseRun(runId)
+        : action === 'resume'
+          ? await questionStudioService.resumeRun(runId)
+          : await questionStudioService.cancelRun(runId);
+      setRun(nextRun);
+      const feedbackKey = action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'cancelled';
+      setFeedback(t(`questionStudio.feedback.${feedbackKey}`));
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.controlFailed')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteQuestionBank = async () => {
+    if (busy || !documentId || Number(documentMeta?.questionsCount || 0) <= 0) {
+      return;
+    }
+
+    if (!window.confirm(t('questionStudio.confirmDeleteBank'))) {
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setFeedback('');
+    try {
+      await questionService.deleteQuestionBank(documentId);
+      setDocumentMeta(await documentService.getDocument(documentId));
+      setFeedback(t('questionStudio.feedback.bankDeleted'));
+    } catch (err) {
+      setError(getApiErrorMessage(err, t('questionStudio.errors.deleteBankFailed')));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const updateDraftAction = async (draftId, action) => {
@@ -390,7 +445,7 @@ function QuestionStudioPage() {
                 selected={form.difficulties}
                 onChange={(difficulties) => setForm((current) => ({ ...current, difficulties }))}
               />
-              <button type="button" className="button" onClick={startRun} disabled={busy || form.questionTypes.length === 0 || form.difficulties.length === 0}>
+              <button type="button" className="button" onClick={startRun} disabled={busy || Boolean(run && !terminalRun) || form.questionTypes.length === 0 || form.difficulties.length === 0}>
                 {busy ? t('questionStudio.busy') : t('questionStudio.start')}
               </button>
             </div>
@@ -410,6 +465,35 @@ function QuestionStudioPage() {
                 <Metric label={t('questionStudio.metrics.borderline')} value={run?.borderlineCount || 0} />
                 <Metric label={t('questionStudio.metrics.rejected')} value={run?.rejectedCount || 0} />
                 <Metric label={t('questionStudio.metrics.imported')} value={run?.importedCount || 0} />
+              </div>
+              <div className="question-studio-run-actions">
+                {(run?.status === 'Pending' || run?.status === 'Running') && (
+                  <button type="button" className="button button-secondary" onClick={() => controlRun('pause')} disabled={busy}>
+                    <LuPause aria-hidden="true" />
+                    <span>{t('questionStudio.pauseRun')}</span>
+                  </button>
+                )}
+                {run?.status === 'Paused' && (
+                  <button type="button" className="button button-secondary" onClick={() => controlRun('resume')} disabled={busy}>
+                    <LuPlay aria-hidden="true" />
+                    <span>{t('questionStudio.resumeRun')}</span>
+                  </button>
+                )}
+                {run && !terminalRun && (
+                  <button type="button" className="button button-secondary tone-danger" onClick={() => controlRun('cancel')} disabled={busy}>
+                    <LuX aria-hidden="true" />
+                    <span>{t('questionStudio.cancelRun')}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="button button-secondary tone-danger"
+                  onClick={deleteQuestionBank}
+                  disabled={busy || Number(documentMeta?.questionsCount || 0) <= 0}
+                >
+                  <LuTrash2 aria-hidden="true" />
+                  <span>{t('questionStudio.deleteBank')}</span>
+                </button>
               </div>
               <ProgressTimeline run={run} terminalRun={terminalRun} t={t} />
             </div>
