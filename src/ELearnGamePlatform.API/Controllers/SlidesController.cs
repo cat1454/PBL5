@@ -890,6 +890,14 @@ public class SlidesController : AuthenticatedControllerBase
             var saveCompletedStopwatch = Stopwatch.StartNew();
             await slideDeckRepository.UpdateDeckAsync(persistedDeck);
             saveCompletedStopwatch.Stop();
+            if (!await CanContinueJobAsync(jobId, context))
+            {
+                persistedDeck.Status = SlideDeckStatus.GeneratingSlides;
+                persistedDeck.CompletedAt = null;
+                persistedDeck.UpdatedAt = DateTime.UtcNow;
+                await slideDeckRepository.UpdateDeckAsync(persistedDeck);
+                return;
+            }
             _logger.LogInformation(
                 "[SlideGen:{JobId}] Phase=db Step=deck-completed-saved FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} DurationMs={DurationMs}",
                 jobId,
