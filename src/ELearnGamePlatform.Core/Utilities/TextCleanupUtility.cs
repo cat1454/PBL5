@@ -25,7 +25,6 @@ public static class TextCleanupUtility
         normalized = StripLowSignalSeparatorLines(normalized);
 
         normalized = Regex.Replace(normalized, @"(?<=\p{L})-\s*\n\s*(?=\p{L})", string.Empty);
-        normalized = Regex.Replace(normalized, @"(?<=\p{Ll})\s*\n\s*(?=[\p{Ll}\d\(\[])"," ");
         normalized = Regex.Replace(normalized, @"\n{3,}", "\n\n");
 
         var lines = normalized
@@ -229,6 +228,11 @@ public static class TextCleanupUtility
             return true;
         }
 
+        if (LooksLikeMarkdownStructuralLine(previousLine) || LooksLikeMarkdownStructuralLine(nextLine))
+        {
+            return false;
+        }
+
         if (Regex.IsMatch(previousLine, @"[.!?:;)\]""']$"))
         {
             return false;
@@ -304,7 +308,15 @@ public static class TextCleanupUtility
 
     private static bool LooksLikeBulletLine(string line)
     {
-        return Regex.IsMatch(line, @"^\s*[-*]\s+\p{L}", RegexOptions.IgnoreCase);
+        return Regex.IsMatch(line, @"^\s*(?:[-*+]|\d+[.)])\s+\S", RegexOptions.IgnoreCase);
+    }
+
+    private static bool LooksLikeMarkdownStructuralLine(string line)
+    {
+        var trimmed = line.TrimStart();
+        return Regex.IsMatch(trimmed, @"^#{1,6}\s+\S")
+            || LooksLikeBulletLine(trimmed)
+            || (trimmed.Contains('|') && Regex.IsMatch(trimmed, @"^\|?.+\|.+\|?$"));
     }
 
     private static bool LooksLikeHeading(string line)
