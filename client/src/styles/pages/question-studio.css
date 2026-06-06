@@ -199,6 +199,23 @@
   padding: 10px;
 }
 
+.question-studio-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.question-studio-run-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.question-studio-run-actions .tone-danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .question-studio-toolbar {
   display: grid;
   grid-template-columns: repeat(6, minmax(120px, 1fr));

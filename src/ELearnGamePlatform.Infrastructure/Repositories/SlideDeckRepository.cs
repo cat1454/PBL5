@@ -154,6 +154,22 @@ public class SlideDeckRepository : ISlideDeckRepository
         return true;
     }
 
+    public async Task<bool> DeleteDeckAsync(int deckId)
+    {
+        var deck = await _context.SlideDecks
+            .Include(existing => existing.Items)
+            .FirstOrDefaultAsync(existing => existing.Id == deckId);
+        if (deck == null)
+        {
+            return false;
+        }
+
+        _context.SlideItems.RemoveRange(deck.Items);
+        _context.SlideDecks.Remove(deck);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
     public async Task<bool> ReplaceItemsAsync(int deckId, IEnumerable<SlideItem> items)
     {
         var existingDeck = await _context.SlideDecks.FindAsync(deckId);

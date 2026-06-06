@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
 using ELearnGamePlatform.API.Services.QuestionStudio;
@@ -33,17 +34,20 @@ public class QuestionStudioController : AuthenticatedControllerBase
 
     private readonly ApplicationDbContext _context;
     private readonly IQuestionDraftImportService _importService;
+    private readonly IQuestionStudioRunControlStore _runControlStore;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<QuestionStudioController> _logger;
 
     public QuestionStudioController(
         ApplicationDbContext context,
         IQuestionDraftImportService importService,
+        IQuestionStudioRunControlStore runControlStore,
         IServiceScopeFactory scopeFactory,
         ILogger<QuestionStudioController> logger)
     {
         _context = context;
         _importService = importService;
+        _runControlStore = runControlStore;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -91,6 +95,21 @@ public class QuestionStudioController : AuthenticatedControllerBase
             return ApiBadRequest("document_not_ready", "Document must be completed and have extracted text before starting Question Studio.");
         }
 
+        var activeRun = await _context.QuestionGenerationRuns
+            .Where(x => x.DocumentId == document.Id && (x.Status == "Pending" || x.Status == "Running" || x.Status == "Paused"))
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (activeRun != null)
+        {
+            return Conflict(new
+            {
+                success = false,
+                code = "generation_active",
+                message = "A Question Studio run is already active for this document.",
+                run = BuildRunPayload(activeRun)
+            });
+        }
+
         var run = new QuestionGenerationRun
         {
             DocumentId = document.Id,
@@ -107,6 +126,7 @@ public class QuestionStudioController : AuthenticatedControllerBase
         _context.QuestionGenerationRuns.Add(run);
         await _context.SaveChangesAsync(cancellationToken);
 
+        _runControlStore.RegisterRun(run.Id);
         _ = Task.Run(() => RunQuestionStudioJobAsync(run.Id));
 
         return Accepted(new
@@ -137,6 +157,41 @@ public class QuestionStudioController : AuthenticatedControllerBase
 
         return Ok(BuildRunPayload(run));
     }
+
+    [HttpGet("documents/{documentId:int}/runs/active")]
+    public async Task<IActionResult> GetActiveRun(int documentId, CancellationToken cancellationToken)
+    {
+        var document = await _context.Documents.FirstOrDefaultAsync(x => x.Id == documentId, cancellationToken);
+        if (document == null)
+        {
+            return ApiNotFound("document_not_found", "Document not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var run = await _context.QuestionGenerationRuns
+            .Where(x => x.DocumentId == documentId && (x.Status == "Pending" || x.Status == "Running" || x.Status == "Paused"))
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return run == null ? NoContent() : Ok(BuildRunPayload(run));
+    }
+
+    [HttpPost("runs/{runId:int}/pause")]
+    public Task<IActionResult> PauseRun(int runId, CancellationToken cancellationToken)
+        => ChangeRunState(runId, "Paused", "Paused", _runControlStore.PauseRun, "run_not_pausable", cancellationToken);
+
+    [HttpPost("runs/{runId:int}/resume")]
+    public Task<IActionResult> ResumeRun(int runId, CancellationToken cancellationToken)
+        => ChangeRunState(runId, "Running", "Resuming", _runControlStore.ResumeRun, "run_not_resumable", cancellationToken);
+
+    [HttpPost("runs/{runId:int}/cancel")]
+    public Task<IActionResult> CancelRun(int runId, CancellationToken cancellationToken)
+        => ChangeRunState(runId, "Cancelled", "Cancelled", _runControlStore.CancelRun, "run_not_cancellable", cancellationToken);
 
     [HttpGet("drafts")]
     public async Task<IActionResult> ListDrafts([FromQuery] QuestionDraftListQuery query, CancellationToken cancellationToken)
@@ -379,6 +434,56 @@ public class QuestionStudioController : AuthenticatedControllerBase
 
         await _context.SaveChangesAsync(cancellationToken);
         return Ok(BuildDraftPayload(draft));
+    }
+
+    private async Task<IActionResult> ChangeRunState(
+        int runId,
+        string status,
+        string stage,
+        Func<int, bool> transition,
+        string conflictCode,
+        CancellationToken cancellationToken)
+    {
+        var run = await _context.QuestionGenerationRuns
+            .Include(x => x.Document)
+            .FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
+        if (run?.Document == null)
+        {
+            return ApiNotFound("run_not_found", "Question Studio run not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(run.Document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var transitionAllowed = status switch
+        {
+            "Paused" => run.Status is "Pending" or "Running",
+            "Running" => run.Status == "Paused",
+            "Cancelled" => run.Status is "Pending" or "Running" or "Paused",
+            _ => false
+        };
+        if (!transitionAllowed)
+        {
+            return ApiConflict(conflictCode, "Question Studio run cannot change to the requested state.");
+        }
+
+        if (!transition(runId))
+        {
+            return ApiConflict(conflictCode, "Question Studio run cannot change to the requested state.");
+        }
+
+        run.Status = status;
+        run.Stage = stage;
+        if (status == "Cancelled")
+        {
+            run.CompletedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return Ok(BuildRunPayload(run));
     }
 
     private async Task RunQuestionStudioJobAsync(int runId)

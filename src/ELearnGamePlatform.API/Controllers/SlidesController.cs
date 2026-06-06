@@ -149,6 +149,46 @@ public class SlidesController : AuthenticatedControllerBase
         return Ok(JobProgressPayloadFactory.BuildSlide(state));
     }
 
+    [HttpPost("generate/{jobId}/pause")]
+    public IActionResult PauseGenerateSlides(string jobId)
+        => ChangeSlideJobState(jobId, _jobStore.PauseJob, "job_not_pausable", "Slide generation cannot be paused in its current state.");
+
+    [HttpPost("generate/{jobId}/resume")]
+    public IActionResult ResumeGenerateSlides(string jobId)
+        => ChangeSlideJobState(jobId, _jobStore.ResumeJob, "job_not_resumable", "Slide generation cannot be resumed in its current state.");
+
+    [HttpPost("generate/{jobId}/cancel")]
+    public IActionResult CancelGenerateSlides(string jobId)
+        => ChangeSlideJobState(jobId, _jobStore.CancelJob, "job_not_cancellable", "Slide generation cannot be cancelled in its current state.");
+
+    [HttpDelete("{deckId:int}")]
+    public async Task<IActionResult> DeleteDeck(int deckId)
+    {
+        var deck = await _slideDeckRepository.GetByIdAsync(deckId);
+        if (deck == null)
+        {
+            return ApiNotFound("deck_not_found", "Slide deck not found.");
+        }
+
+        var authResult = EnsureOwnerAccess(deck.Document?.UploadedBy ?? deck.FolderProject?.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var hasActiveJob = deck.FolderProjectId.HasValue
+            ? _jobStore.TryGetLatestActiveJobForFolder(deck.FolderProjectId.Value, out _)
+            : deck.DocumentId.HasValue && _jobStore.TryGetLatestActiveJobForDocument(deck.DocumentId.Value, out _);
+        if (hasActiveJob)
+        {
+            return ApiConflict("generation_active", "Cancel the active slide generation job before deleting this deck.");
+        }
+
+        return await _slideDeckRepository.DeleteDeckAsync(deck.Id)
+            ? NoContent()
+            : ApiNotFound("deck_not_found", "Slide deck not found.");
+    }
+
     [HttpGet("document/{documentId}")]
     public async Task<IActionResult> GetDeckByDocument(int documentId)
     {
@@ -479,6 +519,11 @@ public class SlidesController : AuthenticatedControllerBase
             var slideImageService = scope.ServiceProvider.GetRequiredService<ISlideImageService>();
             var generationReadinessService = scope.ServiceProvider.GetRequiredService<IDocumentGenerationReadinessService>();
 
+            if (!await _jobStore.WaitForExecutionAsync(jobId))
+            {
+                return;
+            }
+
             UpdateJob(jobId, state =>
             {
                 state.Status = "running";
@@ -514,6 +559,11 @@ public class SlidesController : AuthenticatedControllerBase
                 return;
             }
 
+            if (!await CanContinueJobAsync(jobId, context))
+            {
+                return;
+            }
+
             var brief = BuildBrief(target);
             var speedMode = NormalizeSpeedMode(target.SpeedMode);
             var isFastMode = speedMode == "fast";
@@ -544,7 +594,7 @@ public class SlidesController : AuthenticatedControllerBase
                 context.DocumentId,
                 outline.Slides.Count,
                 outlineStopwatch.ElapsedMilliseconds);
-            if (!IsJobStillCurrent(jobId, context))
+            if (!await CanContinueJobAsync(jobId, context))
             {
                 return;
             }
@@ -580,6 +630,11 @@ public class SlidesController : AuthenticatedControllerBase
                 });
             }
 
+            if (!await CanContinueJobAsync(jobId, context))
+            {
+                return;
+            }
+
             var saveOutlineStopwatch = Stopwatch.StartNew();
             persistedDeck = context.FolderProjectId.HasValue
                 ? await slideDeckRepository.ReplaceForFolderAsync(deck, placeholderItems)
@@ -610,7 +665,7 @@ public class SlidesController : AuthenticatedControllerBase
             var slideItems = persistedDeck.Items.OrderBy(item => item.SlideIndex).ToList();
             for (var index = 0; index < slideItems.Count; index++)
             {
-                if (!IsJobStillCurrent(jobId, context))
+                if (!await CanContinueJobAsync(jobId, context))
                 {
                     return;
                 }
@@ -620,6 +675,10 @@ public class SlidesController : AuthenticatedControllerBase
                 var slideStopwatch = Stopwatch.StartNew();
 
                 item.Status = SlideItemStatus.Generating;
+                if (!await CanContinueJobAsync(jobId, context))
+                {
+                    return;
+                }
                 await slideDeckRepository.UpdateItemAsync(item);
 
                 UpdateJob(jobId, state =>
@@ -676,7 +735,7 @@ public class SlidesController : AuthenticatedControllerBase
                     jobId,
                     speedMode);
                 slideStopwatch.Stop();
-                if (!IsJobStillCurrent(jobId, context))
+                if (!await CanContinueJobAsync(jobId, context))
                 {
                     return;
                 }
@@ -713,7 +772,7 @@ public class SlidesController : AuthenticatedControllerBase
                 item.Status = content.SuggestedStatus;
                 if (item.Status == SlideItemStatus.Completed)
                 {
-                    if (!IsJobStillCurrent(jobId, context))
+                    if (!await CanContinueJobAsync(jobId, context))
                     {
                         return;
                     }
@@ -739,6 +798,10 @@ public class SlidesController : AuthenticatedControllerBase
                     var imageStopwatch = Stopwatch.StartNew();
                     await slideImageService.SourceImagesForItemAsync(item, imageSourcingOptions);
                     imageStopwatch.Stop();
+                    if (!await CanContinueJobAsync(jobId, context))
+                    {
+                        return;
+                    }
                     _logger.LogInformation(
                         "[SlideGen:{JobId}] Phase=image-sourcing Step=completed FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} Slide={Index}/{Total} SpeedMode={SpeedMode} DurationMs={DurationMs}",
                         jobId,
@@ -750,7 +813,7 @@ public class SlidesController : AuthenticatedControllerBase
                         speedMode,
                         imageStopwatch.ElapsedMilliseconds);
                 }
-                if (!IsJobStillCurrent(jobId, context))
+                if (!await CanContinueJobAsync(jobId, context))
                 {
                     return;
                 }
@@ -786,7 +849,7 @@ public class SlidesController : AuthenticatedControllerBase
                 });
             }
 
-            if (!IsJobStillCurrent(jobId, context))
+            if (!await CanContinueJobAsync(jobId, context))
             {
                 return;
             }
@@ -806,12 +869,24 @@ public class SlidesController : AuthenticatedControllerBase
                 });
             }
 
+            if (!await CanContinueJobAsync(jobId, context))
+            {
+                return;
+            }
             persistedDeck.Status = SlideDeckStatus.Completed;
             persistedDeck.CompletedAt = DateTime.UtcNow;
             persistedDeck.UpdatedAt = DateTime.UtcNow;
             var saveCompletedStopwatch = Stopwatch.StartNew();
             await slideDeckRepository.UpdateDeckAsync(persistedDeck);
             saveCompletedStopwatch.Stop();
+            if (!await CanContinueJobAsync(jobId, context))
+            {
+                persistedDeck.Status = SlideDeckStatus.GeneratingSlides;
+                persistedDeck.CompletedAt = null;
+                persistedDeck.UpdatedAt = DateTime.UtcNow;
+                await slideDeckRepository.UpdateDeckAsync(persistedDeck);
+                return;
+            }
             _logger.LogInformation(
                 "[SlideGen:{JobId}] Phase=db Step=deck-completed-saved FolderId={FolderId} DocumentId={DocumentId} DeckId={DeckId} DurationMs={DurationMs}",
                 jobId,
@@ -1682,6 +1757,46 @@ public class SlidesController : AuthenticatedControllerBase
         return false;
     }
 
+    private async Task<bool> CanContinueJobAsync(string jobId, SlideGenerationContext context)
+    {
+        if (!await _jobStore.WaitForExecutionAsync(jobId))
+        {
+            _logger.LogInformation(
+                "[SlideGen:{JobId}] Phase=job Step=cancelled-stop FolderId={FolderId} DocumentId={DocumentId}",
+                jobId,
+                context.FolderProjectId,
+                context.DocumentId);
+            return false;
+        }
+
+        return IsJobStillCurrent(jobId, context);
+    }
+
+    private IActionResult ChangeSlideJobState(
+        string jobId,
+        Func<string, bool> transition,
+        string conflictCode,
+        string conflictMessage)
+    {
+        if (!_jobStore.TryGetJob(jobId, out var state) || state == null)
+        {
+            return ApiNotFound("job_not_found", "Job not found.");
+        }
+
+        var authResult = EnsureCurrentUserMatches(state.CreatedByUserId);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        if (!transition(jobId) || !_jobStore.TryGetJob(jobId, out state) || state == null)
+        {
+            return ApiConflict(conflictCode, conflictMessage);
+        }
+
+        return Ok(JobProgressPayloadFactory.BuildSlide(state));
+    }
+
     private void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
         => _jobStore.UpdateJob(jobId, state =>
         {
@@ -1876,6 +1991,10 @@ public class SlidesController : AuthenticatedControllerBase
             ScopePolicy = request.ScopePolicy,
             ConfirmLowConfidence = request.ConfirmLowConfidence
         }));
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=job Step=request-completed-background-continues FolderId={FolderId}",
+            jobId,
+            folderId);
 
         var recommendation = BuildScopeRecommendation(request);
 
@@ -1889,6 +2008,48 @@ public class SlidesController : AuthenticatedControllerBase
             progress = state == null ? null : JobProgressPayloadFactory.BuildSlide(state),
             scopeRecommendation = recommendation
         });
+    }
+
+    [HttpGet("folders/{folderId}/generate/active")]
+    public async Task<IActionResult> GetActiveGenerateSlidesForFolder(int folderId)
+    {
+        _logger.LogInformation(
+            "[SlideGen] Phase=job Step=resume-active-query FolderId={FolderId}",
+            folderId);
+
+        var folder = await GetFolderAsync(folderId);
+        if (folder == null)
+        {
+            return NotFound("Folder project not found");
+        }
+
+        var authResult = EnsureOwnerAccess(folder.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        if (!_jobStore.TryGetLatestActiveJobForFolder(folderId, out var state) || state == null)
+        {
+            _logger.LogInformation(
+                "[SlideGen] Phase=job Step=resume-active-empty FolderId={FolderId}",
+                folderId);
+            return NoContent();
+        }
+
+        var userAuthResult = EnsureCurrentUserMatches(state.CreatedByUserId);
+        if (userAuthResult != null)
+        {
+            return userAuthResult;
+        }
+
+        _logger.LogInformation(
+            "[SlideGen:{JobId}] Phase=job Step=resume-active-found FolderId={FolderId} Status={Status}",
+            state.JobId,
+            folderId,
+            state.Status);
+
+        return Ok(JobProgressPayloadFactory.BuildSlide(state));
     }
 
     private async Task<DocumentGenerationReadiness> GetFolderGenerationReadinessAsync(FolderProject folder, GenerateFolderSlidesRequest request)

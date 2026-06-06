@@ -1872,3 +1872,21 @@
   padding: 5px 9px;
 }
 
+.generation-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.generation-control-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.generation-control-actions .tone-danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using ELearnGamePlatform.API.Controllers;
+using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.API.Services.QuestionStudio;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Infrastructure.Data;
@@ -115,6 +116,7 @@ public class QuestionStudioReviewFixTests
             new ThrowingQuestionVariantGenerator(),
             new ThrowingQuestionDraftVerifier(),
             new ThrowingQuestionDraftDeduplicator(),
+            new QuestionStudioRunControlStore(),
             NullLogger<QuestionStudioOrchestrator>.Instance);
 
         await orchestrator.RunAsync(runId);
@@ -126,6 +128,45 @@ public class QuestionStudioReviewFixTests
         Assert.Equal("Failed", refreshedRun.Stage);
         Assert.Equal("Question Studio source document was not found.", refreshedRun.ErrorMessage);
         Assert.NotNull(refreshedRun.CompletedAt);
+    }
+
+    [Fact]
+    public async Task RunControls_PersistPauseResumeAndCancelStates()
+    {
+        await using var context = CreateDbContext();
+        var document = new Document
+        {
+            Id = 701,
+            FileName = "lesson.pdf",
+            FileType = "PDF",
+            FilePath = "lesson.pdf",
+            UploadedBy = "5",
+            Status = DocumentStatus.Completed,
+            ExtractedText = "Ready content"
+        };
+        var run = CreateRun();
+        run.Id = 702;
+        run.DocumentId = document.Id;
+        run.UserId = "5";
+        run.Status = "Running";
+        run.Stage = "GeneratingCanonical";
+        context.Documents.Add(document);
+        context.QuestionGenerationRuns.Add(run);
+        await context.SaveChangesAsync();
+        var controlStore = new QuestionStudioRunControlStore();
+        controlStore.RegisterRun(run.Id);
+        var controller = CreateController(context, controlStore);
+
+        Assert.IsType<OkObjectResult>(await controller.PauseRun(run.Id, CancellationToken.None));
+        Assert.Equal("Paused", (await context.QuestionGenerationRuns.FindAsync(run.Id))?.Status);
+
+        Assert.IsType<OkObjectResult>(await controller.ResumeRun(run.Id, CancellationToken.None));
+        Assert.Equal("Running", (await context.QuestionGenerationRuns.FindAsync(run.Id))?.Status);
+
+        Assert.IsType<OkObjectResult>(await controller.CancelRun(run.Id, CancellationToken.None));
+        var cancelled = await context.QuestionGenerationRuns.FindAsync(run.Id);
+        Assert.Equal("Cancelled", cancelled?.Status);
+        Assert.NotNull(cancelled?.CompletedAt);
     }
 
     [Fact]
@@ -238,11 +279,14 @@ public class QuestionStudioReviewFixTests
         return new ApplicationDbContext(options);
     }
 
-    private static QuestionStudioController CreateController(ApplicationDbContext context)
+    private static QuestionStudioController CreateController(
+        ApplicationDbContext context,
+        IQuestionStudioRunControlStore? controlStore = null)
     {
         var controller = new QuestionStudioController(
             context,
             new NoopQuestionDraftImportService(),
+            controlStore ?? new QuestionStudioRunControlStore(),
             scopeFactory: null!,
             NullLogger<QuestionStudioController>.Instance);
         controller.ControllerContext = new ControllerContext

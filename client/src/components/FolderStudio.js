@@ -25,6 +25,8 @@ import {
   LuPanelRightClose,
   LuPanelRightOpen,
   LuPalette,
+  LuPause,
+  LuPlay,
   LuPlus,
   LuPresentation,
   LuPrinter,
@@ -35,6 +37,7 @@ import {
   LuStrikethrough,
   LuSubscript,
   LuSuperscript,
+  LuTrash2,
   LuType,
   LuUnderline,
   LuUndo2,
@@ -50,7 +53,7 @@ import {
   workspaceService,
 } from '../services/api';
 import { buildSlideImageViewModel } from '../services/slideImages';
-import { formatElapsedDuration, formatEta, getProgressCounterLabel, isActiveProgress, isProgressEtaReliable, isTerminalProgress, normalizeProgressState } from '../services/progress';
+import { formatElapsedDuration, formatEta, getGenerationControlCapabilities, getProgressCounterLabel, isActiveProgress, isProgressEtaReliable, isTerminalProgress, normalizeProgressState } from '../services/progress';
 import {
   confirmGenerationReadiness,
   getReadinessLabel,
@@ -698,6 +701,10 @@ function WorkspaceLinkAffordance({ block, label }) {
 }
 
 function getDeckProgressStageTitle(progress, language) {
+  if (String(progress?.status || '').toLowerCase() === 'paused') {
+    return language === 'vi' ? 'Đã tạm dừng' : 'Paused';
+  }
+
   const stage = String(progress?.stage || '').toLowerCase();
   if (stage === 'section-summaries') {
     return language === 'vi' ? 'Đang tóm tắt nội dung' : 'Summarizing content';
@@ -740,6 +747,10 @@ function getDeckProgressElapsedLabel(progress, language) {
 }
 
 function getDeckProgressEtaLabel(progress, language) {
+  if (String(progress?.status || '').toLowerCase() === 'paused') {
+    return language === 'vi' ? 'Đã tạm dừng' : 'Paused';
+  }
+
   if (isProgressEtaReliable(progress)) {
     return formatEta(progress.estimatedRemainingSeconds, { language });
   }
@@ -753,7 +764,49 @@ function getDeckProgressEtaLabel(progress, language) {
   return language === 'vi' ? 'Đang ước tính thời gian còn lại...' : 'Estimating remaining time...';
 }
 
-function WorkspaceDeckProgressCard({ progress, language }) {
+function GenerationControlButtons({
+  progress,
+  busy,
+  language,
+  onPause,
+  onResume,
+  onCancel,
+  onDelete,
+  showDelete = false,
+}) {
+  const capabilities = getGenerationControlCapabilities(progress);
+
+  return (
+    <div className="generation-control-actions">
+      {capabilities.canPause && (
+        <button type="button" className="button button-secondary" onClick={onPause} disabled={busy}>
+          <LuPause aria-hidden="true" />
+          <span>{language === 'vi' ? 'Tạm dừng' : 'Pause'}</span>
+        </button>
+      )}
+      {capabilities.canResume && (
+        <button type="button" className="button button-secondary" onClick={onResume} disabled={busy}>
+          <LuPlay aria-hidden="true" />
+          <span>{language === 'vi' ? 'Tiếp tục' : 'Resume'}</span>
+        </button>
+      )}
+      {capabilities.canCancel && (
+        <button type="button" className="button button-secondary tone-danger" onClick={onCancel} disabled={busy}>
+          <LuX aria-hidden="true" />
+          <span>{language === 'vi' ? 'Hủy tiến trình' : 'Cancel generation'}</span>
+        </button>
+      )}
+      {showDelete && (
+        <button type="button" className="button button-secondary tone-danger" onClick={onDelete} disabled={busy}>
+          <LuTrash2 aria-hidden="true" />
+          <span>{language === 'vi' ? 'Xóa deck' : 'Delete deck'}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceDeckProgressCard({ progress, language, controls }) {
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const displayedPercent = useAnimatedProgress(percent);
 
@@ -800,6 +853,7 @@ function WorkspaceDeckProgressCard({ progress, language }) {
         {elapsedLabel && <span>{elapsedLabel}</span>}
         <span>{reliableEta ? `ETA: ${etaLabel}` : etaLabel}</span>
       </div>
+      {controls}
     </div>
   );
 }
@@ -889,6 +943,7 @@ function FolderStudioRuntime() {
   const [uploading, setUploading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState('');
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
+  const [generationControlBusy, setGenerationControlBusy] = useState(false);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [slideGenerationSpeedMode, setSlideGenerationSpeedMode] = useState('fast');
   const [selectedSourceId, setSelectedSourceId] = useState(null);
@@ -1109,21 +1164,33 @@ function FolderStudioRuntime() {
 
     try {
       setError('');
-      const [folderData, sourceData, deckData] = await Promise.all([
+      const [folderData, sourceData, deckData, activeJobData] = await Promise.all([
         workspaceService.get(workspaceId),
         workspaceService.listSources(workspaceId),
         slideService.getDeckByFolder(workspaceId),
+        slideService.getActiveGenerateJobForFolder(workspaceId),
       ]);
 
       setFolder(folderData);
       setSources(Array.isArray(sourceData) ? sourceData : []);
       setDeck(deckData || null);
 
-      if (deckData?.generationProgress) {
-        const nextProgress = normalizeProgressState(deckData.generationProgress, progressRef.current || {});
+      const resumableProgress = activeJobData || deckData?.generationProgress || null;
+      if (resumableProgress) {
+        const nextProgress = normalizeProgressState(resumableProgress, progressRef.current || {});
         setProgress(nextProgress);
         if (nextProgress.jobId) {
           setJobId(nextProgress.jobId);
+        }
+        if (activeJobData && isActiveProgress(nextProgress)) {
+          debugSlideGen({
+            action: 'resume-active-job',
+            jobId: nextProgress.jobId,
+            workspaceId,
+            folderProjectId: nextProgress.folderProjectId,
+            status: nextProgress.status,
+            percent: nextProgress.percent,
+          });
         }
       } else if (!progressRef.current || isTerminalProgress(progressRef.current)) {
         setProgress(null);
@@ -1143,7 +1210,7 @@ function FolderStudioRuntime() {
         }));
       }
 
-      return { folderData, sourceData, deckData };
+      return { folderData, sourceData, deckData, activeJobData };
     } catch (err) {
       console.error(err);
       setError(getApiErrorMessage(err, language === 'vi' ? 'Không tải được workspace studio.' : 'Could not load the workspace studio.'));
@@ -2624,6 +2691,81 @@ function FolderStudioRuntime() {
     setExpandedSectionIds([]);
   };
 
+  const handleSlideGenerationControl = async (action) => {
+    if (!jobId || generationControlBusy) {
+      return;
+    }
+
+    try {
+      setGenerationControlBusy(true);
+      setGenerationError('');
+      const nextProgress = action === 'pause'
+        ? await slideService.pauseGenerate(jobId)
+        : action === 'resume'
+          ? await slideService.resumeGenerate(jobId)
+          : await slideService.cancelGenerate(jobId);
+
+      setProgress(normalizeProgressState(nextProgress, progressRef.current || {}));
+      if (action === 'cancel') {
+        setJobId(null);
+        await loadWorkspace({ silent: true });
+      }
+    } catch (err) {
+      console.error(err);
+      setGenerationError(getApiErrorMessage(
+        err,
+        language === 'vi'
+          ? 'Không cập nhật được trạng thái sinh slide.'
+          : 'Could not update slide generation.'
+      ));
+    } finally {
+      setGenerationControlBusy(false);
+    }
+  };
+
+  const handleDeleteDeck = async () => {
+    if (!deck?.id || generationControlBusy) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      language === 'vi'
+        ? 'Xóa deck hiện tại? Thao tác này không thể hoàn tác.'
+        : 'Delete the current deck? This action cannot be undone.'
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setGenerationControlBusy(true);
+      setGenerationError('');
+      await slideService.deleteDeck(deck.id);
+      setDeck(null);
+      setProgress(null);
+      setJobId(null);
+      setDrafts({});
+      setDirtyDrafts({});
+      setDraftMeta({});
+      setHistory({});
+      setSelectedSlideId(null);
+      setSelectedElementId(null);
+      await loadWorkspace({ silent: true });
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Đã xóa deck.' : 'Deck deleted.',
+      });
+    } catch (err) {
+      console.error(err);
+      setGenerationError(getApiErrorMessage(
+        err,
+        language === 'vi' ? 'Không xóa được deck.' : 'Could not delete the deck.'
+      ));
+    } finally {
+      setGenerationControlBusy(false);
+    }
+  };
+
   const handleGenerateDeck = async () => {
     if (isStartingGenerationRef.current) {
       debugSlideGen({
@@ -3051,6 +3193,18 @@ function FolderStudioRuntime() {
           ? t('slides.folderGenerate.disabledNoScope')
           : '';
   const canGenerate = !generateDisabledReason;
+  const slideGenerationControls = (
+    <GenerationControlButtons
+      progress={activeProgress}
+      busy={generationControlBusy}
+      language={language}
+      onPause={() => handleSlideGenerationControl('pause')}
+      onResume={() => handleSlideGenerationControl('resume')}
+      onCancel={() => handleSlideGenerationControl('cancel')}
+      onDelete={handleDeleteDeck}
+      showDelete={Boolean(deck?.id && !deckProgressActive)}
+    />
+  );
   const selectedSourceDocumentId = selectedSource?.documentId ?? selectedSource?.DocumentId ?? selectedSource?.id ?? null;
   const selectedSourceQuestionsCount = Number(selectedSource?.questionsCount ?? selectedSource?.QuestionsCount ?? 0);
   const selectedSourceHasQuestions = selectedSourceQuestionsCount > 0;
@@ -4021,6 +4175,7 @@ function FolderStudioRuntime() {
                   <WorkspaceDeckProgressCard
                     progress={deckGenerationProgress}
                     language={language}
+                    controls={slideGenerationControls}
                   />
                 ) : (hasAnySources && !hasCompletedSources && previewProcessingVm) ? (
                   <div className="folder-studio-empty folder-studio-empty-processing">
@@ -4562,6 +4717,7 @@ function FolderStudioRuntime() {
               {generateDisabledReason && (
                 <div className="folder-studio-generate-hint">{generateDisabledReason}</div>
               )}
+              {selectedSlide && slideGenerationControls}
               <button
                 type="button"
                 className="folder-studio-action"

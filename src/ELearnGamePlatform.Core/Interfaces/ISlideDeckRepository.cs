@@ -10,6 +10,7 @@ public interface ISlideDeckRepository
     Task<SlideDeck?> GetLatestByDocumentIdAsync(int documentId);
     Task<SlideDeck?> GetLatestByFolderIdAsync(int folderProjectId);
     Task<bool> UpdateDeckAsync(SlideDeck deck);
+    Task<bool> DeleteDeckAsync(int deckId);
     Task<bool> ReplaceItemsAsync(int deckId, IEnumerable<SlideItem> items);
     Task<SlideItem?> GetItemAsync(int deckId, int itemId);
     Task<bool> UpdateItemAsync(SlideItem item);

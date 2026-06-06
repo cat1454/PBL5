@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
@@ -22,6 +23,7 @@ public sealed class QuestionStudioOrchestrator
     private readonly IQuestionVariantGenerator _variantGenerator;
     private readonly IQuestionDraftVerifier _verifier;
     private readonly IQuestionDraftDeduplicator _deduplicator;
+    private readonly IQuestionStudioRunControlStore _runControlStore;
     private readonly ILogger<QuestionStudioOrchestrator> _logger;
 
     public QuestionStudioOrchestrator(
@@ -31,6 +33,7 @@ public sealed class QuestionStudioOrchestrator
         IQuestionVariantGenerator variantGenerator,
         IQuestionDraftVerifier verifier,
         IQuestionDraftDeduplicator deduplicator,
+        IQuestionStudioRunControlStore runControlStore,
         ILogger<QuestionStudioOrchestrator> logger)
     {
         _context = context;
@@ -39,16 +42,23 @@ public sealed class QuestionStudioOrchestrator
         _variantGenerator = variantGenerator;
         _verifier = verifier;
         _deduplicator = deduplicator;
+        _runControlStore = runControlStore;
         _logger = logger;
     }
 
     public async Task RunAsync(int runId, CancellationToken cancellationToken = default)
     {
+        if (!_runControlStore.IsRegistered(runId))
+        {
+            _runControlStore.RegisterRun(runId);
+        }
+
         var run = await _context.QuestionGenerationRuns
             .FirstOrDefaultAsync(x => x.Id == runId, cancellationToken);
         if (run == null)
         {
             _logger.LogWarning("Question Studio run {RunId} was not found", runId);
+            _runControlStore.CompleteRun(runId);
             return;
         }
 
@@ -57,17 +67,20 @@ public sealed class QuestionStudioOrchestrator
         {
             _logger.LogWarning("Question Studio run {RunId} has no source document", runId);
             await UpdateRunAsync(run, "Failed", "Failed", cancellationToken, errorMessage: MissingDocumentFailureMessage, completedAt: DateTime.UtcNow);
+            _runControlStore.CompleteRun(runId);
             return;
         }
 
         var startedAt = DateTime.UtcNow;
         try
         {
+            await EnsureExecutionAsync(runId);
             await UpdateRunAsync(run, "Running", "ExtractingSourceUnits", cancellationToken, startedAt: startedAt);
             var questionTypes = ParseStringList(run.RequestedQuestionTypesJson, QuestionStudioDefaults.DefaultQuestionTypes);
             var difficulties = ParseStringList(run.RequestedDifficultiesJson, QuestionStudioDefaults.DefaultDifficulties);
 
             var sourceUnits = await _sourceUnitExtractor.ExtractAsync(document, run.Id, cancellationToken);
+            await EnsureExecutionAsync(runId);
             _context.QuestionSourceUnits.AddRange(sourceUnits);
             await _context.SaveChangesAsync(cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
@@ -76,6 +89,7 @@ public sealed class QuestionStudioOrchestrator
             var profile = QuestionStudioDefaults.ResolveProfile(run.Mode);
             var canonicalDraftBudget = CalculateCanonicalDraftBudget(run.TargetDraftCount, profile);
             var canonicalDrafts = await _canonicalQuestionGenerator.GenerateAsync(run, sourceUnits, questionTypes, difficulties, canonicalDraftBudget, cancellationToken);
+            await EnsureExecutionAsync(runId);
             _context.QuestionDrafts.AddRange(canonicalDrafts);
             await _context.SaveChangesAsync(cancellationToken);
             await UpdateRunMetricsAsync(run, cancellationToken);
@@ -83,13 +97,17 @@ public sealed class QuestionStudioOrchestrator
             await UpdateRunAsync(run, "Running", "VerifyingCanonical", cancellationToken);
             foreach (var draft in canonicalDrafts)
             {
+                await EnsureExecutionAsync(runId);
                 await _verifier.VerifyAsync(draft, cancellationToken);
             }
 
+            await EnsureExecutionAsync(runId);
             await _context.SaveChangesAsync(cancellationToken);
 
+            await EnsureExecutionAsync(runId);
             await UpdateRunAsync(run, "Running", "DeduplicatingCanonical", cancellationToken);
             await _deduplicator.MarkDuplicatesAsync(run.Id, cancellationToken);
+            await EnsureExecutionAsync(runId);
             await UpdateRunMetricsAsync(run, cancellationToken);
 
             var refreshedCanonicalQuery = _context.QuestionDrafts
@@ -113,28 +131,60 @@ public sealed class QuestionStudioOrchestrator
             var variantDrafts = remainingDraftBudget > 0 && refreshedCanonical.Count > 0
                 ? await _variantGenerator.GenerateAsync(run, refreshedCanonical, questionTypes, difficulties, remainingDraftBudget, cancellationToken)
                 : new List<QuestionDraft>();
+            await EnsureExecutionAsync(runId);
             _context.QuestionDrafts.AddRange(variantDrafts);
             await _context.SaveChangesAsync(cancellationToken);
 
             await UpdateRunAsync(run, "Running", "VerifyingVariants", cancellationToken);
             foreach (var draft in variantDrafts)
             {
+                await EnsureExecutionAsync(runId);
                 await _verifier.VerifyAsync(draft, cancellationToken);
             }
 
+            await EnsureExecutionAsync(runId);
             await _context.SaveChangesAsync(cancellationToken);
 
+            await EnsureExecutionAsync(runId);
             await UpdateRunAsync(run, "Running", "DeduplicatingVariants", cancellationToken);
             await _deduplicator.MarkDuplicatesAsync(run.Id, cancellationToken);
+            await EnsureExecutionAsync(runId);
             await UpdateRunMetricsAsync(run, cancellationToken);
 
+            await EnsureExecutionAsync(runId);
+            if (!_runControlStore.SealRun(runId))
+            {
+                throw new OperationCanceledException($"Question Studio run {runId} could not enter completion.");
+            }
             await UpdateRunAsync(run, "Completed", "Completed", cancellationToken, completedAt: DateTime.UtcNow);
             await UpdateRunMetricsAsync(run, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Question Studio run {RunId} was cancelled", runId);
+            await UpdateRunAsync(
+                run,
+                "Cancelled",
+                "Cancelled",
+                CancellationToken.None,
+                completedAt: DateTime.UtcNow);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Question Studio run {RunId} failed", runId);
             await UpdateRunAsync(run, "Failed", "Failed", cancellationToken, errorMessage: SafeRunFailureMessage, completedAt: DateTime.UtcNow);
+        }
+        finally
+        {
+            _runControlStore.CompleteRun(runId);
+        }
+    }
+
+    private async Task EnsureExecutionAsync(int runId)
+    {
+        if (!await _runControlStore.WaitForExecutionAsync(runId))
+        {
+            throw new OperationCanceledException($"Question Studio run {runId} was cancelled.");
         }
     }
 
