@@ -144,6 +144,22 @@ public sealed class DoclingDocumentParser : IExternalDocumentParser
                 return Failed("Parsed markdown too short", stopwatch);
             }
 
+            var provider = "docling";
+            if (VietnameseMojibakeRepair.IsLikelyMojibake(markdown))
+            {
+                var repaired = VietnameseMojibakeRepair.TryRepair(markdown);
+                if (!VietnameseMojibakeRepair.IsRepairSuccessful(markdown, repaired) ||
+                    repaired.Length < Math.Max(1, _settings.MinMarkdownLength))
+                {
+                    return Failed(
+                        "Docling output rejected because mojibake repair failed.",
+                        stopwatch);
+                }
+
+                markdown = repaired;
+                provider = "docling-repaired";
+            }
+
             stopwatch.Stop();
             _logger.LogInformation(
                 "Docling parsed {FilePath} to {OutputPath}: markdownChars={MarkdownCharacters}, elapsedMs={ElapsedMs}.",
@@ -154,7 +170,7 @@ public sealed class DoclingDocumentParser : IExternalDocumentParser
             return new ExternalDocumentParseResult
             {
                 Success = true,
-                Provider = "docling",
+                Provider = provider,
                 Markdown = markdown,
                 PlainText = ConvertMarkdownToPlainText(markdown),
                 OutputPath = markdownPath,
@@ -193,8 +209,7 @@ public sealed class DoclingDocumentParser : IExternalDocumentParser
         return startInfo;
     }
 
-    // Keep Docling CLI compatibility changes isolated here. Current v2 syntax:
-    // docling <file> --to md --output <directory>
+    // Keep Docling CLI compatibility changes isolated here. OCR stays opt-in.
     private static IReadOnlyList<string> BuildDoclingArguments(
         string filePath,
         string outputDirectory)
@@ -204,7 +219,10 @@ public sealed class DoclingDocumentParser : IExternalDocumentParser
             "--to",
             "md",
             "--output",
-            outputDirectory
+            outputDirectory,
+            "--no-ocr",
+            "--image-export-mode",
+            "placeholder"
         ];
 
     private string CreateOutputDirectory(string filePath)

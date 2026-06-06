@@ -6,6 +6,7 @@ using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Models;
 using ELearnGamePlatform.Core.Options;
+using ELearnGamePlatform.Services.DocumentProcessing;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -172,11 +173,6 @@ public class DocumentIngestionService : IDocumentIngestionService
             string legacyExtractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress)
                 ?? string.Empty;
             var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
-            var finalExtractedText = legacyExtractedText;
-            var extractionProvider = "legacy";
-            bool? externalParsingSucceeded = null;
-            long? externalParsingElapsedMs = null;
-            string? externalParsingError = null;
 
             if (documentParsingSettings.Enabled)
             {
@@ -184,52 +180,41 @@ public class DocumentIngestionService : IDocumentIngestionService
                     "Docling parse started for document {DocumentId}: {FilePath}",
                     documentId,
                     document.FilePath);
-
-                try
-                {
-                    var parseResult = await externalDocumentParser.TryParseAsync(
-                        document.FilePath,
-                        document.FileType);
-                    var markdown = parseResult.Markdown ?? string.Empty;
-
-                    if (parseResult.Success && markdown.Length >= documentParsingSettings.MinMarkdownLength)
-                    {
-                        finalExtractedText = markdown;
-                        extractionProvider = "docling";
-                        externalParsingSucceeded = true;
-                        externalParsingElapsedMs = parseResult.ElapsedMs;
-                        logger.LogInformation(
-                            "Docling parse succeeded for document {DocumentId}: chars={CharacterCount}, elapsedMs={ElapsedMs}",
-                            documentId,
-                            markdown.Length,
-                            parseResult.ElapsedMs);
-                    }
-                    else
-                    {
-                        externalParsingSucceeded = false;
-                        externalParsingError = parseResult.Error
-                            ?? $"Parsed markdown too short ({markdown.Length} < {documentParsingSettings.MinMarkdownLength}).";
-                        logger.LogWarning(
-                            "Docling parse failed for document {DocumentId}; legacy extraction fallback was used. Error={Error}",
-                            documentId,
-                            externalParsingError);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    externalParsingSucceeded = false;
-                    externalParsingError = ex.Message;
-                    logger.LogWarning(
-                        ex,
-                        "Docling parse failed for document {DocumentId}; legacy extraction fallback was used.",
-                        documentId);
-                }
             }
             else
             {
                 logger.LogInformation(
                     "DocumentParsing disabled for document {DocumentId}; legacy extraction was used.",
                     documentId);
+            }
+
+            var extractionSelection = await DocumentExtractionSelector.SelectAsync(
+                legacyExtractedText,
+                document.FilePath,
+                document.FileType,
+                documentParsingSettings,
+                externalDocumentParser);
+            var finalExtractedText = extractionSelection.Text;
+            var extractionProvider = extractionSelection.Provider;
+            var externalParsingSucceeded = extractionSelection.ExternalParsingSucceeded;
+            var externalParsingElapsedMs = extractionSelection.ExternalParsingElapsedMs;
+            var externalParsingError = extractionSelection.ExternalParsingError;
+
+            if (externalParsingSucceeded == true)
+            {
+                logger.LogInformation(
+                    "Docling parse succeeded for document {DocumentId}: selectedProvider={ExtractionProvider}, selectedChars={CharacterCount}, elapsedMs={ElapsedMs}",
+                    documentId,
+                    extractionProvider,
+                    finalExtractedText.Length,
+                    externalParsingElapsedMs);
+            }
+            else if (externalParsingSucceeded == false)
+            {
+                logger.LogWarning(
+                    "Docling parse failed for document {DocumentId}; legacy extraction fallback was used. Error={Error}",
+                    documentId,
+                    externalParsingError);
             }
 
             logger.LogInformation(

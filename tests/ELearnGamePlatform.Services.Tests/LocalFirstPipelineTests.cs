@@ -202,8 +202,15 @@ public class LocalFirstPipelineTests
         await service.GenerateQuestionsAsync(7, LongEvidenceText(), 1, processed);
 
         var generationPrompt = ollama.StructuredPrompts.First(prompt => prompt.Contains("Evidence library:", StringComparison.OrdinalIgnoreCase));
+        var planningPrompt = ollama.StructuredPrompts.First(prompt => prompt.Contains("Coverage map:", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("[C02]", generationPrompt);
         Assert.Contains("Keywords:", generationPrompt);
+        Assert.Contains("Markdown heading hierarchy", planningPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("table of contents", planningPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("specific source excerpt", generationPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reliable table evidence", generationPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("quote a short evidence phrase or clearly paraphrase", generationPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("weak or insufficient", generationPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Text:\r\n<<<", generationPrompt);
         Assert.DoesNotContain("Text:\n<<<", generationPrompt);
     }

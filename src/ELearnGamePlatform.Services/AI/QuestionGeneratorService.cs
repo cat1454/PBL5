@@ -319,13 +319,16 @@ Requirements:
 2. Spread briefs across early, middle, and late chunks.
 3. Every brief must reference 1-3 valid preferredChunkIds taken exactly from the coverage map.
 4. Keep each focus precise, factual, and answerable from the preferred chunks.
-5. Use the precomputed analysis to prioritize true main topics and key points over incidental details.
-6. topicName and subtopic must be concise Vietnamese phrases.
+5. Plan from the source sections and their evidence, not from the generic summary alone.
+6. Use Markdown heading hierarchy when available: derive topicName from the nearest H1/H2 section and subtopic from the nearest H2/H3 subsection so the existing topicTag reflects the source structure.
 7. Vary difficulty across Easy, Medium, Hard when the document supports it.
 8. Avoid duplicate focus, duplicate preferredChunkIds-only plans, and vague labels.
 9. answerStyle should describe what the learner must recall, compare, infer, or identify.
 10. When clear main sections exist, prefer covering each major section with at least one question plan through preferredChunkIds.
 11. Do not plan exact calculation questions from chunks marked low-confidence table/formula unless lowConfidenceCalculationAllowed is true.
+12. Skip front matter, table of contents, references/bibliography, standalone page numbers, and repeated headers or footers.
+13. Every brief must be grounded in a specific source excerpt or fact from its preferred chunks. If the evidence is weak, noisy, or insufficient, do not plan that question.
+14. When a reliable Markdown table is present, plan interpretation, comparison, trend, relationship, or process questions where suitable instead of merely asking for cell recall.
 
 lowConfidenceCalculationAllowed: {_localLlmSettings.AllowLowConfidenceCalculationQuestions.ToString().ToLowerInvariant()}
 
@@ -451,7 +454,11 @@ Question briefs:
 General hard requirements:
 - Use only facts supported by the allowed evidence chunk ids of each brief.
 - Do not mix evidence across plans unless the evidence ids are explicitly allowed for that plan.
-- explanation must mention at least one supporting evidence chunk id in square brackets, for example [C03].
+- Generate from the source section evidence, not from a generic document summary alone.
+- Each question must be grounded in a specific source excerpt or fact. If the allowed evidence is weak or insufficient, do not invent a question.
+- Do not generate questions from front matter, table of contents, references/bibliography, standalone page numbers, or repeated headers and footers.
+- When reliable table evidence exists, prefer interpretation, comparison, trend, relationship, or process questions where suitable.
+- explanation must quote a short evidence phrase or clearly paraphrase the supporting evidence and mention at least one evidence chunk id in square brackets, for example [C03].
 - topic must exactly equal the topicTag from the brief.
 - evidenceChunkIds must be a non-empty subset of that brief's allowed evidence chunk ids.
 - Return exactly {plans.Count} question objects, one for each planId.
