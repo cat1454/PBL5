@@ -72,6 +72,8 @@ builder.Services.Configure<OcrSettings>(
     builder.Configuration.GetSection(OcrSettings.SectionName));
 builder.Services.Configure<DocumentUnderstandingOptions>(
     builder.Configuration.GetSection(DocumentUnderstandingOptions.SectionName));
+builder.Services.Configure<DocumentParsingSettings>(
+    builder.Configuration.GetSection(DocumentParsingSettings.SectionName));
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>()
     ?? throw new InvalidOperationException("JwtSettings configuration is required.");
@@ -130,6 +132,8 @@ builder.Services.AddScoped<IOcrService, TesseractOcrService>();
 builder.Services.AddScoped<IDocumentProcessor, PdfProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, DocxProcessor>();
 builder.Services.AddScoped<IDocumentProcessor, ImageProcessor>();
+builder.Services.AddScoped<IDoclingCommandRunner, DoclingCommandRunner>();
+builder.Services.AddScoped<IDocumentMarkdownParser, DoclingMarkdownParser>();
 builder.Services.AddScoped<IContentAnalyzer, ContentAnalyzerService>();
 builder.Services.AddScoped<ITokenEstimator, TokenEstimator>();
 builder.Services.AddScoped<IDocumentKnowledgeMapBuilder, DocumentKnowledgeMapBuilder>();

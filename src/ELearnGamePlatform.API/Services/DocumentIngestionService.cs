@@ -108,6 +108,7 @@ public class DocumentIngestionService : IDocumentIngestionService
         var ocrSettings = scope.ServiceProvider.GetRequiredService<IOptions<OcrSettings>>().Value;
         var documentUnderstandingOptions = scope.ServiceProvider.GetRequiredService<IOptions<DocumentUnderstandingOptions>>().Value;
         var documentProcessors = scope.ServiceProvider.GetRequiredService<IEnumerable<IDocumentProcessor>>();
+        var documentMarkdownParser = scope.ServiceProvider.GetRequiredService<IDocumentMarkdownParser>();
         var documentJobStore = scope.ServiceProvider.GetRequiredService<IDocumentProcessingJobStore>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<DocumentIngestionService>>();
 
@@ -167,8 +168,17 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var extractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress);
+            string legacyExtractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress)
+                ?? string.Empty;
             var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
+            var doclingMarkdown = await documentMarkdownParser.TryParseAsync(document.FilePath);
+            string extractedText = doclingMarkdown ?? legacyExtractedText;
+            logger.LogInformation(
+                "Document {DocumentId} selected {ExtractionSource} text for analysis: selectedChars={SelectedCharacterCount}, legacyChars={LegacyCharacterCount}.",
+                documentId,
+                doclingMarkdown == null ? "legacy" : "Docling Markdown",
+                extractedText.Length,
+                legacyExtractedText.Length);
             var understandingResult = await ApplyDocumentUnderstandingAsync(
                 document,
                 extractedText,
