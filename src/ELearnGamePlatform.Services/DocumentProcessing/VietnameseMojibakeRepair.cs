@@ -79,7 +79,7 @@ public static class VietnameseMojibakeRepair
             .OrderBy(CountMojibakeMarkers)
             .ThenBy(CountReplacementCharacters)
             .ThenByDescending(CountVietnameseLetters)
-            .FirstOrDefault() ?? text;
+            .FirstOrDefault() ?? bulletNormalized;
     }
 
     public static bool IsRepairSuccessful(string original, string repaired)

@@ -49,23 +49,31 @@ public class ContentAnalyzerService : IContentAnalyzer
     }
 
     public async Task<ProcessedContent> AnalyzeContentAsync(string text, IProgress<DocumentProcessingProgressUpdate>? progress = null)
-        => await AnalyzeContentCoreAsync(text, null, progress);
+        => await AnalyzeContentCoreAsync(text, null, null, progress);
 
     public async Task<ProcessedContent> AnalyzeContentAsync(
         string text,
         DocumentUnderstandingResult? understandingResult,
         IProgress<DocumentProcessingProgressUpdate>? progress = null)
-        => await AnalyzeContentCoreAsync(text, understandingResult, progress);
+        => await AnalyzeContentCoreAsync(text, understandingResult, null, progress);
+
+    public async Task<ProcessedContent> AnalyzeContentAsync(
+        string text,
+        DocumentUnderstandingResult? understandingResult,
+        int? pageCount,
+        IProgress<DocumentProcessingProgressUpdate>? progress = null)
+        => await AnalyzeContentCoreAsync(text, understandingResult, pageCount, progress);
 
     public async Task<ProcessedContent> AnalyzeContentAsync(
         string text,
         DocumentUnderstandingRun? understandingRun,
         IProgress<DocumentProcessingProgressUpdate>? progress = null)
-        => await AnalyzeContentCoreAsync(text, understandingRun, progress);
+        => await AnalyzeContentCoreAsync(text, understandingRun, null, progress);
 
     private async Task<ProcessedContent> AnalyzeContentCoreAsync(
         string text,
         object? understandingSource,
+        int? pageCount,
         IProgress<DocumentProcessingProgressUpdate>? progress = null)
     {
         var analysisStopwatch = Stopwatch.StartNew();
@@ -94,13 +102,19 @@ public class ContentAnalyzerService : IContentAnalyzer
                 ? budgetPlan.SelectedChunks
                 : cleanCoverageMap;
             var coverageMapWithBudgetSelection = MarkBudgetSelection(enrichedCoverageMap, budgetPlan);
+            var documentBudgetPlan = _tokenBudgetPlanner.PlanText(NormalizeText(text), "analysis");
 
             ReportAnalysisProgress(progress, "building-local-analysis", "Lap coverage map", "Dang tao tom tat va y chinh tu evidence cuc bo", cleanCoverageMap.Count, cleanCoverageMap.Count, "chunk", 85);
             var localResult = BuildLocalProcessedContent(normalizedText, coverageMapWithBudgetSelection);
             localResult.PresentationContract = ResolvePresentationContract(understandingSource);
             var refineCandidates = selectedCoverageMap.Any() ? selectedCoverageMap : cleanCoverageMap;
 
-            if (ShouldRunAnalysisRefine(normalizedText, cleanCoverageMap, out aiRefineSkippedReason))
+            if (ShouldRunAnalysisRefine(
+                    normalizedText,
+                    cleanCoverageMap,
+                    pageCount,
+                    documentBudgetPlan,
+                    out aiRefineSkippedReason))
             {
                 try
                 {
@@ -122,6 +136,15 @@ public class ContentAnalyzerService : IContentAnalyzer
                     aiRefineSkippedReason = "ollama-unavailable-or-failed";
                     _logger.LogWarning(ex, "AI analysis refine failed; keeping local coverage-based analysis.");
                 }
+            }
+            else if (aiRefineSkippedReason is "page-count-over-limit" or "analysis-token-budget-exceeded")
+            {
+                _logger.LogInformation(
+                    "AI refine skipped for large document: pageCount={PageCount}, estimatedTokens={EstimatedTokens}, maxInputTokens={MaxInputTokens}, reason={Reason}",
+                    pageCount,
+                    documentBudgetPlan.EstimatedInputTokens,
+                    documentBudgetPlan.MaxInputTokens,
+                    aiRefineSkippedReason);
             }
 
             ReportAnalysisProgress(progress, "completed-analysis", "Hoan tat phan tich", "Da tao analysis grounded tu coverage map", cleanCoverageMap.Count, cleanCoverageMap.Count, "chunk", 97);
@@ -303,11 +326,28 @@ public class ContentAnalyzerService : IContentAnalyzer
         };
     }
 
-    private bool ShouldRunAnalysisRefine(string normalizedText, IReadOnlyCollection<DocumentCoverageChunk> cleanCoverageMap, out string reason)
+    private bool ShouldRunAnalysisRefine(
+        string normalizedText,
+        IReadOnlyCollection<DocumentCoverageChunk> cleanCoverageMap,
+        int? pageCount,
+        TokenBudgetPlan documentBudgetPlan,
+        out string reason)
     {
         if (!_localLlmSettings.EnableAnalysisRefine)
         {
             reason = "disabled";
+            return false;
+        }
+
+        if (pageCount > 50)
+        {
+            reason = "page-count-over-limit";
+            return false;
+        }
+
+        if (!documentBudgetPlan.IsWithinBudget)
+        {
+            reason = "analysis-token-budget-exceeded";
             return false;
         }
 

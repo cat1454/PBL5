@@ -158,6 +158,11 @@ public sealed class DoclingDocumentParser : IExternalDocumentParser
 
                 markdown = repaired;
                 provider = "docling-repaired";
+                await File.WriteAllTextAsync(
+                    markdownPath,
+                    markdown,
+                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                    cancellationToken);
             }
 
             stopwatch.Stop();

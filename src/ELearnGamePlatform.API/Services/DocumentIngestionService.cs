@@ -199,6 +199,7 @@ public class DocumentIngestionService : IDocumentIngestionService
             var externalParsingSucceeded = extractionSelection.ExternalParsingSucceeded;
             var externalParsingElapsedMs = extractionSelection.ExternalParsingElapsedMs;
             var externalParsingError = extractionSelection.ExternalParsingError;
+            var externalMarkdownPath = extractionSelection.ExternalMarkdownPath;
 
             if (externalParsingSucceeded == true)
             {
@@ -223,6 +224,57 @@ public class DocumentIngestionService : IDocumentIngestionService
                 extractionProvider,
                 finalExtractedText.Length,
                 legacyExtractedText.Length);
+
+            var doclingMarkdownAvailable = await ParsedMarkdownExporter.IsValidExistingMarkdownAsync(
+                externalMarkdownPath,
+                documentParsingSettings.MinMarkdownLength);
+            if (doclingMarkdownAvailable)
+            {
+                logger.LogInformation(
+                    "Docling markdown available for document {DocumentId}: {MarkdownPath}",
+                    documentId,
+                    externalMarkdownPath);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Docling markdown missing or too short for document {DocumentId}; path={MarkdownPath}, error={Error}",
+                    documentId,
+                    externalMarkdownPath,
+                    externalParsingError);
+            }
+
+            if (!string.IsNullOrWhiteSpace(finalExtractedText) && !doclingMarkdownAvailable)
+            {
+                logger.LogInformation(
+                    "Fallback markdown export started for document {DocumentId}: provider={ExtractionProvider}",
+                    documentId,
+                    extractionProvider);
+            }
+
+            var markdownExport = await ParsedMarkdownExporter.EnsureAsync(
+                finalExtractedText,
+                document.FileName,
+                document.FilePath,
+                extractionProvider,
+                externalMarkdownPath,
+                documentParsingSettings);
+
+            if (markdownExport.Status == ParsedMarkdownExportStatus.FallbackExported)
+            {
+                logger.LogInformation(
+                    "Fallback markdown export succeeded for document {DocumentId}: path={MarkdownPath}, characterCount={CharacterCount}",
+                    documentId,
+                    markdownExport.Path,
+                    markdownExport.CharacterCount);
+            }
+            else if (markdownExport.Status == ParsedMarkdownExportStatus.SkippedEmptyText)
+            {
+                logger.LogWarning(
+                    "Fallback markdown skipped because finalExtractedText is empty for document {DocumentId}.",
+                    documentId);
+            }
+
             var understandingResult = await ApplyDocumentUnderstandingAsync(
                 document,
                 finalExtractedText,
@@ -350,7 +402,11 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var processedContent = await contentAnalyzer.AnalyzeContentAsync(finalExtractedText, understandingResult, analysisProgress);
+            var processedContent = await contentAnalyzer.AnalyzeContentAsync(
+                finalExtractedText,
+                understandingResult,
+                pageQualityReport?.TotalPages,
+                analysisProgress);
             var analysisChunkBudget = tokenBudgetPlanner.PlanChunks(processedContent.CoverageMap, "analysis");
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);

@@ -113,6 +113,47 @@ public class LocalFirstPipelineTests
     }
 
     [Fact]
+    public async Task ContentAnalyzer_SkipsAiRefineWhenPageCountExceedsLimit()
+    {
+        var ollama = new CapturingOllamaService();
+        var analyzer = CreateAnalyzer(ollama, TestSettings(enableRefine: true));
+
+        var result = await analyzer.AnalyzeContentAsync(
+            LongEvidenceText(),
+            (DocumentUnderstandingResult?)null,
+            pageCount: 51);
+
+        Assert.NotEmpty(result.CoverageMap);
+        Assert.NotEmpty(result.MainTopics);
+        Assert.DoesNotContain(
+            ollama.StructuredPrompts,
+            prompt => prompt.Contains("Compact evidence:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ContentAnalyzer_SkipsAiRefineWhenDocumentExceedsAnalysisBudget()
+    {
+        var ollama = new CapturingOllamaService();
+        var settings = TestSettings(enableRefine: true);
+        settings.ContextWindowTokens = 600;
+        settings.ReservedOutputTokens = 200;
+        settings.ReservedInstructionTokens = 150;
+        settings.SafetyMarginTokens = 100;
+        var analyzer = CreateAnalyzer(ollama, settings);
+
+        var result = await analyzer.AnalyzeContentAsync(
+            LongEvidenceText(),
+            (DocumentUnderstandingResult?)null,
+            pageCount: 10);
+
+        Assert.NotEmpty(result.CoverageMap);
+        Assert.NotEmpty(result.KeyPoints);
+        Assert.DoesNotContain(
+            ollama.StructuredPrompts,
+            prompt => prompt.Contains("Compact evidence:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ContentAnalyzer_WhenUnderstandingEnabled_UsesKnowledgeMapVisionContext()
     {
         var ollama = new CapturingOllamaService();

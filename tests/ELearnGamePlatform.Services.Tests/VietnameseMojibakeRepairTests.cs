@@ -39,6 +39,17 @@ public class VietnameseMojibakeRepairTests
     }
 
     [Fact]
+    public void TryRepair_NormalizesPrivateUseBulletWithoutVietnameseRepairCandidate()
+    {
+        const string markdown = "# System\n\n\uF0B7 Use Docling to generate questions.";
+
+        Assert.True(VietnameseMojibakeRepair.IsLikelyMojibake(markdown));
+        Assert.Equal(
+            "# System\n\n- Use Docling to generate questions.",
+            VietnameseMojibakeRepair.TryRepair(markdown));
+    }
+
+    [Fact]
     public void TryRepair_PreservesMarkdownHeadingsTablesAndLineBreaks()
     {
         const string mojibake =

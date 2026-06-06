@@ -12,10 +12,10 @@ A good pipeline should keep the relationship between titles, paragraphs, lists, 
 
 ## Key points:
 
-- l Upload source documents
-- l Extract readable text
-- l Analyze topics and key points
-- l Generate questions and slides
+- Upload source documents
+- Extract readable text
+- Analyze topics and key points
+- Generate questions and slides
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -29,11 +29,11 @@ The best production strategy is not to trust a single extraction tool blindly. T
 
 ## Key points:
 
-- l Validate file type
-- l Extract text
-- l Optionally parse to Markdown
-- l Analyze content
-- l Generate learning assets
+- Validate file type
+- Extract text
+- Optionally parse to Markdown
+- Analyze content
+- Generate learning assets
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -47,9 +47,9 @@ For learning material generation, structure is often as important as raw text ac
 
 ## Key points:
 
-- l OCR reads characters
-- l Parsing understands structure
-- l Markdown improves LLM context
+- OCR reads characters
+- Parsing understands structure
+- Markdown improves LLM context
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -63,10 +63,10 @@ A verifier can check whether the question is answerable from the source, whether
 
 ## Key points:
 
-- l Use topic tags
-- l Require source evidence
-- l Avoid vague questions
-- l Run verifier checks
+- Use topic tags
+- Require source evidence
+- Avoid vague questions
+- Run verifier checks
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -80,10 +80,10 @@ Good slides are readable, evidence-based, and connected to the original document
 
 ## Key points:
 
-- l One key message per slide
-- l Short body text
-- l Speaker notes
-- l Evidence from source
+- One key message per slide
+- Short body text
+- Speaker notes
+- Evidence from source
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -114,10 +114,10 @@ The system should log evidence and failure reasons so that developers can unders
 
 ## Key points:
 
-- l Clear schema
-- l Independent verifier
-- l Auto-repair when needed
-- l Evidence logging
+- Clear schema
+- Independent verifier
+- Auto-repair when needed
+- Evidence logging
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -131,10 +131,10 @@ For slide editing, the interface should support direct manipulation. Users shoul
 
 ## Key points:
 
-- l Visible progress
-- l Clear errors
-- l Editable outputs
-- l Fewer unnecessary clicks
+- Visible progress
+- Clear errors
+- Editable outputs
+- Fewer unnecessary clicks
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -148,10 +148,10 @@ For demonstrations, reliability is more important than using the most advanced p
 
 ## Key points:
 
-- l Blurry scans
-- l Complex tables
-- l Slow models
-- l Need fallback
+- Blurry scans
+- Complex tables
+- Slow models
+- Need fallback
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.
 
@@ -165,9 +165,9 @@ The next step is to compare results before and after enabling document parsing o
 
 ## Key points:
 
-- l Check headings
-- l Check tables
-- l Compare questions
-- l Compare slides
+- Check headings
+- Check tables
+- Compare questions
+- Compare slides
 
 Page conclusion: The content is short, structured, and suitable for testing the learning material generation pipeline.

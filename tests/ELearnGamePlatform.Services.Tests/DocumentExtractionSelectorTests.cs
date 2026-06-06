@@ -92,6 +92,7 @@ public class DocumentExtractionSelectorTests
             Provider = "docling",
             Markdown = markdown,
             PlainText = "Lesson Name Value Alpha 10",
+            OutputPath = "parsed/result.md",
             ElapsedMs = 42
         });
 
@@ -107,6 +108,7 @@ public class DocumentExtractionSelectorTests
         Assert.True(selection.ExternalParsingSucceeded);
         Assert.Equal(42, selection.ExternalParsingElapsedMs);
         Assert.Null(selection.ExternalParsingError);
+        Assert.Equal("parsed/result.md", selection.ExternalMarkdownPath);
 
         var document = new Document
         {

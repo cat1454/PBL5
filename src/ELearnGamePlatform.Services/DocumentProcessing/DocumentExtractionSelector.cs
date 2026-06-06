@@ -9,7 +9,8 @@ public sealed record DocumentExtractionSelection(
     string Provider,
     bool? ExternalParsingSucceeded,
     long? ExternalParsingElapsedMs,
-    string? ExternalParsingError);
+    string? ExternalParsingError,
+    string? ExternalMarkdownPath);
 
 public sealed class DocumentParsingException : Exception
 {
@@ -83,7 +84,8 @@ public static class DocumentExtractionSelector
                 settings.PreferMarkdownForGeneration ? provider : "legacy",
                 true,
                 parseResult.ElapsedMs,
-                null);
+                null,
+                parseResult.OutputPath);
         }
 
         var error = parseResult.Error
@@ -113,5 +115,5 @@ public static class DocumentExtractionSelector
         bool? externalParsingSucceeded = null,
         long? elapsedMs = null,
         string? error = null)
-        => new(text, "legacy", externalParsingSucceeded, elapsedMs, error);
+        => new(text, "legacy", externalParsingSucceeded, elapsedMs, error, null);
 }
