@@ -28,6 +28,21 @@ public class SlideGeneratorService : ISlideGenerator
     private const int FastOutlineChunkExcerptLimit = 650;
     private const int FastOutlineContextCharLimit = 10_000;
     private const int FastOutlineDefaultContextTokens = 8192;
+    private const string MarkdownOutlineGuidance = """
+- Treat Markdown headings as document structure. Use H1, H2, and H3 headings to organize the slide outline and preserve section order.
+- Use evidence from the nearby heading or section for each slide; do not mix unrelated sections.
+- Preserve the meaning of important Markdown tables. Turn supported tables into comparison, process, or statistic slides when appropriate.
+- Do not create generic slides when source evidence is weak. Prefer fewer concrete claims and mark unsupported ideas as insufficient.
+- Prefer one key message per slide and avoid copying long source paragraphs.
+- Treat slideType as the compatible layoutType for the final slide; choose it deliberately and do not add a separate layoutType JSON field.
+""";
+    private const string MarkdownSlideContentGuidance = """
+- Treat Markdown headings as source structure and use evidence from the nearest relevant heading or section.
+- Preserve table meaning. Convert important supported tables into concise comparison, process, or statistic body blocks.
+- Do not create generic content when source evidence is weak; state that evidence is insufficient instead of inventing filler.
+- Keep one keyMessage per slide and do not copy long paragraphs.
+- The final slide must contain heading, keyMessage, bodyBlocks, evidenceFromText, speakerNotes, and its layoutType is supplied by the outline slideType. Do not add a layoutType JSON field.
+""";
     private const int FastSlideDefaultContextTokens = 16384;
     private const int SlideRetryLimit = 1;
     private const int SlideAutoRepairLimit = 1;
@@ -337,6 +352,9 @@ Requirements:
 15. Do not copy OCR artifacts, CJK text, broken file names, or prompt-like wording into visible text.
 16. When clear main sections exist, prefer giving each major section at least one slide through preferredChunkIds.
 
+Markdown guidance:
+{MarkdownOutlineGuidance}
+
 Return JSON:
 {{
   ""title"": ""tên deck"",
@@ -392,6 +410,9 @@ Requirements:
 14. Avoid generic lines such as ""Tóm tắt nội dung chính của tài liệu"", ""nâng cao hiệu quả học tập"", or ""Làm rõ nội dung phần..."".
 15. Do not include OCR artifacts, CJK text, broken file names, source file paths, or placeholder wording.
 
+Markdown guidance:
+{MarkdownSlideContentGuidance}
+
 Return JSON:
 {{
   ""heading"": ""tiêu đề slide"",
@@ -433,6 +454,9 @@ Requirements:
 13. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
 14. If mode=timeline, emphasize chronology, turning points, and period transitions.
 15. Use rhythm, visualRole, chartIntent, and needsChartReview when the contract suggests them.
+
+Markdown guidance:
+{MarkdownOutlineGuidance}
 
 Return JSON:
 {{
@@ -500,6 +524,9 @@ Requirements:
 13. If mode=summary, prioritize concise synthesis and retention.
 14. If mode=exam-review, prioritize high-yield facts, comparisons, and review cues.
 15. If mode=timeline, emphasize chronology, turning points, and period transitions.
+
+Markdown guidance:
+{MarkdownOutlineGuidance}
 
 Return JSON:
 {{
@@ -573,6 +600,9 @@ Requirements:
 - Keep the content inside the selected section scope and preserve the local teaching sequence of that chapter/section.
 - For lecture mode, explain like a teacher guiding learners through a chapter, not like a generic summary.
 - If needsChartReview=true, do not invent exact chart geometry or unsupported numeric claims; mention review in verifier issues if needed.
+
+Markdown guidance:
+{MarkdownSlideContentGuidance}
 
 Return JSON:
 {{
@@ -765,6 +795,9 @@ Requirements:
 6. Slide 1 must remain Title and at least one early slide must remain SectionDivider.
 7. Do not invent facts outside the analyzed content and coverage map.
 
+Markdown guidance:
+{MarkdownOutlineGuidance}
+
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
@@ -856,6 +889,9 @@ Requirements:
 5. Preserve the slideType structure and keep 2-4 short bodyBlocks for normal content slides.
 6. speakerNotes must sound like a teacher explaining the slide and transitioning to the next idea.
 
+Markdown guidance:
+{MarkdownSlideContentGuidance}
+
 Return JSON only:
 {BuildSlideContentExample()}";
 
@@ -920,6 +956,9 @@ Requirements:
 3. Make headings, goals, and keyMessage clean and specific in Vietnamese.
 4. Include Title first, one early SectionDivider, and a varied lesson rhythm.
 
+Markdown guidance:
+{MarkdownOutlineGuidance}
+
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
 
@@ -973,6 +1012,9 @@ Requirements:
 4. Assign a clear teaching role to every slide: hook, concept, explanation, example, comparison, takeaway, or review.
 5. Avoid OCR artifacts, repeated headings, raw chapter labels, generic claims, and template wording.
 6. Include Title first, one early SectionDivider, and a varied lesson rhythm.
+
+Markdown guidance:
+{MarkdownOutlineGuidance}
 
 Return JSON only:
 {BuildOutlineExample(targetCount)}";
@@ -1038,6 +1080,9 @@ Requirements:
 4. Return JSON only using heading, subheading, goal, keyMessage, bodyBlocks, evidenceFromText, speakerNotes, accentTone.
 5. bodyBlocks must be an array of strings only; do not return objects in bodyBlocks.
 
+Markdown guidance:
+{MarkdownSlideContentGuidance}
+
 Return JSON only:
 {BuildSlideContentExample()}";
 
@@ -1097,6 +1142,9 @@ Requirements:
 4. Keep 2-4 short bodyBlocks for normal content slides and clear teacher-style speaker notes.
 5. Each visible block must include a concrete term, actor, event, contrast, cause, or fact supported by the evidence.
 6. bodyBlocks must be an array of strings only; evidenceFromText and speakerNotes must be strings only.
+
+Markdown guidance:
+{MarkdownSlideContentGuidance}
 
 Return JSON only:
 {BuildSlideContentExample()}";

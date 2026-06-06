@@ -873,6 +873,17 @@ public class SlidesController : AuthenticatedControllerBase
             {
                 return;
             }
+
+            if (!_jobStore.TrySealCompletion(jobId))
+            {
+                _logger.LogInformation(
+                    "[SlideGen:{JobId}] Phase=job Step=completion-seal-rejected FolderId={FolderId} DocumentId={DocumentId}",
+                    jobId,
+                    context.FolderProjectId,
+                    context.DocumentId);
+                return;
+            }
+
             persistedDeck.Status = SlideDeckStatus.Completed;
             persistedDeck.CompletedAt = DateTime.UtcNow;
             persistedDeck.UpdatedAt = DateTime.UtcNow;

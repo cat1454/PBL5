@@ -81,6 +81,16 @@ Generate {count} canonical questions.
 Allowed types: {string.Join(", ", questionTypes.Where(QuestionStudioDefaults.IsSupportedGenerationType))}
 Allowed difficulties: {string.Join(", ", difficulties)}
 
+Requirements:
+- Treat the topic as the source section's Markdown heading path when it represents H1/H2/H3 hierarchy, and keep every question within that topic.
+- Generate from this specific source section, not from a generic document summary.
+- Ground every question in a specific excerpt from the source unit and copy or closely paraphrase that excerpt into sourceEvidence.
+- explanation must quote a short evidence phrase or clearly paraphrase why the evidence supports the correct answer.
+- Do not generate from front matter, table of contents, references/bibliography, standalone page numbers, or repeated headers and footers.
+- If the source unit contains a reliable Markdown table, generate interpretation, comparison, trend, relationship, or process questions where suitable.
+- If the evidence is weak, noisy, ambiguous, or insufficient, return fewer questions instead of inventing facts.
+- Keep the JSON schema below unchanged.
+
 Return JSON only:
 {{
   ""questions"": [

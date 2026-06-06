@@ -15,6 +15,7 @@ public interface ISlideGenerationJobStore
     bool PauseJob(string jobId);
     bool ResumeJob(string jobId);
     bool CancelJob(string jobId);
+    bool TrySealCompletion(string jobId);
     Task<bool> WaitForExecutionAsync(string jobId);
     void UpdateJob(string jobId, Action<SlideGenerationJobState> updater);
 }
@@ -143,7 +144,10 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 
         lock (state)
         {
-            if (state.Status is not ("queued" or "running") || state.IsCancelled || state.IsSuperseded)
+            if (state.Status is not ("queued" or "running") ||
+                state.IsCancelled ||
+                state.IsSuperseded ||
+                state.IsCompletionSealed)
             {
                 return false;
             }
@@ -170,7 +174,11 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         TaskCompletionSource<bool>? signal;
         lock (state)
         {
-            if (!state.IsPaused || state.Status != "paused" || state.IsCancelled || state.IsSuperseded)
+            if (!state.IsPaused ||
+                state.Status != "paused" ||
+                state.IsCancelled ||
+                state.IsSuperseded ||
+                state.IsCompletionSealed)
             {
                 return false;
             }
@@ -198,7 +206,9 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         TaskCompletionSource<bool>? signal;
         lock (state)
         {
-            if (state.Status is "completed" or "failed" or "cancelled" or "superseded" || state.IsCancelled)
+            if (state.Status is "completed" or "failed" or "cancelled" or "superseded" ||
+                state.IsCancelled ||
+                state.IsCompletionSealed)
             {
                 return false;
             }
@@ -248,6 +258,34 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
         return false;
     }
 
+    public bool TrySealCompletion(string jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var state))
+        {
+            return false;
+        }
+
+        lock (state)
+        {
+            if (state.Status is not ("queued" or "running") ||
+                state.IsPaused ||
+                state.IsCancelled ||
+                state.IsSuperseded ||
+                state.IsCompletionSealed)
+            {
+                return false;
+            }
+
+            state.IsCompletionSealed = true;
+            state.Stage = "saving-deck";
+            state.StageLabel = "Saving deck";
+            state.Message = "Saving completed slide deck.";
+            state.EstimatedRemainingSeconds = 0;
+            state.UpdatedAt = DateTime.UtcNow;
+            return true;
+        }
+    }
+
     public void UpdateJob(string jobId, Action<SlideGenerationJobState> updater)
     {
         if (!_jobs.TryGetValue(jobId, out var state))
@@ -293,7 +331,8 @@ public class SlideGenerationJobStore : ISlideGenerationJobStore
 
         lock (state)
         {
-            if (state.Status is "completed" or "failed" or "cancelled" or "superseded")
+            if (state.Status is "completed" or "failed" or "cancelled" or "superseded" ||
+                state.IsCompletionSealed)
             {
                 return;
             }
@@ -342,6 +381,7 @@ public class SlideGenerationJobState
     public bool IsSuperseded { get; set; }
     public bool IsPaused { get; set; }
     public bool IsCancelled { get; set; }
+    public bool IsCompletionSealed { get; set; }
     internal TaskCompletionSource<bool> ResumeSignal { get; set; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

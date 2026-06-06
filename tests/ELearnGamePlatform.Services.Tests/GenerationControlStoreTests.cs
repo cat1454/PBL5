@@ -47,6 +47,32 @@ public class GenerationControlStoreTests
     }
 
     [Fact]
+    public void SlideJob_CompletionSealRejectsLateControlsAndSupersede()
+    {
+        var store = new SlideGenerationJobStore();
+        var jobId = store.CreateFolderJob(42, 10, "user-1");
+        store.UpdateJob(jobId, state => state.Status = "running");
+
+        Assert.True(store.TrySealCompletion(jobId));
+        Assert.False(store.PauseJob(jobId));
+        Assert.False(store.CancelJob(jobId));
+
+        var newerJobId = store.CreateFolderJob(42, 10, "user-1");
+
+        Assert.True(store.TryGetJob(jobId, out var sealedJob));
+        Assert.Equal("running", sealedJob?.Status);
+        Assert.True(sealedJob?.IsCompletionSealed == true);
+        Assert.False(sealedJob?.IsSuperseded == true);
+        Assert.True(store.TryGetLatestJobForFolder(42, out var latestJob));
+        Assert.Equal(newerJobId, latestJob?.JobId);
+
+        store.UpdateJob(jobId, state => state.Status = "completed");
+
+        Assert.True(store.TryGetJob(jobId, out var completedJob));
+        Assert.Equal("completed", completedJob?.Status);
+    }
+
+    [Fact]
     public async Task QuestionStudioRunControl_PauseResumeAndCancelReleaseWaiters()
     {
         var store = new QuestionStudioRunControlStore();

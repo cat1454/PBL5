@@ -1,331 +1,340 @@
-# ELearn Game Platform
+# PBL5 - AI 学習ワークスペース
 
-ELearn Game Platform は、学習資料をインタラクティブな学習体験に変換する `.NET + React` の MVP です。資料のアップロード、OCR/テキスト抽出、ローカル AI 分析、問題生成、クイズ/フラッシュカード/ストリーク/模擬テスト、進捗管理、ワークスペース/フォルダー管理、スライドデッキ生成、プレビュー、編集、エクスポートを扱います。
+PBL5 は、ドキュメントを構造化コンテンツ、問題バンク、学習アクティビティ、編集可能なスライドへ変換する多言語学習 MVP です。ASP.NET Core、React、PostgreSQL、Ollama、Tesseract、およびローカルのドキュメント処理を中心とした local-first 構成です。
 
-このリポジトリは現在、**PBL デモ向けの MVP+** です。主要なフローはエンドツーエンドでデモできますが、本番運用向けではありません。ジョブ進捗はまだメモリ上にあり、バックグラウンド処理はデモ向けで、自動テストとセキュリティ強化もまだ十分ではありません。
+[Tiếng Việt](README.vi.md) · [English](README.en.md) · [言語選択](README.md)
 
-## 現在の機能
-
-- **JWT 認証**: 登録、ログイン、現在のユーザー取得、基本ロール `ADMIN`、`INSTRUCTOR`、`LEARNER`。
-- **ドキュメント処理**: `PDF`、`DOCX`、`PNG`、`JPG`、`JPEG` のアップロード、ファイル検証、PdfPig/OpenXML/Tesseract によるテキスト抽出、OCR クリーンアップ、Ollama による summary、topics、key points、language、structure、coverage metadata の分析。
-- **問題生成**: ドキュメントから問題を生成し、ジョブ進捗を追跡し、検証と 1 回の auto-repair を行い、PostgreSQL に保存します。
-- **Question Studio**: 生成 run の作成、draft のレビュー、編集、accept/reject/quarantine/restore、承認済み draft の question bank への import。
-- **学習フロー**: quiz、flashcards、streak mode、game session、practice test、learning attempts、review queue、document 単位の progress summary。
-- **Analytics**: 実データに基づく personal dashboard、heatmap、skill/radar、checklist、recent activity。
-- **Workspace/Folder**: workspace/folder の作成、複数 source のアップロード、slide 用 source/section の選択、学習資料の管理。
-- **Slide Studio**: document または workspace/folder から slide を生成し、content scope を選択し、HTML preview、slide item 編集、image candidate の refresh/select、HTML export、ブラウザー Print/Save as PDF、basic PPTX export を行います。
-
-## 技術スタック
-
-### Backend
-
-- ASP.NET Core Web API、project target は `net8.0`
-- `global.json` で固定された .NET SDK: `9.0.306`
-- Entity Framework Core 8
-- PostgreSQL + Npgsql
-- JWT Bearer Authentication
-- Tesseract OCR、PdfPig、OpenXML、ImageSharp
-- Ollama による local AI、デフォルト model は `qwen2.5:7b`
-
-### Frontend
-
-- React 18
-- React Router DOM 6
-- Axios
-- React Scripts
-- React Icons
-
-### Runtime
-
-- Backend: `http://localhost:5000`
-- Swagger: `http://localhost:5000/swagger`
-- Frontend dev server: `http://localhost:3000`
-- Frontend proxy: `http://127.0.0.1:5000`
-- Database: EF Core migrations を使う PostgreSQL
-
-## リポジトリ構成
+## プロダクトフロー
 
 ```text
-src/
-  ELearnGamePlatform.API/             Web API, controllers, DI, config, auth, runtime uploads
-  ELearnGamePlatform.Core/            Entities, enums, interfaces, shared contracts
-  ELearnGamePlatform.Infrastructure/  DbContext, repositories, migrations, Ollama integration
-  ELearnGamePlatform.Services/        OCR, document processing, AI, question, slide services
-
-client/
-  public/                             Static frontend entrypoint
-  src/                                React frontend source
-
-tests/                                Automated test projects
-docs/                                 Guides, research, working notes, agent context
-benchmarks/                           OCR/document benchmark harness
-scripts/                              Repo helper scripts
+ドキュメントをアップロード
+  -> テキスト抽出 / OCR
+  -> 構造・内容分析
+  -> Question Studio で問題を生成・レビュー
+  -> Quiz / Flashcards / Test / Streak
+  -> スライドを生成・編集・エクスポート
 ```
 
-`artifacts/`、`.artifacts/`、`.tmp/`、`commit-history/`、`src/ELearnGamePlatform.API/uploads/`、`src/ELearnGamePlatform.API/logs/`、`src/ELearnGamePlatform.API/tessdata/*.traineddata`、`poppler-25.12.0/` などは local/generated data または runtime asset であり、主要な source file ではありません。
+現在実装されている主な機能:
 
-## 環境要件
+- **Workspace と Source:** workspace を作成し、複数の source をアップロードして統合 studio で作業できます。
+- **ドキュメント処理:** PDF、DOCX、画像に対応し、text layer、OpenXML、Tesseract OCR、Poppler を使用します。
+- **AI analysis:** Ollama により topic、summary、coverage、問題・スライド用の根拠データを作成します。
+- **Question Studio V2:** background generation、pause/resume/cancel、draft のレビュー・編集、accept/reject/quarantine、question bank への import に対応します。
+- **Study Hub:** quiz、flashcards、test mode、streak mode、review queue、学習進捗を提供します。
+- **Slide Studio:** 選択した source から deck を生成し、job progress、編集、autosave、SignalR によるリアルタイム連携、HTML・print/PDF・基本 PPTX export を提供します。
+- **Dashboard と analytics:** 活動概要、個人進捗、学習履歴、CSV export を提供します。
+- **Auth と admin:** JWT による登録・ログイン、protected route、role ベースの管理画面を備えます。
 
-事前にインストールしてください:
+## アーキテクチャ
+
+```mermaid
+flowchart LR
+    UI[React 18 client] -->|REST + JWT| API[ASP.NET Core Web API]
+    UI <-->|SignalR| HUB[Slide editor hub]
+    API --> DB[(PostgreSQL)]
+    API --> INGEST[Document ingestion]
+    INGEST --> PARSE[PdfPig / OpenXML / Tesseract / optional Docling]
+    API --> AI[Analysis, questions, slides]
+    AI --> OLLAMA[Ollama]
+    API --> FILES[uploads and generated assets]
+```
+
+Backend の責務:
+
+| Project | 責務 |
+| --- | --- |
+| `src/ELearnGamePlatform.API` | Entrypoint、controller、auth、DI、background job store、upload、SignalR |
+| `src/ELearnGamePlatform.Core` | Entity、enum、interface、option、共通 contract |
+| `src/ELearnGamePlatform.Infrastructure` | EF Core、PostgreSQL、migration、repository、Ollama client |
+| `src/ELearnGamePlatform.Services` | OCR、document processing、AI analysis、question generation、slide generation |
+| `client` | React Router、Axios、i18n、Workspace Studio、Study Hub、Slide Studio |
+| `tests` | 重要な service と contract の xUnit regression test |
+| `benchmarks` | OCR benchmark runner とローカル benchmark data |
+
+## 技術とバージョン
+
+| Component | 現在の runtime |
+| --- | --- |
+| .NET SDK | `global.json` で固定された `9.0.306` |
+| Target framework | `net8.0` |
+| Backend | ASP.NET Core Web API、EF Core 8、Npgsql、JWT、SignalR、Swagger |
+| Frontend | React `18.2`、React Router `6.22`、Axios、Create React App |
+| Node.js | Docker build では Node.js 20 |
+| Database | Docker Compose では PostgreSQL 16 |
+| Local AI | Ollama、default model `qwen3:4b` |
+| OCR | Tesseract 5 の `eng` と `vie`、scan PDF 用 Poppler `pdftoppm` |
+| Slide export | HTML、print-friendly HTML、OpenXML による基本 PPTX |
+
+## 必要環境
+
+完全なローカル環境には以下が必要です。
 
 - .NET SDK `9.0.306`
-- Node.js 18+
-- PostgreSQL 14+
-- Ollama
-- Tesseract OCR
-- Git
+- Node.js 20 と npm
+- PostgreSQL 16 または互換バージョン
+- `http://localhost:11434` で動作する Ollama
+- `qwen3:4b` model
+- Tesseract language data の `eng.traineddata` と `vie.traineddata`
+- `PATH` 上の Poppler `pdftoppm`、または service が検出できるローカル Poppler directory
+- PostgreSQL/backend を container で実行する場合は Docker Desktop
+- optional Docling parser を有効にする場合のみ Python と Docling
 
-OCR service は次の場所で tessdata を探します:
+確認コマンド:
 
-```text
-src/ELearnGamePlatform.API/tessdata
+```powershell
+dotnet --version
+node --version
+npm --version
+ollama --version
+psql --version
 ```
-
-最低限、次のファイルを推奨します:
-
-```text
-eng.traineddata
-vie.traineddata
-```
-
-スキャン PDF では、`poppler-25.12.0/Library/bin/pdftoppm.exe` が存在する場合は local Poppler を使い、存在しない場合は `PATH` 上の `pdftoppm` に fallback します。
-
-## ローカル設定
-
-Backend の主な設定ファイル:
-
-```text
-src/ELearnGamePlatform.API/appsettings.json
-```
-
-placeholder のみを使った local 設定例:
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_LOCAL_PASSWORD;SslMode=disable"
-  },
-  "JwtSettings": {
-    "Issuer": "ELearnGamePlatform",
-    "Audience": "ELearnGamePlatform.Client",
-    "SecretKey": "CHANGE_THIS_TO_A_LONG_LOCAL_DEV_SECRET",
-    "ExpirationMinutes": 10080
-  },
-  "AdminSeed": {
-    "Enabled": true,
-    "Email": "admin@example.local",
-    "Password": "CHANGE_THIS_ADMIN_PASSWORD",
-    "FullName": "System Admin"
-  },
-  "OllamaSettings": {
-    "BaseUrl": "http://localhost:11434",
-    "Model": "qwen2.5:7b",
-    "AnalysisModel": "qwen2.5:7b",
-    "GenerationModel": "qwen2.5:7b",
-    "VerificationModel": "qwen2.5:7b"
-  }
-}
-```
-
-本物の password、API key、個人設定を repository に commit しないでください。
 
 ## ローカル実行
 
-リポジトリを clone します:
+### 1. PostgreSQL の準備
 
-```powershell
-git clone https://github.com/cat1454/PBL5.git
-cd PBL5
+専用 database と user を作成し、connection string は source control の外で管理します。
+
+```text
+Host=localhost;Port=5432;Database=ELearnGameDB;Username=<db-user>;Password=<db-password>;SslMode=disable
 ```
 
-PostgreSQL database を作成します:
-
-```sql
-CREATE DATABASE "ELearnGameDB";
-```
-
-Ollama model を準備します:
+PostgreSQL のみ Docker で起動できます。
 
 ```powershell
-ollama pull qwen2.5:7b
-ollama list
+Copy-Item .env.example .env
+# .env に POSTGRES_PASSWORD、JWT_SECRET、ADMIN_PASSWORD を設定
+docker compose up -d postgres
 ```
 
-Backend を起動します:
+### 2. Ollama の準備
 
 ```powershell
-cd src\ELearnGamePlatform.API
+ollama pull qwen3:4b
+ollama serve
+```
+
+Ollama が service として起動済みの場合、別の `ollama serve` は不要です。
+
+### 3. Backend の安全な設定
+
+API は .NET User Secrets に対応しています。実際の secret を `appsettings.json` に追加しないでください。
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ELearnGameDB;Username=<db-user>;Password=<db-password>;SslMode=disable" --project src\ELearnGamePlatform.API
+dotnet user-secrets set "JwtSettings:SecretKey" "<long-random-secret-at-least-32-characters>" --project src\ELearnGamePlatform.API
+dotnet user-secrets set "AdminSeed:Enabled" "false" --project src\ELearnGamePlatform.API
+```
+
+ローカル admin を seed する場合は `AdminSeed:Enabled` を有効にし、email/password を User Secrets で設定します。
+
+.NET の階層型 environment variable は二重 underscore を使用します。
+
+```powershell
+$env:ConnectionStrings__DefaultConnection = "<connection-string>"
+$env:JwtSettings__SecretKey = "<long-random-secret>"
+$env:OllamaSettings__BaseUrl = "http://localhost:11434"
+```
+
+### 4. API の起動
+
+```powershell
 dotnet restore
-dotnet run
+dotnet run --project src\ELearnGamePlatform.API
 ```
 
-別の terminal で frontend を起動します:
+- API: `http://localhost:5000`
+- Development 環境の Swagger: `http://localhost:5000/swagger`
+- SignalR hub: `http://localhost:5000/hubs/slide-editor`
+
+起動時に API は未適用の EF Core migration を自動適用し、重要な column を検証します。Migration または schema が不正な場合は起動を停止します。
+
+### 5. Frontend の起動
+
+別の terminal を開きます。
 
 ```powershell
-cd client
-npm install
+Set-Location client
+npm ci
 npm start
 ```
 
-アプリを開きます:
+- Frontend: `http://localhost:3000`
+- Development client は `http://localhost:5000/api` を呼び出します。
 
-```text
-http://localhost:3000
+登録またはログイン後の主要フローは `/workspaces` から始まります。`/documents` と `/folders` は互換 redirect のみです。
+
+## Upload、OCR、Docling
+
+Backend が受け付ける形式:
+
+| Format | 主な pipeline |
+| --- | --- |
+| `.pdf` | PdfPig text layer。scan page は Poppler で render し、Tesseract で処理可能 |
+| `.docx` | OpenXML |
+| `.png`, `.jpg`, `.jpeg` | Tesseract OCR |
+
+Default limit は `50 MB` で、`FileUpload.MaxFileSizeInMB` から設定します。
+
+Docling は optional で、default では無効です。
+
+```powershell
+python -m pip install docling
+docling --help
+$env:DocumentParsing__Enabled = "true"
+dotnet run --project src\ELearnGamePlatform.API
 ```
 
-## 推奨デモフロー
+Legacy extraction は常に先に実行されます。`DocumentParsing.FallbackToLegacy=true` の場合、command failure、timeout、短すぎる Markdown、encoding failure が発生しても ingestion を失敗させず legacy text に戻ります。有効な Markdown は `uploads/parsed` に保存されます。詳細は [Document Parsing with Docling](docs/guides/DOCUMENT_PARSING.md) を参照してください。
 
-1. 登録またはログインします。
-2. workspace を作成するか default workspace を使います。
-3. PDF/DOCX/画像 document をアップロードします。
-4. document processing の完了を待ちます。
-5. analysis、structure、OCR text を確認します。
-6. Question Studio を開くか、直接 questions を生成します。
-7. Question Studio を使う場合は draft を review/import します。
-8. quiz、flashcards、streak、practice test で学習します。
-9. analytics と learning progress を確認します。
-10. Slide Studio を開き、scope を選び、deck を生成し、preview/edit します。
-11. HTML、browser Print/Save as PDF、basic PPTX として export します。
+## 重要な設定
 
-## 主な API グループ
+| Section | 用途 |
+| --- | --- |
+| `ConnectionStrings.DefaultConnection` | PostgreSQL connection |
+| `JwtSettings` | Issuer、audience、secret、token lifetime |
+| `AdminSeed` | Startup 時の optional admin seed |
+| `OllamaSettings` | Base URL、model、timeout、temperature、context |
+| `LocalLlmSettings` | Token budget、chunking、analysis profile |
+| `OcrSettings` | DPI、retry、quality threshold、preprocessing |
+| `DocumentParsing` | Docling CLI、timeout、fallback、Markdown output |
+| `DocumentUnderstanding` | Optional layout、vision、table analysis |
+| `FileUpload` | File size と extension allowlist |
+| `ImagePipeline` | Planning、web source、rerank、review、image fallback |
+| `Cors.AllowedOrigins` | API を呼び出せる frontend origin |
 
-login/register を除き、ほとんどの endpoint は JWT Bearer token が必要です。
+OpenAI image generation は image pipeline の fallback のみで、`OPENAI_API_KEY` が必要です。Upload、OCR、Ollama、question generation、基本的な text slide generation には必要ありません。
 
-```text
-Auth
-POST   /api/auth/register
-POST   /api/auth/login
-GET    /api/auth/me
+## Docker
 
-Admin
-GET    /api/admin/overview
+Environment file を作成します。
 
-Documents
-POST   /api/documents/upload
-GET    /api/documents/{id}
-GET    /api/documents/{id}/progress
-GET    /api/documents/{id}/structure
-GET    /api/documents/{id}/understanding/latest
-POST   /api/documents/{id}/analyze-structure
-GET    /api/documents/user/{userId}
-DELETE /api/documents/{id}
-
-Workspaces / Folders
-POST   /api/workspaces
-GET    /api/workspaces/user/{userId}
-GET    /api/workspaces/default/user/{userId}
-GET    /api/workspaces/{id}
-DELETE /api/workspaces/{id}
-POST   /api/workspaces/{id}/sources/upload
-GET    /api/workspaces/{id}/sources
-PUT    /api/workspaces/{id}/sources/{sourceId}/slide-selection
-POST   /api/folders
-GET    /api/folders/user/{userId}
-GET    /api/folders/{id}
-DELETE /api/folders/{id}
-POST   /api/folders/{id}/sources/upload
-GET    /api/folders/{id}/sources
-PUT    /api/folders/{id}/sources/{sourceId}/slide-selection
-
-Questions
-POST   /api/questions/generate/start
-GET    /api/questions/generate/progress/{jobId}
-POST   /api/questions/generate
-GET    /api/questions/document/{documentId}
-GET    /api/questions/document/{documentId}/metrics
-GET    /api/questions/{id}
-PUT    /api/questions/{id}
-DELETE /api/questions/{id}
-
-Question Studio
-POST   /api/question-studio/runs/start
-GET    /api/question-studio/runs/{runId}
-GET    /api/question-studio/drafts
-PUT    /api/question-studio/drafts/{draftId}
-POST   /api/question-studio/drafts/{draftId}/accept
-POST   /api/question-studio/drafts/{draftId}/reject
-POST   /api/question-studio/drafts/{draftId}/quarantine
-POST   /api/question-studio/drafts/{draftId}/restore
-POST   /api/question-studio/import
-
-Games / Learning
-POST   /api/games/sessions
-GET    /api/games/sessions/{sessionId}
-POST   /api/games/sessions/{sessionId}/start
-POST   /api/games/sessions/{sessionId}/submit
-GET    /api/games/quiz/{documentId}
-POST   /api/games/quiz/{documentId}/answers
-GET    /api/games/flashcards/{documentId}
-GET    /api/games/user/{userId}
-POST   /api/learning/attempts
-POST   /api/learning/tests/start
-POST   /api/learning/tests/submit
-GET    /api/learning/tests/document/{documentId}
-GET    /api/learning/tests/summary/{documentId}
-GET    /api/learning/progress/document/{documentId}
-GET    /api/learning/review-queue/{documentId}
-GET    /api/learning/progress/summary/{documentId}
-GET    /api/learning/export/attempts.csv
-GET    /api/learning/export/progress.csv
-GET    /api/learning/export/test-results.csv
-
-Analytics
-GET    /api/analytics/personal
-POST   /api/analytics/events
-
-Slides
-POST   /api/slides/generate/start
-POST   /api/slides/folders/{folderId}/generate/start
-GET    /api/slides/generate/progress/{jobId}
-GET    /api/slides/document/{documentId}
-GET    /api/slides/document/{documentId}/html
-GET    /api/slides/folders/{folderId}
-GET    /api/slides/folders/{folderId}/html
-GET    /api/slides/{deckId}/export/html
-GET    /api/slides/{deckId}/export/print
-GET    /api/slides/{deckId}/export/pptx
-PUT    /api/slides/{deckId}/items/{itemId}
-POST   /api/slides/{deckId}/items/{itemId}/images/refresh
-POST   /api/slides/{deckId}/items/{itemId}/images/select
+```powershell
+Copy-Item .env.example .env
 ```
 
-## merge/push 前の確認
+Placeholder を設定して実行します。
 
-Backend:
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+現在の service:
+
+| Service | URL/port |
+| --- | --- |
+| PostgreSQL | `localhost:5432` |
+| Backend | `http://localhost:5000` |
+| Frontend nginx | `http://localhost:8080` |
+
+重要な注意:
+
+- Backend container は host の Ollama に `http://host.docker.internal:11434` で接続します。
+- `docker-compose.yml` は現在 frontend を production API `https://pbl5-api.danangtoiiu.live` 向けに build します。
+- Default CORS に `http://localhost:8080` は含まれないため、現在の Compose は完全な local stack より deployment 向けです。
+- Local development では PostgreSQL または backend を Docker で実行し、React development server を port `3000` で実行する構成が安定しています。
+- `docker-compose.cloudflare.yml` と [Cloudflare deployment guide](docs/guides/cloudflare-tunnel-test-deploy.md) は tunnel deployment 用です。
+
+Stack の停止:
+
+```powershell
+docker compose down
+```
+
+PostgreSQL と upload volume を保持する場合は `-v` を追加しないでください。
+
+## Build と test
 
 ```powershell
 dotnet build ELearnGamePlatform.sln
-```
+dotnet test tests\ELearnGamePlatform.Services.Tests\ELearnGamePlatform.Services.Tests.csproj
 
-Frontend:
-
-```powershell
-cd client
+Set-Location client
 npm run build
-```
-
-必要に応じて frontend test:
-
-```powershell
-cd client
 npm test -- --watchAll=false
 ```
 
+OCR benchmark:
+
+```powershell
+dotnet run --project benchmarks\OcrBenchmark
+```
+
+Local benchmark input は `benchmarks/input-documents` に置き、結果は `benchmarks/output` に出力されます。
+
+## Runtime data
+
+- Project から実行する場合、upload file と parsed Markdown は `src/ELearnGamePlatform.API/uploads` に保存されます。Container では `/app/uploads` volume を使用します。
+- Slide image と asset は static-file または upload directory から配信されます。
+- Document、question、slide の background job state は現在 memory 内に保持されます。API restart で active job state が失われる場合があります。
+- 業務データは EF Core を通して PostgreSQL に保存され、高度な metadata の一部は JSON/JSONB を使用します。
+
 ## 現在の制限
 
-- 本番運用向けではありません。
-- Authentication は local/demo JWT レベルで、refresh token、password reset、email verification、rate limit、完全な audit log は未実装です。
-- Job progress は in-memory のため、backend restart で実行中 job の状態が失われる可能性があります。
-- Background processing はまだ簡易 runtime task ベースで、durable queue ではありません。
-- AI 品質は local Ollama model、マシン性能、入力 document の品質に依存します。
-- Slide PDF export は browser Print/Save as PDF flow を使い、backend の binary PDF rendering ではありません。
-- PPTX export は basic で、HTML preview と pixel-perfect ではありません。
+- Docling と高度な Document Understanding は default で無効であり、legacy extraction/OCR が baseline です。
+- Vision analysis を有効にする場合は別の vision model が必要です。
+- PPTX export は基本版であり、HTML/editor と pixel-perfect ではなく、すべての presentation 機能を保持しません。
+- “Save as PDF” は backend が生成する PDF binary ではなく、print-friendly HTML と browser print dialog を使用します。
+- Slide image web search は外部 source に依存します。OpenAI image generation は設定され fallback に選ばれた場合のみ実行されます。
+- In-memory job store は複数 API instance や job 途中の restart には適していません。
+- Repo 内に継続管理された信頼できる product screenshot がないため、runtime asset を product image として使用していません。
 
-## 関連ドキュメント
+## Troubleshooting
 
-- [Docs Index](./docs/README.md)
-- [Architecture](./docs/guides/ARCHITECTURE.md)
-- [Run Guide](./docs/guides/RUN_GUIDE.md)
-- [Frontend Handoff](./docs/guides/FRONTEND_HANDOFF.md)
-- [Roadmap](./docs/guides/ROADMAP.md)
-- [Agent Context](./docs/agent/PROJECT_CONTEXT.md)
+### API が startup 中に停止する
+
+PostgreSQL、connection string、migration を確認します。
+
+```powershell
+dotnet tool restore
+dotnet ef migrations list --project src\ELearnGamePlatform.Infrastructure --startup-project src\ELearnGamePlatform.API
+```
+
+### Ollama が応答しない
+
+```powershell
+ollama list
+ollama run qwen3:4b
+```
+
+`OllamaSettings.BaseUrl` が `http://localhost:11434`、API が container 内の場合は `host.docker.internal` を使用していることを確認します。
+
+### Scan PDF の OCR text が空になる
+
+`pdftoppm` と language data を確認します。
+
+```powershell
+pdftoppm -h
+Get-ChildItem src\ELearnGamePlatform.API\tessdata
+```
+
+### Frontend で CORS error、または誤った API を呼び出す
+
+Development default は `http://localhost:5000` です。Production build では build 前に `REACT_APP_API_BASE_URL` を設定し、対応する frontend origin を `Cors.AllowedOrigins` に追加します。
+
+### Docling が動作しない
+
+```powershell
+Get-Command docling
+python -m pip show docling
+docling --help
+```
+
+External parser の失敗時も ingestion を継続するには `DocumentParsing.FallbackToLegacy=true` を維持します。
+
+## 技術ドキュメント
+
+- [Architecture](docs/guides/ARCHITECTURE.md)
+- [Development guide](docs/guides/DEVELOPMENT.md)
+- [Document Parsing with Docling](docs/guides/DOCUMENT_PARSING.md)
+- [Learning progress and Test Mode](docs/guides/LEARNING_PROGRESS.md)
+- [Slide export](docs/guides/SLIDE_EXPORT.md)
+- [OCR benchmark](docs/guides/OCR_BENCHMARK.md)
+- [PostgreSQL migration](docs/guides/POSTGRESQL_MIGRATION.md)
+- [Cloudflare tunnel deployment](docs/guides/cloudflare-tunnel-test-deploy.md)
+
+## Source of truth
+
+この README は更新時点の runtime 状態を説明します。Documentation と code が異なる場合は、実行中の `Program.cs`、project manifest、`appsettings.json`、EF migration、controller/service、frontend consumer を優先してください。

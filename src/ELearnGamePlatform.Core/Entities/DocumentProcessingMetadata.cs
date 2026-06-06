@@ -26,6 +26,10 @@ public static class ChunkClassifications
 public class DocumentProcessingMetadata
 {
     public string DocumentType { get; set; } = DocumentTypes.Unknown;
+    public string? ExtractionProvider { get; set; }
+    public bool? ExternalParsingSucceeded { get; set; }
+    public long? ExternalParsingElapsedMs { get; set; }
+    public string? ExternalParsingError { get; set; }
     public string? Language { get; set; }
     public string? Title { get; set; }
     public int? MainContentStartPage { get; set; }

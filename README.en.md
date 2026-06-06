@@ -1,331 +1,340 @@
-# ELearn Game Platform
+# PBL5 - AI Learning Workspace
 
-ELearn Game Platform is a `.NET + React` MVP that turns learning documents into interactive study experiences. It supports document upload, OCR/text extraction, local AI analysis, question generation, quiz/flashcard/streak/practice-test study flows, progress tracking, workspace/folder management, and slide deck generation with preview, editing, and export.
+PBL5 is a multilingual learning MVP that turns documents into structured content, question banks, study activities, and editable slides. It follows a local-first model built around ASP.NET Core, React, PostgreSQL, Ollama, Tesseract, and on-device document processors.
 
-The repository is currently an **MVP+ for PBL demo use**. The main flows can be demonstrated end to end, but the system is not production-ready yet because job progress is still in memory, background processing is demo-oriented, automated coverage is incomplete, and security hardening is not finished.
+[Tiếng Việt](README.vi.md) · [日本語](README.ja.md) · [Language selector](README.md)
 
-## Current Features
-
-- **JWT authentication**: register, login, current user lookup, and basic roles: `ADMIN`, `INSTRUCTOR`, `LEARNER`.
-- **Document pipeline**: upload `PDF`, `DOCX`, `PNG`, `JPG`, `JPEG`; validate files; extract text with PdfPig/OpenXML/Tesseract; clean OCR output; analyze summary, topics, key points, language, structure, and coverage metadata through Ollama.
-- **Question pipeline**: generate questions from documents, track generation jobs, verify output, auto-repair weak output once, and persist questions to PostgreSQL.
-- **Question Studio**: create generation runs, review drafts, edit/accept/reject/quarantine/restore drafts, and import approved drafts into the question bank.
-- **Learning flows**: quiz, flashcards, streak mode, game sessions, practice tests, learning attempts, review queue, and document-level progress summaries.
-- **Analytics**: personal dashboard with real activity data, heatmap, skill/radar view, checklist, and recent activity.
-- **Workspace/Folder flow**: create workspaces/folders, upload multiple sources, select source sections for slides, and manage learning material by workspace.
-- **Slide Studio**: generate slides from documents or workspaces/folders, select content scope, preview HTML, edit slide items, refresh/select image candidates, export HTML, open a print-friendly browser flow for Save as PDF, and export basic PPTX.
-
-## Technology
-
-### Backend
-
-- ASP.NET Core Web API, projects target `net8.0`
-- .NET SDK pinned by `global.json`: `9.0.306`
-- Entity Framework Core 8
-- PostgreSQL + Npgsql
-- JWT Bearer Authentication
-- Tesseract OCR, PdfPig, OpenXML, ImageSharp
-- Local AI through Ollama, default model `qwen2.5:7b`
-
-### Frontend
-
-- React 18
-- React Router DOM 6
-- Axios
-- React Scripts
-- React Icons
-
-### Runtime
-
-- Backend: `http://localhost:5000`
-- Swagger: `http://localhost:5000/swagger`
-- Frontend dev server: `http://localhost:3000`
-- Frontend proxy: `http://127.0.0.1:5000`
-- Database: PostgreSQL through EF Core migrations
-
-## Repository Structure
+## Product flow
 
 ```text
-src/
-  ELearnGamePlatform.API/             Web API, controllers, DI, config, auth, runtime uploads
-  ELearnGamePlatform.Core/            Entities, enums, interfaces, shared contracts
-  ELearnGamePlatform.Infrastructure/  DbContext, repositories, migrations, Ollama integration
-  ELearnGamePlatform.Services/        OCR, document processing, AI, question, slide services
-
-client/
-  public/                             Static frontend entrypoint
-  src/                                React frontend source
-
-tests/                                Automated test projects
-docs/                                 Guides, research, working notes, agent context
-benchmarks/                           OCR/document benchmark harness
-scripts/                              Repo helper scripts
+Upload a document
+  -> Text extraction / OCR
+  -> Structure and content analysis
+  -> Question Studio generation and review
+  -> Quiz / Flashcards / Test / Streak
+  -> Slide generation, editing, and export
 ```
 
-Folders/files such as `artifacts/`, `.artifacts/`, `.tmp/`, `commit-history/`, `src/ELearnGamePlatform.API/uploads/`, `src/ELearnGamePlatform.API/logs/`, `src/ELearnGamePlatform.API/tessdata/*.traineddata`, and `poppler-25.12.0/` are local/generated data or runtime assets, not primary source files.
+Current product capabilities:
 
-## Environment Requirements
+- **Workspaces and Sources:** create workspaces, upload multiple sources, and work inside one unified studio.
+- **Document processing:** supports PDF, DOCX, and images through text-layer extraction, OpenXML, Tesseract OCR, and Poppler.
+- **AI analysis:** builds topics, summaries, coverage, and grounded inputs for questions and slides through Ollama.
+- **Question Studio V2:** runs generation in the background, supports pause/resume/cancel, draft review, editing, accept/reject/quarantine, and question-bank import.
+- **Study Hub:** quiz, flashcards, test mode, streak mode, review queues, and learning-progress tracking.
+- **Slide Studio:** generates decks from selected sources, reports job progress, edits and autosaves slides, collaborates through SignalR, and exports basic HTML, print/PDF, and PPTX.
+- **Dashboard and analytics:** activity overview, personal progress, study history, and CSV exports.
+- **Authentication and admin:** JWT registration/login, protected routes, and role-based administration.
 
-Install:
+## Architecture
 
-- .NET SDK `9.0.306`
-- Node.js 18+
-- PostgreSQL 14+
-- Ollama
-- Tesseract OCR
-- Git
-
-The OCR service looks for tessdata at:
-
-```text
-src/ELearnGamePlatform.API/tessdata
+```mermaid
+flowchart LR
+    UI[React 18 client] -->|REST + JWT| API[ASP.NET Core Web API]
+    UI <-->|SignalR| HUB[Slide editor hub]
+    API --> DB[(PostgreSQL)]
+    API --> INGEST[Document ingestion]
+    INGEST --> PARSE[PdfPig / OpenXML / Tesseract / optional Docling]
+    API --> AI[Analysis, questions, slides]
+    AI --> OLLAMA[Ollama]
+    API --> FILES[uploads and generated assets]
 ```
 
-Recommended minimum files:
+Backend responsibilities are split as follows:
 
-```text
-eng.traineddata
-vie.traineddata
-```
+| Project | Responsibility |
+| --- | --- |
+| `src/ELearnGamePlatform.API` | Entrypoint, controllers, auth, DI, background job stores, uploads, and SignalR |
+| `src/ELearnGamePlatform.Core` | Entities, enums, interfaces, options, and shared contracts |
+| `src/ELearnGamePlatform.Infrastructure` | EF Core, PostgreSQL, migrations, repositories, and the Ollama client |
+| `src/ELearnGamePlatform.Services` | OCR, document processing, AI analysis, question generation, and slide generation |
+| `client` | React Router, Axios, i18n, Workspace Studio, Study Hub, and Slide Studio |
+| `tests` | xUnit regression tests for important services and contracts |
+| `benchmarks` | OCR benchmark runner and local benchmark data directories |
 
-For scanned PDFs, the system uses local Poppler when `poppler-25.12.0/Library/bin/pdftoppm.exe` exists; otherwise it falls back to `pdftoppm` from `PATH`.
+## Technology and versions
 
-## Local Configuration
+| Component | Current runtime |
+| --- | --- |
+| .NET SDK | `9.0.306`, pinned by `global.json` |
+| Target framework | `net8.0` |
+| Backend | ASP.NET Core Web API, EF Core 8, Npgsql, JWT, SignalR, Swagger |
+| Frontend | React `18.2`, React Router `6.22`, Axios, Create React App |
+| Node.js | Node.js 20 is used by the Docker build |
+| Database | PostgreSQL 16 in Docker Compose |
+| Local AI | Ollama with default model `qwen3:4b` |
+| OCR | Tesseract 5 with `eng` and `vie`; Poppler `pdftoppm` for scanned PDFs |
+| Slide export | HTML, print-friendly HTML, and basic PPTX through OpenXML |
 
-The backend reads its main configuration from:
+## Prerequisites
 
-```text
-src/ELearnGamePlatform.API/appsettings.json
-```
+A complete local environment requires:
 
-Local example with placeholders only:
+- .NET SDK `9.0.306`.
+- Node.js 20 and npm.
+- PostgreSQL 16 or a compatible version.
+- Ollama available at `http://localhost:11434`.
+- The `qwen3:4b` model.
+- Tesseract language data `eng.traineddata` and `vie.traineddata`.
+- Poppler `pdftoppm` on `PATH`, or in a local Poppler directory detected by the service.
+- Docker Desktop when running PostgreSQL/backend in containers.
+- Python and Docling only when enabling the optional Docling parser.
 
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=YOUR_LOCAL_PASSWORD;SslMode=disable"
-  },
-  "JwtSettings": {
-    "Issuer": "ELearnGamePlatform",
-    "Audience": "ELearnGamePlatform.Client",
-    "SecretKey": "CHANGE_THIS_TO_A_LONG_LOCAL_DEV_SECRET",
-    "ExpirationMinutes": 10080
-  },
-  "AdminSeed": {
-    "Enabled": true,
-    "Email": "admin@example.local",
-    "Password": "CHANGE_THIS_ADMIN_PASSWORD",
-    "FullName": "System Admin"
-  },
-  "OllamaSettings": {
-    "BaseUrl": "http://localhost:11434",
-    "Model": "qwen2.5:7b",
-    "AnalysisModel": "qwen2.5:7b",
-    "GenerationModel": "qwen2.5:7b",
-    "VerificationModel": "qwen2.5:7b"
-  }
-}
-```
-
-Do not commit real passwords, API keys, or personal configuration.
-
-## Run Locally
-
-Clone the repository:
+Quick checks:
 
 ```powershell
-git clone https://github.com/cat1454/PBL5.git
-cd PBL5
+dotnet --version
+node --version
+npm --version
+ollama --version
+psql --version
 ```
 
-Create the PostgreSQL database:
+## Local development
 
-```sql
-CREATE DATABASE "ELearnGameDB";
+### 1. Prepare PostgreSQL
+
+Create a dedicated database and user, then keep the connection string outside source control:
+
+```text
+Host=localhost;Port=5432;Database=ELearnGameDB;Username=<db-user>;Password=<db-password>;SslMode=disable
 ```
 
-Prepare the Ollama model:
+PostgreSQL can be started by itself with Docker:
 
 ```powershell
-ollama pull qwen2.5:7b
-ollama list
+Copy-Item .env.example .env
+# Set POSTGRES_PASSWORD, JWT_SECRET, and ADMIN_PASSWORD in .env
+docker compose up -d postgres
 ```
 
-Run the backend:
+### 2. Prepare Ollama
 
 ```powershell
-cd src\ELearnGamePlatform.API
+ollama pull qwen3:4b
+ollama serve
+```
+
+Do not start another `ollama serve` process when Ollama is already running as a service.
+
+### 3. Configure the backend safely
+
+The API enables .NET User Secrets. Do not place real secrets in `appsettings.json`.
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ELearnGameDB;Username=<db-user>;Password=<db-password>;SslMode=disable" --project src\ELearnGamePlatform.API
+dotnet user-secrets set "JwtSettings:SecretKey" "<long-random-secret-at-least-32-characters>" --project src\ELearnGamePlatform.API
+dotnet user-secrets set "AdminSeed:Enabled" "false" --project src\ELearnGamePlatform.API
+```
+
+To seed a local administrator, enable `AdminSeed:Enabled` and set its email/password through User Secrets instead of committing credentials.
+
+.NET hierarchical environment variables use double underscores:
+
+```powershell
+$env:ConnectionStrings__DefaultConnection = "<connection-string>"
+$env:JwtSettings__SecretKey = "<long-random-secret>"
+$env:OllamaSettings__BaseUrl = "http://localhost:11434"
+```
+
+### 4. Start the API
+
+```powershell
 dotnet restore
-dotnet run
+dotnet run --project src\ELearnGamePlatform.API
 ```
 
-Run the frontend in another terminal:
+- API: `http://localhost:5000`
+- Swagger in Development: `http://localhost:5000/swagger`
+- SignalR hub: `http://localhost:5000/hubs/slide-editor`
+
+At startup, the API automatically applies pending EF Core migrations and validates critical columns. It stops when migration or schema validation fails.
+
+### 5. Start the frontend
+
+Open another terminal:
 
 ```powershell
-cd client
-npm install
+Set-Location client
+npm ci
 npm start
 ```
 
-Open the app:
+- Frontend: `http://localhost:3000`
+- The development client calls `http://localhost:5000/api`.
 
-```text
-http://localhost:3000
+After registration or login, the primary flow starts at `/workspaces`. `/documents` and `/folders` remain compatibility redirects only.
+
+## Uploads, OCR, and Docling
+
+The backend accepts:
+
+| Format | Primary pipeline |
+| --- | --- |
+| `.pdf` | PdfPig text layer; scanned pages may be rendered with Poppler and processed by Tesseract |
+| `.docx` | OpenXML |
+| `.png`, `.jpg`, `.jpeg` | Tesseract OCR |
+
+The default limit is `50 MB`, configured through `FileUpload.MaxFileSizeInMB`.
+
+Docling is optional and disabled by default:
+
+```powershell
+python -m pip install docling
+docling --help
+$env:DocumentParsing__Enabled = "true"
+dotnet run --project src\ELearnGamePlatform.API
 ```
 
-## Suggested Demo Flow
+The legacy extraction pipeline always runs first. With `DocumentParsing.FallbackToLegacy=true`, command failures, timeouts, short Markdown, or encoding failures fall back to legacy text instead of failing ingestion. Valid Markdown is retained under `uploads/parsed`. See [Document Parsing with Docling](docs/guides/DOCUMENT_PARSING.md).
 
-1. Register or log in.
-2. Create a workspace or use the default workspace.
-3. Upload a PDF/DOCX/image document.
-4. Wait for document processing to complete.
-5. Review analysis, structure, and OCR text.
-6. Open Question Studio or generate questions directly.
-7. Review/import question drafts when using Question Studio.
-8. Study through quiz, flashcards, streak, or practice test.
-9. Review analytics and learning progress.
-10. Open Slide Studio, select scope, generate a deck, preview, and edit.
-11. Export the deck as HTML, browser Print/Save as PDF, or basic PPTX.
+## Important configuration
 
-## Main API Groups
+| Section | Purpose |
+| --- | --- |
+| `ConnectionStrings.DefaultConnection` | PostgreSQL connection |
+| `JwtSettings` | Issuer, audience, secret, and token lifetime |
+| `AdminSeed` | Optional administrator seed at startup |
+| `OllamaSettings` | Base URL, models, timeouts, temperatures, and context |
+| `LocalLlmSettings` | Token budgets, chunking, and analysis profile |
+| `OcrSettings` | DPI, retry, quality thresholds, and preprocessing |
+| `DocumentParsing` | Docling CLI, timeout, fallback, and Markdown output |
+| `DocumentUnderstanding` | Optional layout, vision, and table analysis |
+| `FileUpload` | File-size and extension allowlist |
+| `ImagePipeline` | Planning, web sources, reranking, review, and image fallback |
+| `Cors.AllowedOrigins` | Frontend origins allowed to call the API |
 
-Most endpoints require a JWT Bearer token, except login/register.
+OpenAI image generation is only an image-pipeline fallback and requires `OPENAI_API_KEY`. The key is not required for upload, OCR, Ollama, question generation, or basic text-based slide generation.
 
-```text
-Auth
-POST   /api/auth/register
-POST   /api/auth/login
-GET    /api/auth/me
+## Docker
 
-Admin
-GET    /api/admin/overview
+Create the environment file:
 
-Documents
-POST   /api/documents/upload
-GET    /api/documents/{id}
-GET    /api/documents/{id}/progress
-GET    /api/documents/{id}/structure
-GET    /api/documents/{id}/understanding/latest
-POST   /api/documents/{id}/analyze-structure
-GET    /api/documents/user/{userId}
-DELETE /api/documents/{id}
-
-Workspaces / Folders
-POST   /api/workspaces
-GET    /api/workspaces/user/{userId}
-GET    /api/workspaces/default/user/{userId}
-GET    /api/workspaces/{id}
-DELETE /api/workspaces/{id}
-POST   /api/workspaces/{id}/sources/upload
-GET    /api/workspaces/{id}/sources
-PUT    /api/workspaces/{id}/sources/{sourceId}/slide-selection
-POST   /api/folders
-GET    /api/folders/user/{userId}
-GET    /api/folders/{id}
-DELETE /api/folders/{id}
-POST   /api/folders/{id}/sources/upload
-GET    /api/folders/{id}/sources
-PUT    /api/folders/{id}/sources/{sourceId}/slide-selection
-
-Questions
-POST   /api/questions/generate/start
-GET    /api/questions/generate/progress/{jobId}
-POST   /api/questions/generate
-GET    /api/questions/document/{documentId}
-GET    /api/questions/document/{documentId}/metrics
-GET    /api/questions/{id}
-PUT    /api/questions/{id}
-DELETE /api/questions/{id}
-
-Question Studio
-POST   /api/question-studio/runs/start
-GET    /api/question-studio/runs/{runId}
-GET    /api/question-studio/drafts
-PUT    /api/question-studio/drafts/{draftId}
-POST   /api/question-studio/drafts/{draftId}/accept
-POST   /api/question-studio/drafts/{draftId}/reject
-POST   /api/question-studio/drafts/{draftId}/quarantine
-POST   /api/question-studio/drafts/{draftId}/restore
-POST   /api/question-studio/import
-
-Games / Learning
-POST   /api/games/sessions
-GET    /api/games/sessions/{sessionId}
-POST   /api/games/sessions/{sessionId}/start
-POST   /api/games/sessions/{sessionId}/submit
-GET    /api/games/quiz/{documentId}
-POST   /api/games/quiz/{documentId}/answers
-GET    /api/games/flashcards/{documentId}
-GET    /api/games/user/{userId}
-POST   /api/learning/attempts
-POST   /api/learning/tests/start
-POST   /api/learning/tests/submit
-GET    /api/learning/tests/document/{documentId}
-GET    /api/learning/tests/summary/{documentId}
-GET    /api/learning/progress/document/{documentId}
-GET    /api/learning/review-queue/{documentId}
-GET    /api/learning/progress/summary/{documentId}
-GET    /api/learning/export/attempts.csv
-GET    /api/learning/export/progress.csv
-GET    /api/learning/export/test-results.csv
-
-Analytics
-GET    /api/analytics/personal
-POST   /api/analytics/events
-
-Slides
-POST   /api/slides/generate/start
-POST   /api/slides/folders/{folderId}/generate/start
-GET    /api/slides/generate/progress/{jobId}
-GET    /api/slides/document/{documentId}
-GET    /api/slides/document/{documentId}/html
-GET    /api/slides/folders/{folderId}
-GET    /api/slides/folders/{folderId}/html
-GET    /api/slides/{deckId}/export/html
-GET    /api/slides/{deckId}/export/print
-GET    /api/slides/{deckId}/export/pptx
-PUT    /api/slides/{deckId}/items/{itemId}
-POST   /api/slides/{deckId}/items/{itemId}/images/refresh
-POST   /api/slides/{deckId}/items/{itemId}/images/select
+```powershell
+Copy-Item .env.example .env
 ```
 
-## Verification Before Merge/Push
+Fill in its placeholders, then run:
 
-Backend:
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Current services:
+
+| Service | URL/port |
+| --- | --- |
+| PostgreSQL | `localhost:5432` |
+| Backend | `http://localhost:5000` |
+| Frontend nginx | `http://localhost:8080` |
+
+Important notes:
+
+- The backend container reaches host Ollama through `http://host.docker.internal:11434`.
+- `docker-compose.yml` currently builds the frontend against the production API `https://pbl5-api.danangtoiiu.live`.
+- Default CORS does not include `http://localhost:8080`; the current Compose setup is therefore deployment-oriented rather than a complete local stack.
+- For local development, the reliable setup is PostgreSQL or backend in Docker plus the React development server on port `3000`.
+- `docker-compose.cloudflare.yml` and the [Cloudflare deployment guide](docs/guides/cloudflare-tunnel-test-deploy.md) cover tunnel deployment.
+
+Stop the stack:
+
+```powershell
+docker compose down
+```
+
+Do not add `-v` when PostgreSQL and upload volumes must be preserved.
+
+## Build and test
 
 ```powershell
 dotnet build ELearnGamePlatform.sln
-```
+dotnet test tests\ELearnGamePlatform.Services.Tests\ELearnGamePlatform.Services.Tests.csproj
 
-Frontend:
-
-```powershell
-cd client
+Set-Location client
 npm run build
-```
-
-Optional frontend tests:
-
-```powershell
-cd client
 npm test -- --watchAll=false
 ```
 
-## Current Limitations
+OCR benchmark:
 
-- Not production-ready.
-- Authentication is local/demo JWT only; refresh tokens, password reset, email verification, rate limiting, and complete audit logs are not implemented.
-- Job progress is stored in memory, so restarting the backend can lose active job state.
-- Background processing still uses simple runtime tasks, not a durable queue.
-- AI quality depends on the local Ollama model, machine resources, and input document quality.
-- Slide PDF export uses the browser Print/Save as PDF flow, not backend binary PDF rendering.
-- PPTX export is basic and not pixel-perfect compared with HTML preview.
+```powershell
+dotnet run --project benchmarks\OcrBenchmark
+```
 
-## Related Documentation
+Place local benchmark inputs in `benchmarks/input-documents`; results are written to `benchmarks/output`.
 
-- [Docs Index](./docs/README.md)
-- [Architecture](./docs/guides/ARCHITECTURE.md)
-- [Run Guide](./docs/guides/RUN_GUIDE.md)
-- [Frontend Handoff](./docs/guides/FRONTEND_HANDOFF.md)
-- [Roadmap](./docs/guides/ROADMAP.md)
-- [Agent Context](./docs/agent/PROJECT_CONTEXT.md)
+## Runtime data
+
+- Uploaded files and parsed Markdown live under `src/ELearnGamePlatform.API/uploads` when running from the project, or `/app/uploads` in the container volume.
+- Slide images and assets are served from static-file or upload directories.
+- Document, question, and slide background job state is currently held in memory; restarting the API can lose active job state.
+- Business data is stored in PostgreSQL through EF Core; several advanced metadata fields use JSON/JSONB.
+
+## Current limitations
+
+- Docling and advanced Document Understanding are disabled by default; legacy extraction/OCR remains the baseline.
+- Vision analysis requires a separate vision model when enabled.
+- PPTX export is basic, is not pixel-perfect with the HTML/editor output, and does not preserve every presentation capability.
+- “Save as PDF” uses print-friendly HTML and the browser print dialog, not a backend-rendered PDF binary.
+- Slide image web search depends on external sources; OpenAI image generation only runs when configured and selected as a fallback.
+- In-memory job stores are not suitable for multiple API instances or mid-job restarts.
+- The repository has no reliably maintained product screenshots, so runtime assets are not presented as product imagery here.
+
+## Troubleshooting
+
+### The API stops during startup
+
+Check PostgreSQL, the connection string, and migrations:
+
+```powershell
+dotnet tool restore
+dotnet ef migrations list --project src\ELearnGamePlatform.Infrastructure --startup-project src\ELearnGamePlatform.API
+```
+
+### Ollama does not respond
+
+```powershell
+ollama list
+ollama run qwen3:4b
+```
+
+Confirm `OllamaSettings.BaseUrl` is `http://localhost:11434`, or uses `host.docker.internal` when the API runs in a container.
+
+### Scanned PDF OCR returns empty text
+
+Check `pdftoppm` and the language data:
+
+```powershell
+pdftoppm -h
+Get-ChildItem src\ELearnGamePlatform.API\tessdata
+```
+
+### The frontend reports CORS errors or calls the wrong API
+
+Development defaults to `http://localhost:5000`. For production builds, set `REACT_APP_API_BASE_URL` before building and add the matching frontend origin to `Cors.AllowedOrigins`.
+
+### Docling does not run
+
+```powershell
+Get-Command docling
+python -m pip show docling
+docling --help
+```
+
+Keep `DocumentParsing.FallbackToLegacy=true` so ingestion continues when the external parser fails.
+
+## Technical documentation
+
+- [Architecture](docs/guides/ARCHITECTURE.md)
+- [Development guide](docs/guides/DEVELOPMENT.md)
+- [Document Parsing with Docling](docs/guides/DOCUMENT_PARSING.md)
+- [Learning progress and Test Mode](docs/guides/LEARNING_PROGRESS.md)
+- [Slide export](docs/guides/SLIDE_EXPORT.md)
+- [OCR benchmark](docs/guides/OCR_BENCHMARK.md)
+- [PostgreSQL migration](docs/guides/POSTGRESQL_MIGRATION.md)
+- [Cloudflare tunnel deployment](docs/guides/cloudflare-tunnel-test-deploy.md)
+
+## Source of truth
+
+This README describes the runtime state at the time of its update. When documentation and code differ, prefer the active `Program.cs`, project manifests, `appsettings.json`, EF migrations, controllers/services, and frontend consumers.

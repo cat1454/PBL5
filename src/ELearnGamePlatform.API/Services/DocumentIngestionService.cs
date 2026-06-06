@@ -6,6 +6,7 @@ using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using ELearnGamePlatform.Core.Models;
 using ELearnGamePlatform.Core.Options;
+using ELearnGamePlatform.Services.DocumentProcessing;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -107,7 +108,9 @@ public class DocumentIngestionService : IDocumentIngestionService
         var tokenBudgetPlanner = scope.ServiceProvider.GetRequiredService<ITokenBudgetPlanner>();
         var ocrSettings = scope.ServiceProvider.GetRequiredService<IOptions<OcrSettings>>().Value;
         var documentUnderstandingOptions = scope.ServiceProvider.GetRequiredService<IOptions<DocumentUnderstandingOptions>>().Value;
+        var documentParsingSettings = scope.ServiceProvider.GetRequiredService<IOptions<DocumentParsingSettings>>().Value;
         var documentProcessors = scope.ServiceProvider.GetRequiredService<IEnumerable<IDocumentProcessor>>();
+        var externalDocumentParser = scope.ServiceProvider.GetRequiredService<IExternalDocumentParser>();
         var documentJobStore = scope.ServiceProvider.GetRequiredService<IDocumentProcessingJobStore>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<DocumentIngestionService>>();
 
@@ -167,20 +170,127 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var extractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress);
+            string legacyExtractedText = await processor.ExtractTextAsync(document.FilePath, document.FileType, extractionProgress)
+                ?? string.Empty;
             var pageQualityReport = (processor as IDocumentInputQualityReportProvider)?.LastInputQualityReport;
+
+            if (documentParsingSettings.Enabled)
+            {
+                logger.LogInformation(
+                    "Docling parse started for document {DocumentId}: {FilePath}",
+                    documentId,
+                    document.FilePath);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "DocumentParsing disabled for document {DocumentId}; legacy extraction was used.",
+                    documentId);
+            }
+
+            var extractionSelection = await DocumentExtractionSelector.SelectAsync(
+                legacyExtractedText,
+                document.FilePath,
+                document.FileType,
+                documentParsingSettings,
+                externalDocumentParser);
+            var finalExtractedText = extractionSelection.Text;
+            var extractionProvider = extractionSelection.Provider;
+            var externalParsingSucceeded = extractionSelection.ExternalParsingSucceeded;
+            var externalParsingElapsedMs = extractionSelection.ExternalParsingElapsedMs;
+            var externalParsingError = extractionSelection.ExternalParsingError;
+            var externalMarkdownPath = extractionSelection.ExternalMarkdownPath;
+
+            if (externalParsingSucceeded == true)
+            {
+                logger.LogInformation(
+                    "Docling parse succeeded for document {DocumentId}: selectedProvider={ExtractionProvider}, selectedChars={CharacterCount}, elapsedMs={ElapsedMs}",
+                    documentId,
+                    extractionProvider,
+                    finalExtractedText.Length,
+                    externalParsingElapsedMs);
+            }
+            else if (externalParsingSucceeded == false)
+            {
+                logger.LogWarning(
+                    "Docling parse failed for document {DocumentId}; legacy extraction fallback was used. Error={Error}",
+                    documentId,
+                    externalParsingError);
+            }
+
+            logger.LogInformation(
+                "Document {DocumentId} selected {ExtractionSource} text for analysis: selectedChars={SelectedCharacterCount}, legacyChars={LegacyCharacterCount}.",
+                documentId,
+                extractionProvider,
+                finalExtractedText.Length,
+                legacyExtractedText.Length);
+
+            var doclingMarkdownAvailable = await ParsedMarkdownExporter.IsValidExistingMarkdownAsync(
+                externalMarkdownPath,
+                documentParsingSettings.MinMarkdownLength);
+            if (doclingMarkdownAvailable)
+            {
+                logger.LogInformation(
+                    "Docling markdown available for document {DocumentId}: {MarkdownPath}",
+                    documentId,
+                    externalMarkdownPath);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Docling markdown missing or too short for document {DocumentId}; path={MarkdownPath}, error={Error}",
+                    documentId,
+                    externalMarkdownPath,
+                    externalParsingError);
+            }
+
+            if (!string.IsNullOrWhiteSpace(finalExtractedText) && !doclingMarkdownAvailable)
+            {
+                logger.LogInformation(
+                    "Fallback markdown export started for document {DocumentId}: provider={ExtractionProvider}",
+                    documentId,
+                    extractionProvider);
+            }
+
+            var markdownExport = await ParsedMarkdownExporter.EnsureAsync(
+                finalExtractedText,
+                document.FileName,
+                document.FilePath,
+                extractionProvider,
+                externalMarkdownPath,
+                documentParsingSettings);
+
+            if (markdownExport.Status == ParsedMarkdownExportStatus.FallbackExported)
+            {
+                logger.LogInformation(
+                    "Fallback markdown export succeeded for document {DocumentId}: path={MarkdownPath}, characterCount={CharacterCount}",
+                    documentId,
+                    markdownExport.Path,
+                    markdownExport.CharacterCount);
+            }
+            else if (markdownExport.Status == ParsedMarkdownExportStatus.SkippedEmptyText)
+            {
+                logger.LogWarning(
+                    "Fallback markdown skipped because finalExtractedText is empty for document {DocumentId}.",
+                    documentId);
+            }
+
             var understandingResult = await ApplyDocumentUnderstandingAsync(
                 document,
-                extractedText,
+                finalExtractedText,
                 documentUnderstandingOptions,
                 pageQualityReport,
                 scope.ServiceProvider,
                 logger);
-            document.ExtractedText = extractedText;
-            var qualityResult = qualityGate.Evaluate(extractedText);
-            var budgetPlan = tokenBudgetPlanner.PlanText(extractedText, "analysis");
+            document.ExtractedText = finalExtractedText;
+            var qualityResult = qualityGate.Evaluate(finalExtractedText);
+            var budgetPlan = tokenBudgetPlanner.PlanText(finalExtractedText, "analysis");
             ApplyPageQualityCalibration(qualityResult, pageQualityReport, budgetPlan);
             var metadata = document.GetProcessingMetadata();
+            metadata.ExtractionProvider = extractionProvider;
+            metadata.ExternalParsingSucceeded = externalParsingSucceeded;
+            metadata.ExternalParsingElapsedMs = externalParsingElapsedMs;
+            metadata.ExternalParsingError = externalParsingError;
             metadata.InputQuality = qualityResult;
             metadata.PageQualityReport = pageQualityReport;
             metadata.AnalysisTokenBudget = budgetPlan;
@@ -292,7 +402,11 @@ public class DocumentIngestionService : IDocumentIngestionService
                 });
             });
 
-            var processedContent = await contentAnalyzer.AnalyzeContentAsync(extractedText, understandingResult, analysisProgress);
+            var processedContent = await contentAnalyzer.AnalyzeContentAsync(
+                finalExtractedText,
+                understandingResult,
+                pageQualityReport?.TotalPages,
+                analysisProgress);
             var analysisChunkBudget = tokenBudgetPlanner.PlanChunks(processedContent.CoverageMap, "analysis");
             document.SetMainTopics(processedContent.MainTopics);
             document.SetKeyPoints(processedContent.KeyPoints);
@@ -300,6 +414,10 @@ public class DocumentIngestionService : IDocumentIngestionService
             document.SetProcessingMetadata(new DocumentProcessingMetadata
             {
                 DocumentType = processedContent.DocumentType,
+                ExtractionProvider = extractionProvider,
+                ExternalParsingSucceeded = externalParsingSucceeded,
+                ExternalParsingElapsedMs = externalParsingElapsedMs,
+                ExternalParsingError = externalParsingError,
                 Language = processedContent.Language,
                 Title = processedContent.Title,
                 MainContentStartPage = processedContent.MainContentStartPage,
