@@ -79,6 +79,7 @@ public class Document
     public virtual FolderProject? FolderProject { get; set; }
 
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
+    public virtual ICollection<ClassroomQuestionSet> ClassroomQuestionSets { get; set; } = new List<ClassroomQuestionSet>();
     public virtual ICollection<QuestionGenerationRun> QuestionGenerationRuns { get; set; } = new List<QuestionGenerationRun>();
     public virtual ICollection<QuestionSourceUnit> QuestionSourceUnits { get; set; } = new List<QuestionSourceUnit>();
     public virtual ICollection<QuestionDraft> QuestionDrafts { get; set; } = new List<QuestionDraft>();

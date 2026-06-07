@@ -7,9 +7,7 @@ namespace ELearnGamePlatform.API.Services;
 
 public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 {
-    private const int HeatmapWeekCount = 52;
-    private const int HeatmapDaysPerWeek = 7;
-    private const int HeatmapDayCount = HeatmapWeekCount * HeatmapDaysPerWeek;
+    private const int StreakLookbackDays = 366;
 
     private readonly ApplicationDbContext _dbContext;
 
@@ -29,7 +27,8 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         var now = DateTime.UtcNow;
         var today = StartOfDay(now);
-        var heatmapStart = today.AddDays(-(HeatmapDayCount - 1));
+        var calendarStart = new DateTime(today.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var activityQueryStart = calendarStart.AddDays(-StreakLookbackDays);
         var tomorrow = today.AddDays(1);
 
         var workspaces = await _dbContext.FolderProjects
@@ -79,7 +78,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             })
             .FirstOrDefaultAsync(cancellationToken) ?? new AttemptAggregate();
         var attempts = await attemptQuery
-            .Where(attempt => attempt.CreatedAt >= heatmapStart && attempt.CreatedAt < tomorrow)
+            .Where(attempt => attempt.CreatedAt >= activityQueryStart && attempt.CreatedAt < tomorrow)
             .OrderByDescending(attempt => attempt.CreatedAt)
             .Select(attempt => new AttemptRow
             {
@@ -117,7 +116,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
             })
             .FirstOrDefaultAsync(cancellationToken) ?? new TestAggregate();
         var tests = await testQuery
-            .Where(result => result.SubmittedAt >= heatmapStart && result.SubmittedAt < tomorrow)
+            .Where(result => result.SubmittedAt >= activityQueryStart && result.SubmittedAt < tomorrow)
             .OrderByDescending(result => result.SubmittedAt)
             .Select(result => new TestRow
             {
@@ -149,7 +148,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         var analyticsEvents = await _dbContext.AnalyticsEvents
             .AsNoTracking()
-            .Where(item => item.UserId == userId && item.OccurredAt >= heatmapStart && item.OccurredAt < tomorrow)
+            .Where(item => item.UserId == userId && item.OccurredAt >= activityQueryStart && item.OccurredAt < tomorrow)
             .Select(item => new AnalyticsEventRow
             {
                 OccurredAt = item.OccurredAt
@@ -173,7 +172,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         var accuracy = attemptAggregate.Count > 0 ? (double)attemptAggregate.CorrectCount / attemptAggregate.Count * 100d : 0d;
         var studySeconds = attemptAggregate.StudySeconds + testAggregate.StudySeconds;
         var activitySignals = BuildActivitySignals(documents, attempts, tests, decks, analyticsEvents);
-        var heatmap = BuildHeatmap(activitySignals, heatmapStart, today);
+        var heatmap = BuildHeatmap(activitySignals, calendarStart, today);
         var averageMastery = progresses.Count > 0 ? progresses.Average(item => item.MasteryScore) : 0d;
         var averageMemory = progresses.Count > 0 ? progresses.Average(item => item.MemoryScore) : 0d;
 
@@ -304,11 +303,12 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
     private static PersonalAnalyticsHeatmap BuildHeatmap(IReadOnlyDictionary<DateTime, int> activitySignals, DateTime start, DateTime today)
     {
-        var days = new List<PersonalAnalyticsHeatmapDay>(HeatmapDayCount);
+        var dayCount = (today - start).Days + 1;
+        var days = new List<PersonalAnalyticsHeatmapDay>(dayCount);
         var activeDays = 0;
         var peakLevel = 0;
 
-        for (var index = 0; index < HeatmapDayCount; index++)
+        for (var index = 0; index < dayCount; index++)
         {
             var date = start.AddDays(index);
             var signalCount = activitySignals.TryGetValue(date, out var count) ? count : 0;
@@ -326,6 +326,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
 
         return new PersonalAnalyticsHeatmap
         {
+            CalendarYear = today.Year,
             Days = days,
             ActiveDays = activeDays,
             CurrentStreakDays = CalculateCurrentStreak(activitySignals, today),
@@ -333,7 +334,7 @@ public sealed class PersonalAnalyticsService : IPersonalAnalyticsService
         };
     }
 
-    private static int CalculateCurrentStreak(IReadOnlyDictionary<DateTime, int> activitySignals, DateTime today)
+    internal static int CalculateCurrentStreak(IReadOnlyDictionary<DateTime, int> activitySignals, DateTime today)
     {
         var streak = 0;
         var cursor = today;

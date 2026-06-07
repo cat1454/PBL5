@@ -10,6 +10,14 @@ import QuizGame from '../components/QuizGame';
 import StreakGame from '../components/StreakGame';
 import StudyHub from '../components/StudyHub';
 import AdminRoute from '../components/auth/AdminRoute';
+import {
+  ClassroomDetailPage,
+  ClassroomQuestionSetDetailPage,
+  ClassroomQuestionSetsPage,
+  JoinedClassroomsPage,
+  JoinClassroomPage,
+  TeachingClassroomsPage,
+} from '../features/classrooms/ClassroomPages';
 import DashboardPage from '../features/dashboard/DashboardPage';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -26,6 +34,12 @@ export const NAV_ITEMS = [
     to: '/workspaces',
     icon: 'workspaces',
     labelKey: 'app.nav.workspaces',
+  },
+  {
+    id: 'classrooms',
+    to: '/classrooms',
+    icon: 'classrooms',
+    labelKey: 'app.nav.classrooms',
   },
   {
     id: 'analytics',
@@ -106,6 +120,70 @@ export const PROTECTED_ROUTES = [
     titleKey: 'app.pageTitle.analytics',
     frame: 'standard',
     surface: 'analytics',
+  },
+  {
+    id: 'classroomsRedirect',
+    path: '/classrooms',
+    element: <Navigate to="/classrooms/joined" replace />,
+    titleKey: 'app.pageTitle.classroomsJoined',
+    frame: 'redirect',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomsTeaching',
+    path: '/classrooms/teaching',
+    element: <TeachingClassroomsPage />,
+    titleKey: 'app.pageTitle.classroomsTeaching',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomsJoined',
+    path: '/classrooms/joined',
+    element: <JoinedClassroomsPage />,
+    titleKey: 'app.pageTitle.classroomsJoined',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomsJoin',
+    path: '/classrooms/join',
+    element: <JoinClassroomPage />,
+    titleKey: 'app.pageTitle.classroomsJoin',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomDetail',
+    path: '/classrooms/:classroomId',
+    element: <ClassroomDetailPage />,
+    titleKey: 'app.pageTitle.classroomDetail',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomMembers',
+    path: '/classrooms/:classroomId/members',
+    element: <ClassroomDetailPage membersOnly />,
+    titleKey: 'app.pageTitle.classroomMembers',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomQuestionSets',
+    path: '/classrooms/:classroomId/question-sets',
+    element: <ClassroomQuestionSetsPage />,
+    titleKey: 'app.pageTitle.classroomQuestionSets',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomQuestionSetDetail',
+    path: '/classrooms/:classroomId/question-sets/:questionSetId',
+    element: <ClassroomQuestionSetDetailPage />,
+    titleKey: 'app.pageTitle.classroomQuestionSetDetail',
+    frame: 'standard',
+    surface: 'classrooms',
   },
   {
     id: 'documentsLegacyRedirect',
@@ -190,6 +268,8 @@ const PATH_MATCHERS = [
   { test: (pathname) => pathname.startsWith('/folders/') && pathname.endsWith('/studio'), id: 'workspaceStudio' },
   { test: (pathname) => pathname === '/workspaces', id: 'workspaces' },
   { test: (pathname) => pathname.startsWith('/workspaces/'), id: 'workspaceStudio' },
+  { test: (pathname) => pathname === '/classrooms', id: 'classroomsJoined' },
+  { test: (pathname) => pathname.startsWith('/classrooms/'), id: 'classroomsJoined' },
   { test: (pathname) => pathname.startsWith('/analytics'), id: 'analytics' },
   { test: (pathname) => pathname.startsWith('/settings'), id: 'settings' },
   { test: (pathname) => pathname.startsWith('/admin'), id: 'admin' },

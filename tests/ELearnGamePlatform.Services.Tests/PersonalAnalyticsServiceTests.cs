@@ -64,7 +64,12 @@ public class PersonalAnalyticsServiceTests
         Assert.Equal(0, summary.Metrics.SourceCount);
         Assert.Equal(0, summary.Metrics.QuestionCount);
         Assert.Equal(0, summary.Metrics.ActiveDays);
-        Assert.Equal(52 * 7, summary.Heatmap.Days.Count);
+        var today = DateTime.UtcNow.Date;
+        var yearStart = new DateTime(today.Year, 1, 1);
+        Assert.Equal(today.Year, summary.Heatmap.CalendarYear);
+        Assert.Equal((today - yearStart).Days + 1, summary.Heatmap.Days.Count);
+        Assert.Equal($"{today.Year}-01-01", summary.Heatmap.Days.First().Date);
+        Assert.Equal(today.ToString("yyyy-MM-dd"), summary.Heatmap.Days.Last().Date);
         Assert.All(summary.Heatmap.Days, day => Assert.Equal(0, day.Level));
         Assert.Empty(summary.Activity);
     }
@@ -411,6 +416,22 @@ public class PersonalAnalyticsServiceTests
         Assert.True(todayCell.SignalCount > 1);
         Assert.True(todayCell.Level > 1);
         Assert.True(summary.Heatmap.PeakLevel > 1);
+    }
+
+    [Fact]
+    public void CalculateCurrentStreak_ContinuesAcrossCalendarYearBoundary()
+    {
+        var today = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var activitySignals = new Dictionary<DateTime, int>
+        {
+            [today] = 1,
+            [today.AddDays(-1)] = 2,
+            [today.AddDays(-2)] = 1
+        };
+
+        var streak = PersonalAnalyticsService.CalculateCurrentStreak(activitySignals, today);
+
+        Assert.Equal(3, streak);
     }
 
     [Fact]
