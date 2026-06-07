@@ -1,0 +1,411 @@
+Project PBL5 {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Runtime schema reconstructed from ApplicationDbContext, entity mappings, and migrations.
+  Columns named user_id and uploaded_by are logical user identifiers, not foreign keys to app_users.
+  questions.source_draft_id is unique when present, but no physical foreign key exists.
+  '''
+}
+
+Table app_users [note: 'Authentication and user account records.'] {
+  id integer [pk, increment]
+  full_name varchar(200) [not null]
+  email varchar(320) [not null, unique]
+  password_hash varchar(1000) [not null]
+  role integer [not null]
+  is_active boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz
+
+  indexes {
+    role
+    is_active
+    created_at
+  }
+}
+
+Table folder_projects [note: 'Workspace/folder grouping for documents and generated slide decks.'] {
+  id integer [pk, increment]
+  name varchar(240) [not null]
+  description varchar(1200)
+  uploaded_by varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    uploaded_by
+    created_at
+    updated_at
+  }
+}
+
+Table documents [note: 'Uploaded source files and persisted OCR/AI analysis results.'] {
+  id integer [pk, increment]
+  file_name varchar(500) [not null]
+  file_type varchar(50) [not null]
+  file_path varchar(1000) [not null]
+  file_size bigint [not null]
+  extracted_text text
+  main_topics jsonb
+  key_points jsonb
+  coverage_map jsonb
+  processed_metadata text [note: 'JSON serialized as text, not jsonb.']
+  summary text
+  language varchar(50)
+  status integer [not null]
+  folder_project_id integer
+  include_in_folder_slides boolean [not null]
+  folder_source_order integer [not null]
+  uploaded_by varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    uploaded_by
+    created_at
+    status
+    folder_project_id
+    (folder_project_id, folder_source_order)
+  }
+}
+
+Table document_understanding_runs [note: 'Versioned document-understanding outputs and review signals.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  status varchar(80) [not null]
+  document_confidence double
+  needs_review boolean [not null]
+  combined_text text
+  result jsonb
+  failure_reasons jsonb
+  created_at timestamptz [not null]
+
+  indexes {
+    created_at
+    (document_id, created_at)
+  }
+}
+
+Table questions [note: 'Imported/published questions used by study flows.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  question_text text [not null]
+  question_type integer [not null]
+  options jsonb
+  correct_answer varchar(500)
+  explanation text
+  difficulty integer [not null]
+  topic varchar(200)
+  verifier_score integer
+  verifier_issues jsonb
+  source_draft_id integer [note: 'Logical link to question_drafts.id; unique but no physical FK.']
+  quality_score double
+  is_archived boolean [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    document_id
+    is_archived
+    (document_id, question_type)
+    source_draft_id [unique, note: 'Partial in PostgreSQL: source_draft_id IS NOT NULL.']
+  }
+}
+
+Table question_generation_runs [note: 'Question Studio V2 generation jobs and aggregate metrics.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  mode varchar(40) [not null]
+  status varchar(40) [not null]
+  stage varchar(80) [not null]
+  target_draft_count integer [not null]
+  generated_draft_count integer [not null]
+  verified_draft_count integer [not null]
+  imported_count integer [not null]
+  duplicate_count integer [not null]
+  rejected_count integer [not null]
+  borderline_count integer [not null]
+  quarantined_count integer [not null]
+  requested_question_types jsonb [not null]
+  requested_difficulties jsonb [not null]
+  model_profile jsonb [not null]
+  failure_stats jsonb [not null]
+  metrics jsonb [not null]
+  error_message text [not null]
+  created_at timestamptz [not null]
+  started_at timestamptz
+  completed_at timestamptz
+
+  indexes {
+    (document_id, created_at)
+    status
+  }
+}
+
+Table question_source_units [note: 'Grounded source fragments used to generate question drafts.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  generation_run_id integer
+  unit_type varchar(40) [not null]
+  content text [not null]
+  topic_tag varchar(200) [not null]
+  source_hash varchar(128) [not null]
+  start_offset integer [not null]
+  end_offset integer [not null]
+  confidence double [not null]
+  metadata jsonb [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (document_id, topic_tag)
+    generation_run_id
+    source_hash
+  }
+}
+
+Table question_drafts [note: 'Canonical and variant drafts before import into questions.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  generation_run_id integer [not null]
+  source_unit_id integer
+  status varchar(40) [not null]
+  draft_kind varchar(40) [not null]
+  parent_draft_id integer
+  question_text text [not null]
+  question_type varchar(40) [not null]
+  options jsonb [not null]
+  correct_answer text [not null]
+  explanation text [not null]
+  difficulty varchar(20) [not null]
+  learning_objective varchar(40) [not null]
+  topic_tag varchar(200) [not null]
+  grounding_score double [not null]
+  answer_score double [not null]
+  clarity_score double [not null]
+  duplicate_score double [not null]
+  overall_score double [not null]
+  repair_count integer [not null]
+  failure_reason text [not null]
+  source_evidence text [not null]
+  stem_hash varchar(128) [not null]
+  metadata jsonb [not null]
+  created_at timestamptz [not null]
+  verified_at timestamptz
+  imported_at timestamptz
+
+  indexes {
+    (document_id, status)
+    (generation_run_id, status)
+    (topic_tag, difficulty)
+    parent_draft_id
+    source_unit_id
+    stem_hash
+  }
+}
+
+Table question_review_events [note: 'Audit history for review and editing of question drafts.'] {
+  id integer [pk, increment]
+  question_draft_id integer [not null]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  action varchar(40) [not null]
+  before jsonb [not null]
+  after jsonb [not null]
+  note text [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    question_draft_id
+    (question_draft_id, created_at)
+    action
+  }
+}
+
+Table game_sessions [note: 'Legacy/game session summary for quiz, flashcard, and test modes.'] {
+  id integer [pk, increment]
+  document_id integer [not null]
+  game_type integer [not null]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  question_ids jsonb
+  score integer [not null]
+  total_questions integer [not null]
+  correct_answers integer [not null]
+  status integer [not null]
+  started_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    user_id
+    document_id
+    (user_id, created_at)
+  }
+}
+
+Table learning_attempts [note: 'One learner answer attempt for a question.'] {
+  id integer [pk, increment]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  document_id integer [not null]
+  question_id integer [not null]
+  mode integer [not null]
+  selected_answer varchar(1000)
+  is_correct boolean [not null]
+  confidence varchar(40)
+  response_time_ms integer
+  test_result_id integer
+  created_at timestamptz [not null]
+
+  indexes {
+    user_id
+    document_id
+    question_id
+    test_result_id
+    (user_id, document_id, question_id)
+    (user_id, document_id, created_at)
+  }
+}
+
+Table learning_progresses [note: 'Aggregated mastery state per user, document, and question.'] {
+  id integer [pk, increment]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  document_id integer [not null]
+  question_id integer [not null]
+  attempt_count integer [not null]
+  correct_count integer [not null]
+  wrong_count integer [not null]
+  current_streak integer [not null]
+  best_streak integer [not null]
+  last_reviewed_at timestamptz
+  memory_score double [not null]
+  mastery_score double [not null]
+  level integer [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    user_id
+    document_id
+    question_id
+    (user_id, document_id)
+    (user_id, document_id, question_id) [unique]
+  }
+}
+
+Table learning_test_results [note: 'Submitted or in-progress test session summary and snapshot.'] {
+  id integer [pk, increment]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  document_id integer [not null]
+  total_questions integer [not null]
+  correct_count integer [not null]
+  wrong_count integer [not null]
+  score double [not null]
+  started_at timestamptz [not null]
+  submitted_at timestamptz [not null]
+  duration_ms bigint [not null]
+  test_type integer [not null]
+  test_session_id uuid [not null, unique]
+  status integer [not null]
+  question_ids jsonb
+  result_snapshot jsonb
+  created_at timestamptz [not null]
+
+  indexes {
+    user_id
+    document_id
+    submitted_at
+    test_type
+    status
+    (user_id, document_id)
+    (user_id, document_id, submitted_at)
+  }
+}
+
+Table analytics_events [note: 'Append-only product analytics events.'] {
+  id integer [pk, increment]
+  user_id varchar(100) [not null, note: 'Logical user identifier; no FK to app_users.']
+  name varchar(120) [not null]
+  properties_json jsonb [not null]
+  session_id varchar(120)
+  occurred_at timestamptz [not null]
+  received_at timestamptz [not null]
+
+  indexes {
+    user_id
+    name
+    received_at
+    (user_id, received_at)
+  }
+}
+
+Table slide_decks [note: 'Slide deck generated from either one document or a workspace/folder.'] {
+  id integer [pk, increment]
+  document_id integer
+  folder_project_id integer
+  status integer [not null]
+  title varchar(240)
+  subtitle varchar(400)
+  theme_key varchar(80)
+  outline jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  completed_at timestamptz
+
+  indexes {
+    document_id
+    folder_project_id
+    status
+    (document_id, created_at)
+    (folder_project_id, created_at)
+  }
+}
+
+Table slide_items [note: 'Ordered slide content, verification data, image plan, and editor state.'] {
+  id integer [pk, increment]
+  slide_deck_id integer [not null]
+  slide_index integer [not null]
+  slide_type integer [not null]
+  status integer [not null]
+  heading varchar(240)
+  subheading varchar(400)
+  goal varchar(400)
+  key_message varchar(400)
+  body jsonb
+  evidence_from_text text
+  editor_state jsonb
+  speaker_notes text
+  accent_tone varchar(80)
+  verifier_score integer
+  verifier_issues jsonb
+  image_plan jsonb
+  image_candidates jsonb
+  evidence_debug text [note: 'JSON/debug payload stored as text.']
+  selected_image_key varchar(160)
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    slide_deck_id
+    (slide_deck_id, slide_index)
+    status
+  }
+}
+
+Ref: documents.folder_project_id > folder_projects.id [delete: cascade]
+Ref: document_understanding_runs.document_id > documents.id [delete: cascade]
+Ref: questions.document_id > documents.id [delete: cascade]
+Ref: question_generation_runs.document_id > documents.id [delete: cascade]
+Ref: question_source_units.document_id > documents.id [delete: cascade]
+Ref: question_source_units.generation_run_id > question_generation_runs.id [delete: cascade]
+Ref: question_drafts.document_id > documents.id [delete: cascade]
+Ref: question_drafts.generation_run_id > question_generation_runs.id [delete: cascade]
+Ref: question_drafts.source_unit_id > question_source_units.id [delete: set null]
+Ref: question_drafts.parent_draft_id > question_drafts.id [delete: restrict]
+Ref: question_review_events.question_draft_id > question_drafts.id [delete: cascade]
+Ref: game_sessions.document_id > documents.id [delete: cascade]
+Ref: learning_attempts.document_id > documents.id [delete: cascade]
+Ref: learning_attempts.question_id > questions.id [delete: no action]
+Ref: learning_attempts.test_result_id > learning_test_results.id [delete: set null]
+Ref: learning_progresses.document_id > documents.id [delete: cascade]
+Ref: learning_progresses.question_id > questions.id [delete: no action]
+Ref: learning_test_results.document_id > documents.id [delete: cascade]
+Ref: slide_decks.document_id > documents.id [delete: cascade]
+Ref: slide_decks.folder_project_id > folder_projects.id [delete: cascade]
+Ref: slide_items.slide_deck_id > slide_decks.id [delete: cascade]

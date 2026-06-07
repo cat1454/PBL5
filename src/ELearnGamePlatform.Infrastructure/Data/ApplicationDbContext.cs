@@ -399,9 +399,6 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.ReceivedAt);
             entity.HasIndex(e => new { e.UserId, e.ReceivedAt });
 
-            entity.Property(e => e.Id)
-                .HasColumnName("id");
-
             entity.Property(e => e.PropertiesJson)
                 .HasColumnType("jsonb");
         });

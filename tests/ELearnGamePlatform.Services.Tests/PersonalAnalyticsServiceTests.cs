@@ -12,13 +12,35 @@ namespace ELearnGamePlatform.Services.Tests;
 
 public class PersonalAnalyticsServiceTests
 {
-    [Fact]
-    public void AnalyticsEventId_MapsToLowercasePostgresColumn()
-    {
-        using var context = CreateDbContext();
+    public static TheoryData<Type> PersistedEntityTypes =>
+        new()
+        {
+            typeof(AppUser),
+            typeof(FolderProject),
+            typeof(Document),
+            typeof(DocumentUnderstandingRun),
+            typeof(Question),
+            typeof(QuestionGenerationRun),
+            typeof(QuestionSourceUnit),
+            typeof(QuestionDraft),
+            typeof(QuestionReviewEvent),
+            typeof(GameSession),
+            typeof(LearningAttempt),
+            typeof(LearningProgress),
+            typeof(LearningTestResult),
+            typeof(AnalyticsEvent),
+            typeof(SlideDeck),
+            typeof(SlideItem)
+        };
 
-        var entityType = context.Model.FindEntityType(typeof(AnalyticsEvent));
-        var idProperty = entityType?.FindProperty(nameof(AnalyticsEvent.Id));
+    [Theory]
+    [MemberData(nameof(PersistedEntityTypes))]
+    public void EntityId_MapsToLowercasePostgresColumn(Type entityClrType)
+    {
+        using var context = CreateRelationalDbContext();
+
+        var entityType = context.Model.FindEntityType(entityClrType);
+        var idProperty = entityType?.FindProperty("Id");
 
         Assert.NotNull(entityType);
         Assert.NotNull(idProperty);
@@ -545,6 +567,15 @@ public class PersonalAnalyticsServiceTests
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString("N"), new InMemoryDatabaseRoot())
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        return new ApplicationDbContext(options);
+    }
+
+    private static ApplicationDbContext CreateRelationalDbContext()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql("Host=localhost;Database=metadata_only")
             .Options;
 
         return new ApplicationDbContext(options);

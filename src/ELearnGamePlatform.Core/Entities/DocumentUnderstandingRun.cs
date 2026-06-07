@@ -8,6 +8,7 @@ public class DocumentUnderstandingRun
 {
     [Key]
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    [Column("id")]
     public int Id { get; set; }
 
     [Column("document_id")]
