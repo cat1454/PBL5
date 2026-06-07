@@ -81,6 +81,7 @@ public sealed class PersonalAnalyticsSkill
 
 public sealed class PersonalAnalyticsHeatmap
 {
+    public int CalendarYear { get; set; }
     public IReadOnlyList<PersonalAnalyticsHeatmapDay> Days { get; set; } = Array.Empty<PersonalAnalyticsHeatmapDay>();
     public int ActiveDays { get; set; }
     public int CurrentStreakDays { get; set; }

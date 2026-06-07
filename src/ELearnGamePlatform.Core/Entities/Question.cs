@@ -62,6 +62,7 @@ public class Question
     public virtual Document? Document { get; set; }
     public virtual ICollection<LearningAttempt> LearningAttempts { get; set; } = new List<LearningAttempt>();
     public virtual ICollection<LearningProgress> LearningProgresses { get; set; } = new List<LearningProgress>();
+    public virtual ICollection<ClassroomQuestionSetItem> ClassroomQuestionSetItems { get; set; } = new List<ClassroomQuestionSetItem>();
 }
 
 public class QuestionOption

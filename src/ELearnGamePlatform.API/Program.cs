@@ -160,6 +160,9 @@ builder.Services.AddScoped<ISlidePdfImageAssetService, SlidePdfImageAssetService
 builder.Services.AddScoped<IDocumentIngestionService, DocumentIngestionService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IWorkspacePayloadService, WorkspacePayloadService>();
+builder.Services.AddScoped<IClassroomWorkspaceService, ClassroomWorkspaceService>();
+builder.Services.AddScoped<IClassroomPermissionService, ClassroomPermissionService>();
+builder.Services.AddScoped<IClassroomQuestionSetService, ClassroomQuestionSetService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();

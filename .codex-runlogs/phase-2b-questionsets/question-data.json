@@ -1,0 +1,3 @@
+﻿H:\pbl5\.tmp\phase2b-seed\phase2b-seed.csproj : warning NU1903: Package 'Npgsql' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-x9vc-6hfv-hg8c
+H:\pbl5\.tmp\phase2b-seed\phase2b-seed.csproj : warning NU1903: Package 'Npgsql' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-x9vc-6hfv-hg8c
+{"documentId":11,"questionId":25}

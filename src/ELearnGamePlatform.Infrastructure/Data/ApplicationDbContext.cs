@@ -12,6 +12,11 @@ public class ApplicationDbContext : DbContext
     }
 
     public DbSet<AppUser> AppUsers { get; set; }
+    public DbSet<ClassroomWorkspace> ClassroomWorkspaces { get; set; }
+    public DbSet<ClassroomMember> ClassroomMembers { get; set; }
+    public DbSet<ClassroomJoinCode> ClassroomJoinCodes { get; set; }
+    public DbSet<ClassroomQuestionSet> ClassroomQuestionSets { get; set; }
+    public DbSet<ClassroomQuestionSetItem> ClassroomQuestionSetItems { get; set; }
     public DbSet<Document> Documents { get; set; }
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
@@ -39,6 +44,117 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(e => e.Role);
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<ClassroomWorkspace>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.OwnerUserId);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.UpdatedAt);
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(240)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(1200);
+
+            entity.HasOne(e => e.Owner)
+                .WithMany()
+                .HasForeignKey(e => e.OwnerUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Members)
+                .WithOne(member => member.ClassroomWorkspace)
+                .HasForeignKey(member => member.ClassroomWorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.JoinCodes)
+                .WithOne(code => code.ClassroomWorkspace)
+                .HasForeignKey(code => code.ClassroomWorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.QuestionSets)
+                .WithOne(questionSet => questionSet.ClassroomWorkspace)
+                .HasForeignKey(questionSet => questionSet.ClassroomWorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClassroomMember>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ClassroomWorkspaceId, e.UserId }).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.Role);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ClassroomJoinCode>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Code).IsUnique();
+            entity.HasIndex(e => new { e.ClassroomWorkspaceId, e.IsActive });
+            entity.HasIndex(e => e.CreatedByUserId);
+
+            entity.Property(e => e.Code)
+                .HasMaxLength(32)
+                .IsRequired();
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ClassroomQuestionSet>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ClassroomWorkspaceId);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => e.CreatedByUserId);
+
+            entity.Property(e => e.Title)
+                .HasMaxLength(240)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(1200);
+
+            entity.HasOne(e => e.Document)
+                .WithMany(document => document.ClassroomQuestionSets)
+                .HasForeignKey(e => e.DocumentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Items)
+                .WithOne(item => item.ClassroomQuestionSet)
+                .HasForeignKey(item => item.ClassroomQuestionSetId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClassroomQuestionSetItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ClassroomQuestionSetId, e.QuestionId }).IsUnique();
+            entity.HasIndex(e => e.QuestionId);
+
+            entity.Property(e => e.SectionCode)
+                .HasMaxLength(80);
+
+            entity.HasOne(e => e.Question)
+                .WithMany(question => question.ClassroomQuestionSetItems)
+                .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<FolderProject>(entity =>

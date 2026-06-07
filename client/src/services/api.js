@@ -306,6 +306,125 @@ export const workspaceService = {
   },
 };
 
+export async function createClassroomWorkspace({ name, description }) {
+  const response = await apiClient.post('/classroom-workspaces', {
+    name,
+    description,
+  });
+  return response.data;
+}
+
+export async function getTeachingClassrooms() {
+  const response = await apiClient.get('/classroom-workspaces/teaching');
+  return response.data;
+}
+
+export async function getJoinedClassrooms() {
+  const response = await apiClient.get('/classroom-workspaces/joined');
+  return response.data;
+}
+
+export async function getClassroomDetail(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}`);
+  return response.data;
+}
+
+export async function getClassroomMembers(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/members`);
+  return response.data;
+}
+
+export async function createClassroomJoinCode(classroomId, payload = {}) {
+  const response = await apiClient.post(`/classroom-workspaces/${classroomId}/join-codes`, payload);
+  return response.data;
+}
+
+export async function disableClassroomJoinCode(classroomId, codeId) {
+  const response = await apiClient.patch(`/classroom-workspaces/${classroomId}/join-codes/${codeId}/disable`);
+  return response.data;
+}
+
+export async function joinClassroomByCode(code) {
+  const response = await apiClient.post('/classroom-workspaces/join', { code });
+  return response.data;
+}
+
+export async function getClassroomQuestionSets(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/question-sets`);
+  return response.data;
+}
+
+export async function createClassroomQuestionSet(classroomId, payload) {
+  const response = await apiClient.post(`/classroom-workspaces/${classroomId}/question-sets`, payload);
+  return response.data;
+}
+
+export async function getClassroomQuestionSetDetail(questionSetId) {
+  const response = await apiClient.get(`/classroom-question-sets/${questionSetId}`);
+  return response.data;
+}
+
+export async function updateClassroomQuestionSet(questionSetId, payload) {
+  const response = await apiClient.put(`/classroom-question-sets/${questionSetId}`, payload);
+  return response.data;
+}
+
+export async function deleteClassroomQuestionSet(questionSetId) {
+  await apiClient.delete(`/classroom-question-sets/${questionSetId}`);
+}
+
+export async function getClassroomAvailableQuestions(classroomId, documentId) {
+  const params = documentId ? { documentId } : undefined;
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/available-questions`, { params });
+  return response.data;
+}
+
+export async function addQuestionToClassroomQuestionSet(questionSetId, payload) {
+  const response = await apiClient.post(`/classroom-question-sets/${questionSetId}/items`, payload);
+  return response.data;
+}
+
+export async function removeQuestionFromClassroomQuestionSet(questionSetId, itemId) {
+  await apiClient.delete(`/classroom-question-sets/${questionSetId}/items/${itemId}`);
+}
+
+export async function reorderClassroomQuestionSetItems(questionSetId, items) {
+  const response = await apiClient.put(`/classroom-question-sets/${questionSetId}/items/reorder`, { items });
+  return response.data;
+}
+
+export async function publishClassroomQuestionSet(questionSetId) {
+  const response = await apiClient.post(`/classroom-question-sets/${questionSetId}/publish`);
+  return response.data;
+}
+
+export async function unpublishClassroomQuestionSet(questionSetId) {
+  const response = await apiClient.post(`/classroom-question-sets/${questionSetId}/unpublish`);
+  return response.data;
+}
+
+export const classroomService = {
+  createClassroomWorkspace,
+  getTeachingClassrooms,
+  getJoinedClassrooms,
+  getClassroomDetail,
+  getClassroomMembers,
+  createClassroomJoinCode,
+  disableClassroomJoinCode,
+  joinClassroomByCode,
+  getClassroomQuestionSets,
+  createClassroomQuestionSet,
+  getClassroomQuestionSetDetail,
+  updateClassroomQuestionSet,
+  deleteClassroomQuestionSet,
+  getClassroomAvailableQuestions,
+  addQuestionToClassroomQuestionSet,
+  removeQuestionFromClassroomQuestionSet,
+  reorderClassroomQuestionSetItems,
+  publishClassroomQuestionSet,
+  unpublishClassroomQuestionSet,
+};
+
 export const questionService = {
   generateQuestions: async (documentId, count = 5, questionType = null, options = {}) => {
     const response = await apiClient.post('/questions/generate', {

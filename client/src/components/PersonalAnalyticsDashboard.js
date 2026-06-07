@@ -19,9 +19,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { analyticsService, getApiErrorMessage } from '../services/api';
+import Button from '../ui/Button';
+import EmptyState from '../ui/EmptyState';
+import Panel from '../ui/Panel';
 
-const HEATMAP_WEEK_COUNT = 52;
-const HEATMAP_MONTH_COUNT = 12;
 const HEATMAP_DAYS_PER_WEEK = 7;
 const SKILL_KEYS = ['recall', 'concepts', 'questionBank', 'slides', 'consistency'];
 
@@ -47,36 +48,30 @@ function PersonalAnalyticsDashboard() {
   return (
     <div className="analytics-dashboard">
       {loading && (
-        <section className="analytics-state-card">
+        <Panel className="analytics-state-card">
           <div className="spinner"></div>
           <p>{t('analyticsDashboard.loading')}</p>
-        </section>
+        </Panel>
       )}
 
       {error && (
-        <section className="alert alert-error workspace-home-alert">
-          <div>
-            <strong>{t('analyticsDashboard.errorTitle')}</strong>
-            <p>{error}</p>
-          </div>
-          <button type="button" className="button button-secondary" onClick={reload}>
-            {t('analyticsDashboard.retry')}
-          </button>
-        </section>
+        <AnalyticsErrorState error={error} onRetry={reload} t={t} />
       )}
 
       <section className="analytics-metric-grid" aria-label={t('analyticsDashboard.metrics.label')}>
         {vm.metrics.map((metric) => (
-          <article key={metric.key} className={`analytics-metric-card tone-${metric.key}`}>
+          <Panel key={metric.key} className={`analytics-metric-card tone-${metric.key}`}>
             <div className="analytics-card-icon">{metric.icon}</div>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <p>{metric.hint}</p>
-          </article>
+            <div className="analytics-metric-copy">
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              <p>{metric.hint}</p>
+            </div>
+          </Panel>
         ))}
       </section>
 
-      <section className="analytics-panel analytics-heatmap-panel">
+      <Panel className="analytics-panel analytics-heatmap-panel">
         <div className="analytics-section-head">
           <div>
             <span>{t('analyticsDashboard.heatmap.kicker')}</span>
@@ -87,12 +82,18 @@ function PersonalAnalyticsDashboard() {
 
         <div className="analytics-heatmap-layout">
           <div className="analytics-heatmap-chart-card">
-            <div className="analytics-heatmap-shell" aria-label={t('analyticsDashboard.heatmap.label')}>
+            <div
+              className="analytics-heatmap-shell"
+              aria-label={t('analyticsDashboard.heatmap.label')}
+              style={{ '--heatmap-week-count': vm.heatmapWeekCount }}
+            >
               <div className="analytics-heatmap-months">
                 <span aria-hidden="true" />
                 <div className="analytics-heatmap-month-track">
                   {vm.heatmapMonthLabels.map((month) => (
-                    <span key={month.key}>{month.label}</span>
+                    <span key={month.key} style={{ gridColumn: month.weekIndex + 1 }}>
+                      {month.label}
+                    </span>
                   ))}
                 </div>
               </div>
@@ -108,9 +109,15 @@ function PersonalAnalyticsDashboard() {
                       {week.days.map((day) => (
                         <span
                           key={day.key}
-                          className={`analytics-heatmap-cell level-${day.level}`}
-                          title={day.title}
-                          aria-label={day.title}
+                          className={[
+                            'analytics-heatmap-cell',
+                            `level-${day.level}`,
+                            day.isOutsideYear ? 'is-outside-year' : '',
+                            day.isFuture ? 'is-future' : '',
+                          ].filter(Boolean).join(' ')}
+                          title={day.isInteractive ? day.title : undefined}
+                          aria-label={day.isInteractive ? day.title : undefined}
+                          aria-hidden={day.isInteractive ? undefined : 'true'}
                         />
                       ))}
                     </div>
@@ -120,7 +127,7 @@ function PersonalAnalyticsDashboard() {
             </div>
 
             <div className="analytics-heatmap-footer">
-              <span>{t('analyticsDashboard.heatmap.weeksWindow', { count: HEATMAP_MONTH_COUNT })}</span>
+              <span>{t('analyticsDashboard.heatmap.calendarYear', { year: vm.calendarYear })}</span>
               <div className="analytics-legend">
                 <span>{t('analyticsDashboard.heatmap.less')}</span>
                 {[0, 1, 2, 3, 4].map((level) => (
@@ -153,15 +160,15 @@ function PersonalAnalyticsDashboard() {
               </div>
             )}
 
-            <button type="button" className="button" onClick={() => openAction(vm.heatmapCta)}>
+            <Button onClick={() => openAction(vm.heatmapCta)}>
               {vm.heatmapCta.label}
-            </button>
+            </Button>
           </aside>
         </div>
-      </section>
+      </Panel>
 
       <div className="analytics-main-grid">
-        <section className="analytics-panel analytics-radar-panel">
+        <Panel className="analytics-panel analytics-radar-panel">
           <div className="analytics-section-head">
             <div>
               <span>{t('analyticsDashboard.skills.kicker')}</span>
@@ -184,9 +191,9 @@ function PersonalAnalyticsDashboard() {
               ))}
             </div>
           </div>
-        </section>
+        </Panel>
 
-        <section className="analytics-panel analytics-insight-panel">
+        <Panel className="analytics-panel analytics-insight-panel">
           <div className="analytics-section-head">
             <div>
               <span>{t('analyticsDashboard.insight.kicker')}</span>
@@ -207,20 +214,19 @@ function PersonalAnalyticsDashboard() {
           <p className="analytics-coach-note">{vm.copy.insight}</p>
           <div className="analytics-action-row">
             {vm.actions.map((action) => (
-              <button
+              <Button
                 key={action.to}
-                type="button"
-                className={`button${action.secondary ? ' button-secondary' : ''}`}
+                variant={action.secondary ? 'secondary' : 'primary'}
                 onClick={() => openAction(action)}
               >
                 {action.label}
-              </button>
+              </Button>
             ))}
           </div>
-        </section>
+        </Panel>
       </div>
 
-      <section className="analytics-panel analytics-activity-panel">
+      <Panel className="analytics-panel analytics-activity-panel">
         <div className="analytics-section-head">
           <div>
             <span>{t('analyticsDashboard.activity.kicker')}</span>
@@ -229,18 +235,16 @@ function PersonalAnalyticsDashboard() {
         </div>
 
         {vm.isActivityEmpty ? (
-          <div className="analytics-empty-state">
-            <div className="analytics-activity-icon tone-info">
-              <LuLayoutDashboard aria-hidden="true" />
-            </div>
-            <div>
-              <strong>{t('analyticsDashboard.activity.emptyTitle')}</strong>
-              <p>{t('analyticsDashboard.activity.emptyBody')}</p>
-            </div>
-            <button type="button" className="button" onClick={() => openAction(vm.workspaceAction)}>
-              {t('analyticsDashboard.actions.openWorkspaces')}
-            </button>
-          </div>
+          <EmptyState
+            icon={<LuLayoutDashboard aria-hidden="true" />}
+            title={t('analyticsDashboard.activity.emptyTitle')}
+            body={t('analyticsDashboard.activity.emptyBody')}
+            action={(
+              <Button onClick={() => openAction(vm.workspaceAction)}>
+                {t('analyticsDashboard.actions.openWorkspaces')}
+              </Button>
+            )}
+          />
         ) : (
           <div className="analytics-activity-list">
             {vm.activities.map((activity) => (
@@ -257,8 +261,22 @@ function PersonalAnalyticsDashboard() {
             ))}
           </div>
         )}
-      </section>
+      </Panel>
     </div>
+  );
+}
+
+export function AnalyticsErrorState({ error, onRetry, t }) {
+  return (
+    <Panel className="analytics-error-card" tone="danger">
+      <div>
+        <strong>{t('analyticsDashboard.errorTitle')}</strong>
+        <p>{error}</p>
+      </div>
+      <Button variant="secondary" onClick={onRetry}>
+        {t('analyticsDashboard.retry')}
+      </Button>
+    </Panel>
   );
 }
 
@@ -380,7 +398,7 @@ function buildAnalyticsViewModel(user, summary, language, t) {
   });
   const weakestSkill = skills.reduce((weakest, skill) => (skill.value < weakest.value ? skill : weakest), skills[0]);
   const strongestSkill = skills.reduce((strongest, skill) => (skill.value > strongest.value ? skill : strongest), skills[0]);
-  const heatmap = buildHeatmapWeeks(summary?.heatmap, language, t);
+  const heatmap = buildHeatmapCalendar(summary?.heatmap, language, t);
   const levelProgress = Math.min(98, Math.max(8, Math.round((readiness + streak + completedCount * 8 + readyCount * 10) / 3)));
   const workspaceAction = { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
   const heatmapCta = getHeatmapAction(workspace, t, { sourceCount, readyCount, readyDocumentId, fallbackDocumentId });
@@ -399,6 +417,8 @@ function buildAnalyticsViewModel(user, summary, language, t) {
     nextMilestone: getNextMilestone(completedCount, readyCount, deckReady, t),
     heatmapWeeks: heatmap.weeks,
     heatmapMonthLabels: heatmap.monthLabels,
+    heatmapWeekCount: heatmap.heatmapWeekCount,
+    calendarYear: heatmap.calendarYear,
     heatmapSummary: heatmap.summary,
     heatmapActiveCells: heatmap.activeCells,
     peakActivityLabel: heatmap.peakActivityLabel,
@@ -670,34 +690,50 @@ function getSkillStatus(hasLearningData, value, t) {
   };
 }
 
-function buildHeatmapWeeks(heatmap, language, t) {
-  const today = startOfDay(new Date());
+export function buildHeatmapCalendar(heatmap, language, t, currentDate = new Date()) {
+  const today = startOfDay(currentDate);
   const apiDays = Array.isArray(heatmap?.days) ? heatmap.days : [];
+  const latestApiYear = getLatestHeatmapYear(apiDays);
+  const hasCalendarYear = Number.isInteger(Number(heatmap?.calendarYear))
+    && Number(heatmap.calendarYear) > 0;
+  const requestedYear = Number(heatmap?.calendarYear || latestApiYear || today.getFullYear());
+  const calendarYear = Number.isInteger(requestedYear) && requestedYear > 0
+    ? requestedYear
+    : today.getFullYear();
+  const yearStart = new Date(calendarYear, 0, 1);
+  const yearEnd = new Date(calendarYear, 11, 31);
+  const gridStart = startOfCalendarWeek(yearStart);
+  const gridEnd = endOfCalendarWeek(yearEnd);
+  const heatmapWeekCount = Math.floor((gridEnd - gridStart) / 86_400_000 / HEATMAP_DAYS_PER_WEEK) + 1;
+  const apiDaysByDate = new Map(apiDays.map((day) => [day?.date, day]));
   const weeks = [];
   const cells = [];
-  const monthLabels = buildHeatmapMonthLabels(today, language);
-  const fallbackStart = new Date(today);
-  fallbackStart.setDate(today.getDate() - ((HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK) - 1));
+  const monthLabels = buildHeatmapMonthLabels(calendarYear, gridStart, language);
 
-  for (let weekIndex = 0; weekIndex < HEATMAP_WEEK_COUNT; weekIndex += 1) {
+  for (let weekIndex = 0; weekIndex < heatmapWeekCount; weekIndex += 1) {
     const days = [];
-    const weekStart = new Date(fallbackStart);
-    weekStart.setDate(fallbackStart.getDate() + weekIndex * HEATMAP_DAYS_PER_WEEK);
+    const weekStart = addDays(gridStart, weekIndex * HEATMAP_DAYS_PER_WEEK);
 
     for (let dayIndex = 0; dayIndex < HEATMAP_DAYS_PER_WEEK; dayIndex += 1) {
-      const flatIndex = weekIndex * HEATMAP_DAYS_PER_WEEK + dayIndex;
-      const apiDay = apiDays[flatIndex] || null;
-      const fallbackDate = new Date(weekStart);
-      fallbackDate.setDate(weekStart.getDate() + dayIndex);
-      const dateKey = apiDay?.date || toDateKey(fallbackDate);
+      const cellDate = addDays(weekStart, dayIndex);
+      const dateKey = toDateKey(cellDate);
+      const apiDay = apiDaysByDate.get(dateKey) || null;
+      const isOutsideYear = cellDate.getFullYear() !== calendarYear;
+      const isFuture = !isOutsideYear && cellDate > today;
       const level = Math.max(0, Math.min(4, Number(apiDay?.level || 0)));
+      const isInteractive = !isOutsideYear && !isFuture;
 
-      cells.push({ dateKey, level });
+      if (isInteractive) {
+        cells.push({ dateKey, level });
+      }
       days.push({
         key: dateKey,
         level,
+        isOutsideYear,
+        isFuture,
+        isInteractive,
         title: t('analyticsDashboard.heatmap.cellTitle', {
-          date: apiDay?.date ? formatHeatmapDateKey(apiDay.date, language) : formatHeatmapDate(fallbackDate, language),
+          date: formatHeatmapDate(cellDate, language),
           levelText: t(`analyticsDashboard.heatmap.levelLabels.${level}`),
         }),
       });
@@ -709,35 +745,78 @@ function buildHeatmapWeeks(heatmap, language, t) {
     });
   }
 
-  const activeCells = Number(heatmap?.activeDays ?? cells.filter((cell) => cell.level > 0).length);
-  const peakLevel = Number(heatmap?.peakLevel ?? cells.reduce((peak, cell) => Math.max(peak, cell.level), 0));
+  const activeCells = Number(hasCalendarYear && heatmap?.activeDays !== undefined
+    ? heatmap.activeDays
+    : cells.filter((cell) => cell.level > 0).length);
+  const peakLevel = Number(hasCalendarYear && heatmap?.peakLevel !== undefined
+    ? heatmap.peakLevel
+    : cells.reduce((peak, cell) => Math.max(peak, cell.level), 0));
+  const elapsedDayCount = getElapsedCalendarDayCount(calendarYear, today);
 
   return {
     weeks,
     monthLabels,
+    calendarYear,
+    heatmapWeekCount,
+    elapsedDayCount,
     activeCells,
     currentStreak: Number(heatmap?.currentStreakDays ?? getCurrentHeatmapStreak(cells)),
     summary: t(activeCells === 0 ? 'analyticsDashboard.heatmap.emptySummary' : 'analyticsDashboard.heatmap.summary', {
       active: activeCells,
-      total: HEATMAP_WEEK_COUNT * HEATMAP_DAYS_PER_WEEK,
-      weeks: HEATMAP_WEEK_COUNT,
-      months: HEATMAP_MONTH_COUNT,
+      total: elapsedDayCount,
+      year: calendarYear,
     }),
     peakActivityLabel: t(`analyticsDashboard.heatmap.peakLevels.${peakLevel}`),
   };
 }
 
-function buildHeatmapMonthLabels(today, language) {
-  return Array.from({ length: HEATMAP_MONTH_COUNT }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(1);
-    date.setMonth(today.getMonth() - (HEATMAP_MONTH_COUNT - 1 - index));
+function buildHeatmapMonthLabels(calendarYear, gridStart, language) {
+  return Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(calendarYear, index, 1);
+    const weekIndex = Math.floor((date - gridStart) / 86_400_000 / HEATMAP_DAYS_PER_WEEK);
 
     return {
-      key: `${date.getFullYear()}-${date.getMonth() + 1}`,
+      key: `${calendarYear}-${index + 1}`,
       label: getCompactMonthLabel(date, language),
+      weekIndex,
     };
   });
+}
+
+function getLatestHeatmapYear(days) {
+  for (let index = days.length - 1; index >= 0; index -= 1) {
+    const match = /^(\d{4})-\d{2}-\d{2}$/.exec(String(days[index]?.date || ''));
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function startOfCalendarWeek(value) {
+  const date = startOfDay(value);
+  const mondayOffset = (date.getDay() + 6) % 7;
+  return addDays(date, -mondayOffset);
+}
+
+function endOfCalendarWeek(value) {
+  const date = startOfDay(value);
+  const sundayOffset = 6 - ((date.getDay() + 6) % 7);
+  return addDays(date, sundayOffset);
+}
+
+function addDays(value, count) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + count);
+  return date;
+}
+
+function getElapsedCalendarDayCount(calendarYear, today) {
+  const yearStart = new Date(calendarYear, 0, 1);
+  const yearEnd = new Date(calendarYear, 11, 31);
+  const effectiveEnd = today < yearStart ? yearStart : today > yearEnd ? yearEnd : today;
+  return Math.floor((startOfDay(effectiveEnd) - yearStart) / 86_400_000) + 1;
 }
 
 function getCurrentHeatmapStreak(cells) {
@@ -918,16 +997,6 @@ function formatHeatmapDate(value, language) {
   return language === 'vi'
     ? value.toLocaleDateString('vi-VN')
     : toDateKey(value);
-}
-
-function formatHeatmapDateKey(value, language) {
-  const parts = String(value || '').split('-');
-  if (parts.length !== 3) {
-    return value;
-  }
-
-  const [year, month, day] = parts;
-  return language === 'vi' ? `${day}/${month}/${year}` : value;
 }
 
 export default PersonalAnalyticsDashboard;

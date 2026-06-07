@@ -3,6 +3,7 @@ using System;
 using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ELearnGamePlatform.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260607161012_AddClassroomWorkspaceModule")]
+    partial class AddClassroomWorkspaceModule
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -235,105 +238,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("classroom_members");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomQuestionSet", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ClassroomWorkspaceId")
-                        .HasColumnType("integer")
-                        .HasColumnName("classroom_workspace_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("CreatedByUserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1200)
-                        .HasColumnType("character varying(1200)")
-                        .HasColumnName("description");
-
-                    b.Property<int?>("DocumentId")
-                        .HasColumnType("integer")
-                        .HasColumnName("document_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(240)
-                        .HasColumnType("character varying(240)")
-                        .HasColumnName("title");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<int>("Visibility")
-                        .HasColumnType("integer")
-                        .HasColumnName("visibility");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClassroomWorkspaceId");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("DocumentId");
-
-                    b.ToTable("classroom_question_sets");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomQuestionSetItem", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("ClassroomQuestionSetId")
-                        .HasColumnType("integer")
-                        .HasColumnName("classroom_question_set_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<int>("OrderIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("order_index");
-
-                    b.Property<double>("PointWeight")
-                        .HasColumnType("double precision")
-                        .HasColumnName("point_weight");
-
-                    b.Property<int>("QuestionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("question_id");
-
-                    b.Property<string>("SectionCode")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("section_code");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("QuestionId");
-
-                    b.HasIndex("ClassroomQuestionSetId", "QuestionId")
-                        .IsUnique();
-
-                    b.ToTable("classroom_question_set_items");
                 });
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomWorkspace", b =>
@@ -1593,51 +1497,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomQuestionSet", b =>
-                {
-                    b.HasOne("ELearnGamePlatform.Core.Entities.ClassroomWorkspace", "ClassroomWorkspace")
-                        .WithMany("QuestionSets")
-                        .HasForeignKey("ClassroomWorkspaceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ELearnGamePlatform.Core.Entities.AppUser", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Document", "Document")
-                        .WithMany("ClassroomQuestionSets")
-                        .HasForeignKey("DocumentId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("ClassroomWorkspace");
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("Document");
-                });
-
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomQuestionSetItem", b =>
-                {
-                    b.HasOne("ELearnGamePlatform.Core.Entities.ClassroomQuestionSet", "ClassroomQuestionSet")
-                        .WithMany("Items")
-                        .HasForeignKey("ClassroomQuestionSetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ELearnGamePlatform.Core.Entities.Question", "Question")
-                        .WithMany("ClassroomQuestionSetItems")
-                        .HasForeignKey("QuestionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ClassroomQuestionSet");
-
-                    b.Navigation("Question");
-                });
-
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomWorkspace", b =>
                 {
                     b.HasOne("ELearnGamePlatform.Core.Entities.AppUser", "Owner")
@@ -1849,24 +1708,15 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
                     b.Navigation("SlideDeck");
                 });
 
-            modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomQuestionSet", b =>
-                {
-                    b.Navigation("Items");
-                });
-
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.ClassroomWorkspace", b =>
                 {
                     b.Navigation("JoinCodes");
 
                     b.Navigation("Members");
-
-                    b.Navigation("QuestionSets");
                 });
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Document", b =>
                 {
-                    b.Navigation("ClassroomQuestionSets");
-
                     b.Navigation("GameSessions");
 
                     b.Navigation("LearningAttempts");
@@ -1902,8 +1752,6 @@ namespace ELearnGamePlatform.Infrastructure.Migrations
 
             modelBuilder.Entity("ELearnGamePlatform.Core.Entities.Question", b =>
                 {
-                    b.Navigation("ClassroomQuestionSetItems");
-
                     b.Navigation("LearningAttempts");
 
                     b.Navigation("LearningProgresses");

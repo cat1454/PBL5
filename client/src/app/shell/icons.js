@@ -5,6 +5,7 @@ import {
   LuCircleHelp,
   LuFolderOpen,
   LuHouse,
+  LuSchool,
   LuUser,
 } from 'react-icons/lu';
 
@@ -12,6 +13,7 @@ const iconMap = {
   admin: LuUser,
   analytics: LuChartLine,
   brand: LuBot,
+  classrooms: LuSchool,
   help: LuCircleHelp,
   home: LuHouse,
   workspaces: LuFolderOpen,
