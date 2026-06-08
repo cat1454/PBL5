@@ -478,6 +478,16 @@ export async function getClassroomAssignmentAttemptDetail(attemptId) {
   return response.data;
 }
 
+export async function getClassroomAssignmentLeaderboard(assignmentId) {
+  const response = await apiClient.get(`/classroom-assignments/${assignmentId}/leaderboard`);
+  return response.data;
+}
+
+export async function getClassroomLeaderboard(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/leaderboard`);
+  return response.data;
+}
+
 export const classroomService = {
   createClassroomWorkspace,
   getTeachingClassrooms,
@@ -513,6 +523,8 @@ export const classroomService = {
   submitClassroomAssignmentAttempt,
   getMyClassroomAssignmentAttempts,
   getClassroomAssignmentAttemptDetail,
+  getClassroomAssignmentLeaderboard,
+  getClassroomLeaderboard,
 };
 
 export const questionService = {
