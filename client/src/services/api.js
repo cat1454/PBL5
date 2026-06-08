@@ -442,6 +442,12 @@ export async function closeClassroomAssignment(assignmentId) {
   return response.data;
 }
 
+export async function getClassroomAssignmentQuestionStats(assignmentId) {
+  const response = await apiClient.get(`/classroom-assignments/${assignmentId}/question-stats`);
+  return response.data;
+}
+
+
 export async function getClassroomAssignmentAttempts(assignmentId) {
   const response = await apiClient.get(`/classroom-assignments/${assignmentId}/attempts`);
   return response.data;
@@ -500,6 +506,7 @@ export const classroomService = {
   deleteClassroomAssignment,
   publishClassroomAssignment,
   closeClassroomAssignment,
+  getClassroomAssignmentQuestionStats,
   getClassroomAssignmentAttempts,
   startClassroomAssignmentAttempt,
   submitClassroomAssignmentAnswer,
