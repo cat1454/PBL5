@@ -409,7 +409,12 @@ public sealed class ClassroomAssignmentsController : AuthenticatedControllerBase
             request.AttemptLimit,
             request.ShuffleQuestions,
             request.ShuffleOptions,
-            request.ShowAnswerAfterSubmit);
+            request.ShowAnswerAfterSubmit,
+            request.ScoringMode,
+            request.MinQuestionWeight,
+            request.MaxQuestionWeight,
+            request.SmoothingAlpha,
+            request.SmoothingBeta);
     }
 
     private static UpdateClassroomAssignmentInput ToUpdateInput(UpdateClassroomAssignmentRequest request)
@@ -424,7 +429,12 @@ public sealed class ClassroomAssignmentsController : AuthenticatedControllerBase
             request.AttemptLimit,
             request.ShuffleQuestions,
             request.ShuffleOptions,
-            request.ShowAnswerAfterSubmit);
+            request.ShowAnswerAfterSubmit,
+            request.ScoringMode,
+            request.MinQuestionWeight,
+            request.MaxQuestionWeight,
+            request.SmoothingAlpha,
+            request.SmoothingBeta);
     }
 
     private static object MapTeacherAssignment(ClassroomAssignment assignment, bool includeItems = false)
@@ -450,6 +460,12 @@ public sealed class ClassroomAssignmentsController : AuthenticatedControllerBase
             shuffleQuestions = assignment.ShuffleQuestions,
             shuffleOptions = assignment.ShuffleOptions,
             showAnswerAfterSubmit = assignment.ShowAnswerAfterSubmit,
+            // Phase 4 scoring fields
+            scoringMode = assignment.ScoringMode.ToString(),
+            minQuestionWeight = assignment.MinQuestionWeight,
+            maxQuestionWeight = assignment.MaxQuestionWeight,
+            smoothingAlpha = assignment.SmoothingAlpha,
+            smoothingBeta = assignment.SmoothingBeta,
             createdByUserId = assignment.CreatedByUserId,
             createdAt = assignment.CreatedAt,
             updatedAt = assignment.UpdatedAt,
@@ -728,6 +744,43 @@ public sealed class ClassroomAssignmentsController : AuthenticatedControllerBase
         };
     }
 
+    [HttpGet("{assignmentId:int}/question-stats")]
+    public async Task<IActionResult> GetQuestionStats(int assignmentId, CancellationToken cancellationToken)
+    {
+        if (CurrentUserId == null)
+        {
+            return Unauthorized(ApiErrorResponse.Create("user_context_required", "User context is required."));
+        }
+
+        try
+        {
+            var stats = await _assignmentService.GetAssignmentQuestionStatsAsync(
+                assignmentId,
+                CurrentUserId.Value,
+                cancellationToken);
+
+            return Ok(stats.Select(stat => new
+            {
+                questionId = stat.QuestionId,
+                answeredCount = stat.AnsweredCount,
+                correctCount = stat.CorrectCount,
+                smoothedCorrectRate = stat.SmoothedCorrectRate,
+                difficultyWeight = stat.DifficultyWeight,
+                discriminationIndex = stat.DiscriminationIndex,
+                qualityFlag = stat.QualityFlag,
+                calculatedAt = stat.CalculatedAt
+            }));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return ApiForbidden("classroom_assignment_manage_required", ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ApiBadRequest("classroom_assignment_invalid", ex.Message);
+        }
+    }
+
     private static bool CanRevealStudentGrading(ClassroomAssignmentAttempt attempt)
     {
         return attempt.Status == ClassroomAttemptStatus.Submitted
@@ -748,6 +801,12 @@ public sealed class CreateClassroomAssignmentRequest
     public bool ShuffleQuestions { get; set; }
     public bool ShuffleOptions { get; set; }
     public bool ShowAnswerAfterSubmit { get; set; }
+    // Phase 4: optional scoring configuration
+    public ClassroomScoringMode? ScoringMode { get; set; }
+    public decimal? MinQuestionWeight { get; set; }
+    public decimal? MaxQuestionWeight { get; set; }
+    public decimal? SmoothingAlpha { get; set; }
+    public decimal? SmoothingBeta { get; set; }
 }
 
 public sealed class UpdateClassroomAssignmentRequest
@@ -762,6 +821,12 @@ public sealed class UpdateClassroomAssignmentRequest
     public bool ShuffleQuestions { get; set; }
     public bool ShuffleOptions { get; set; }
     public bool ShowAnswerAfterSubmit { get; set; }
+    // Phase 4: optional scoring configuration
+    public ClassroomScoringMode? ScoringMode { get; set; }
+    public decimal? MinQuestionWeight { get; set; }
+    public decimal? MaxQuestionWeight { get; set; }
+    public decimal? SmoothingAlpha { get; set; }
+    public decimal? SmoothingBeta { get; set; }
 }
 
 public sealed class SubmitClassroomAssignmentAnswerRequest

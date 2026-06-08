@@ -20,6 +20,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClassroomAssignment> ClassroomAssignments { get; set; }
     public DbSet<ClassroomAssignmentAttempt> ClassroomAssignmentAttempts { get; set; }
     public DbSet<ClassroomAssignmentAnswer> ClassroomAssignmentAnswers { get; set; }
+    public DbSet<ClassroomAssignmentQuestionStat> ClassroomAssignmentQuestionStats { get; set; }
     public DbSet<Document> Documents { get; set; }
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
@@ -185,6 +186,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(1200);
 
+            // Phase 4: numeric columns for scoring config
+            entity.Property(e => e.MinQuestionWeight)
+                .HasColumnType("numeric(10,4)");
+            entity.Property(e => e.MaxQuestionWeight)
+                .HasColumnType("numeric(10,4)");
+            entity.Property(e => e.SmoothingAlpha)
+                .HasColumnType("numeric(10,4)");
+            entity.Property(e => e.SmoothingBeta)
+                .HasColumnType("numeric(10,4)");
+
             entity.HasOne(e => e.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(e => e.CreatedByUserId)
@@ -194,6 +205,33 @@ public class ApplicationDbContext : DbContext
                 .WithOne(attempt => attempt.Assignment)
                 .HasForeignKey(attempt => attempt.ClassroomAssignmentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.QuestionStats)
+                .WithOne(stat => stat.Assignment)
+                .HasForeignKey(stat => stat.ClassroomAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClassroomAssignmentQuestionStat>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ClassroomAssignmentId, e.QuestionId }).IsUnique();
+            entity.HasIndex(e => e.ClassroomAssignmentId);
+            entity.HasIndex(e => e.QuestionId);
+
+            entity.Property(e => e.SmoothedCorrectRate)
+                .HasColumnType("numeric(8,6)");
+            entity.Property(e => e.DifficultyWeight)
+                .HasColumnType("numeric(10,4)");
+            entity.Property(e => e.DiscriminationIndex)
+                .HasColumnType("numeric(8,4)");
+            entity.Property(e => e.QualityFlag)
+                .HasMaxLength(80);
+
+            entity.HasOne(e => e.Question)
+                .WithMany()
+                .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ClassroomAssignmentAttempt>(entity =>

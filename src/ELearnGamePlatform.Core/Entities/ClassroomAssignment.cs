@@ -54,6 +54,25 @@ public class ClassroomAssignment
     [Column("show_answer_after_submit")]
     public bool ShowAnswerAfterSubmit { get; set; }
 
+    // --- Phase 4: Empirical Difficulty Weighted Scoring ---
+
+    [Column("scoring_mode")]
+    public ClassroomScoringMode ScoringMode { get; set; } = ClassroomScoringMode.Percent;
+
+    [Column("min_question_weight", TypeName = "numeric(10,4)")]
+    public decimal MinQuestionWeight { get; set; } = 0.3m;
+
+    [Column("max_question_weight", TypeName = "numeric(10,4)")]
+    public decimal MaxQuestionWeight { get; set; } = 2.0m;
+
+    [Column("smoothing_alpha", TypeName = "numeric(10,4)")]
+    public decimal SmoothingAlpha { get; set; } = 1m;
+
+    [Column("smoothing_beta", TypeName = "numeric(10,4)")]
+    public decimal SmoothingBeta { get; set; } = 1m;
+
+    // --- End Phase 4 ---
+
     [Column("created_by_user_id")]
     public int CreatedByUserId { get; set; }
 
@@ -73,4 +92,5 @@ public class ClassroomAssignment
     public virtual AppUser? CreatedByUser { get; set; }
 
     public virtual ICollection<ClassroomAssignmentAttempt> Attempts { get; set; } = new List<ClassroomAssignmentAttempt>();
+    public virtual ICollection<ClassroomAssignmentQuestionStat> QuestionStats { get; set; } = new List<ClassroomAssignmentQuestionStat>();
 }

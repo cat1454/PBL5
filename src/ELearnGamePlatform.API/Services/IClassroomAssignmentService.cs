@@ -72,6 +72,11 @@ public interface IClassroomAssignmentService
         int attemptId,
         int actorUserId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ClassroomAssignmentQuestionStat>> GetAssignmentQuestionStatsAsync(
+        int assignmentId,
+        int actorUserId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record CreateClassroomAssignmentInput(
@@ -85,7 +90,13 @@ public sealed record CreateClassroomAssignmentInput(
     int AttemptLimit,
     bool ShuffleQuestions,
     bool ShuffleOptions,
-    bool ShowAnswerAfterSubmit);
+    bool ShowAnswerAfterSubmit,
+    // Phase 4 — optional, defaults applied in service
+    ClassroomScoringMode? ScoringMode = null,
+    decimal? MinQuestionWeight = null,
+    decimal? MaxQuestionWeight = null,
+    decimal? SmoothingAlpha = null,
+    decimal? SmoothingBeta = null);
 
 public sealed record UpdateClassroomAssignmentInput(
     string Title,
@@ -97,7 +108,13 @@ public sealed record UpdateClassroomAssignmentInput(
     int AttemptLimit,
     bool ShuffleQuestions,
     bool ShuffleOptions,
-    bool ShowAnswerAfterSubmit);
+    bool ShowAnswerAfterSubmit,
+    // Phase 4 — optional, defaults applied in service
+    ClassroomScoringMode? ScoringMode = null,
+    decimal? MinQuestionWeight = null,
+    decimal? MaxQuestionWeight = null,
+    decimal? SmoothingAlpha = null,
+    decimal? SmoothingBeta = null);
 
 public sealed record SubmitClassroomAssignmentAnswerInput(
     int QuestionId,

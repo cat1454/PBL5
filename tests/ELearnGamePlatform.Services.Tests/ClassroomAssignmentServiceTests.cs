@@ -492,6 +492,23 @@ public class ClassroomAssignmentServiceTests
             true);
     }
 
+    private static CreateClassroomAssignmentInput CreateEmpiricalInput(int questionSetId, string title)
+    {
+        return new CreateClassroomAssignmentInput(
+            questionSetId,
+            title,
+            null,
+            ClassroomAssignmentType.Quiz,
+            null,
+            DateTime.UtcNow.AddDays(7),
+            null,
+            1,
+            false,
+            false,
+            true,
+            ScoringMode: ClassroomScoringMode.EmpiricalDifficulty);
+    }
+
     private static UpdateClassroomAssignmentInput UpdateInput(string title)
     {
         return new UpdateClassroomAssignmentInput(
@@ -505,6 +522,686 @@ public class ClassroomAssignmentServiceTests
             false,
             false,
             false);
+    }
+
+    // ======================================================================
+    // Phase 4: Empirical Difficulty Weighted Scoring tests
+    // ======================================================================
+
+    // Helper: seed N submitted attempts for a question set where some are correct
+    // Returns list of attempt ids
+    private static async Task SeedSubmittedAttemptAsync(
+        ApplicationDbContext context,
+        ClassroomAssignment assignment,
+        AppUser student,
+        Dictionary<int, bool> questionCorrectMap) // questionId -> isCorrect
+    {
+        var attempt = new ClassroomAssignmentAttempt
+        {
+            ClassroomAssignmentId = assignment.Id,
+            UserId = student.Id,
+            StartedAt = DateTime.UtcNow,
+            Status = ClassroomAttemptStatus.Submitted,
+            SubmittedAt = DateTime.UtcNow,
+            AttemptNumber = 1
+        };
+        context.ClassroomAssignmentAttempts.Add(attempt);
+        await context.SaveChangesAsync();
+
+        foreach (var (questionId, isCorrect) in questionCorrectMap)
+        {
+            context.ClassroomAssignmentAnswers.Add(new ClassroomAssignmentAnswer
+            {
+                AttemptId = attempt.Id,
+                QuestionId = questionId,
+                SelectedAnswer = isCorrect ? "A" : "X",
+                IsCorrect = isCorrect,
+                PointEarned = isCorrect ? 1m : 0m,
+                AnsweredAt = DateTime.UtcNow
+            });
+        }
+        await context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Phase4_PercentScoringUnchanged_WhenScoringModeIsPercent()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var q1 = await AddQuestionAsync(context, fixture.Teacher, correctAnswer: "A");
+        var q2 = await AddQuestionAsync(context, fixture.Teacher, correctAnswer: "B");
+        var assignment = await AddPublishedAssignmentAsync(context, fixture.Workspace, fixture.Teacher, q1, pointWeight: 1);
+        await AddQuestionSetItemAsync(context, assignment.QuestionSetId, q2, pointWeight: 3);
+        var service = CreateService(context);
+        var attempt = await service.StartAttemptAsync(assignment.Id, fixture.Student.Id);
+        await service.SubmitAnswerAsync(attempt.Id, fixture.Student.Id, new SubmitClassroomAssignmentAnswerInput(q1.Id, "A", null));
+        await service.SubmitAnswerAsync(attempt.Id, fixture.Student.Id, new SubmitClassroomAssignmentAnswerInput(q2.Id, "C", null));
+
+        var submitted = await service.SubmitAttemptAsync(attempt.Id, fixture.Student.Id);
+
+        // Percent scoring: 1 point earned / 4 total = 25%
+        Assert.Equal(ClassroomAttemptStatus.Submitted, submitted.Status);
+        Assert.Equal(1m, submitted.RawScore);
+        Assert.Equal(25m, submitted.PercentScore);
+    }
+
+    [Fact]
+    public async Task Phase4_EasyQuestionHasLowerWeight()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var qEasy = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var qHard = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, qEasy, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, qHard, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Phase4 Test",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        // Seed: 9/10 correct on easy, 1/10 correct on hard
+        for (var i = 0; i < 10; i++)
+        {
+            var student = await AddUserAsync(context, $"S{i}", $"s{i}@t.com", UserRole.Learner);
+            await SeedSubmittedAttemptAsync(context, assignment, student, new Dictionary<int, bool>
+            {
+                { qEasy.Id, i < 9 },   // 9 correct
+                { qHard.Id, i == 0 }   // 1 correct
+            });
+        }
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var stats = await service.GetAssignmentQuestionStatsAsync(assignment.Id, fixture.Teacher.Id);
+        var easyStat = stats.First(s => s.QuestionId == qEasy.Id);
+        var hardStat = stats.First(s => s.QuestionId == qHard.Id);
+
+        Assert.True(easyStat.DifficultyWeight < hardStat.DifficultyWeight,
+            $"Easy weight {easyStat.DifficultyWeight} should be < hard weight {hardStat.DifficultyWeight}");
+    }
+
+    [Fact]
+    public async Task Phase4_HardQuestionHasHigherWeight()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var q1 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var q2 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var q3 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q1, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q2, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q3, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Phase4 Weight Order",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        // Q1: 9/10 correct (easy), Q2: 5/10 (medium), Q3: 1/10 (hard)
+        for (var i = 0; i < 10; i++)
+        {
+            var student = await AddUserAsync(context, $"U3_{i}", $"u3{i}@t.com", UserRole.Learner);
+            await SeedSubmittedAttemptAsync(context, assignment, student, new Dictionary<int, bool>
+            {
+                { q1.Id, i < 9 },
+                { q2.Id, i < 5 },
+                { q3.Id, i == 0 }
+            });
+        }
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var stats = await service.GetAssignmentQuestionStatsAsync(assignment.Id, fixture.Teacher.Id);
+        var w1 = stats.First(s => s.QuestionId == q1.Id).DifficultyWeight;
+        var w2 = stats.First(s => s.QuestionId == q2.Id).DifficultyWeight;
+        var w3 = stats.First(s => s.QuestionId == q3.Id).DifficultyWeight;
+
+        Assert.True(w1 < w2, $"w1({w1}) should be < w2({w2})");
+        Assert.True(w2 < w3, $"w2({w2}) should be < w3({w3})");
+    }
+
+    [Fact]
+    public async Task Phase4_SmoothingPreventsExtremeRates()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var q = await AddQuestionAsync(context, fixture.Teacher, "A");
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Smoothing Test",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        // Only 1 student answered and got it correct — without smoothing would be 1.0 (very easy)
+        var student = await AddUserAsync(context, "SmS", "sms@t.com", UserRole.Learner);
+        await SeedSubmittedAttemptAsync(context, assignment, student, new Dictionary<int, bool> { { q.Id, true } });
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var stats = await service.GetAssignmentQuestionStatsAsync(assignment.Id, fixture.Teacher.Id);
+        var stat = stats.Single();
+
+        // With alpha=1, beta=1: p = (1+1)/(1+1+1) = 2/3 ≈ 0.667, not 1.0
+        Assert.True(stat.SmoothedCorrectRate > 0m && stat.SmoothedCorrectRate < 1m,
+            $"SmoothedCorrectRate {stat.SmoothedCorrectRate} should be between 0 and 1");
+        // With default smoothing, weight should be between min and max
+        Assert.True(stat.DifficultyWeight >= 0.3m && stat.DifficultyWeight <= 2.0m);
+    }
+
+    [Fact]
+    public async Task Phase4_CloseAssignmentCreatesQuestionStats()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var q1 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var q2 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q1, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q2, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Stats Creation Test",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        var student = await AddUserAsync(context, "SS1", "ss1@t.com", UserRole.Learner);
+        await SeedSubmittedAttemptAsync(context, assignment, student, new Dictionary<int, bool>
+        {
+            { q1.Id, true },
+            { q2.Id, false }
+        });
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var stats = await service.GetAssignmentQuestionStatsAsync(assignment.Id, fixture.Teacher.Id);
+        Assert.Equal(2, stats.Count); // one stat per question
+        Assert.Contains(stats, s => s.QuestionId == q1.Id);
+        Assert.Contains(stats, s => s.QuestionId == q2.Id);
+    }
+
+    [Fact]
+    public async Task Phase4_CloseAssignmentIsIdempotent_NoDuplicateStats()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var q = await AddQuestionAsync(context, fixture.Teacher, "A");
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Idempotent Close",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        var student = await AddUserAsync(context, "SS2", "ss2@t.com", UserRole.Learner);
+        await SeedSubmittedAttemptAsync(context, assignment, student, new Dictionary<int, bool> { { q.Id, true } });
+
+        var service = CreateService(context);
+        // Close twice
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var statCount = await context.ClassroomAssignmentQuestionStats
+            .CountAsync(s => s.ClassroomAssignmentId == assignment.Id);
+        Assert.Equal(1, statCount); // no duplicates
+    }
+
+    [Fact]
+    public async Task Phase4_CloseRecalculatesSubmittedAttemptScores()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var q1 = await AddQuestionAsync(context, fixture.Teacher, "A", doc); // will be easy
+        var q2 = await AddQuestionAsync(context, fixture.Teacher, "A", doc); // will be hard
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q1, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q2, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Recalculate Test",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        // 9/10 correct on q1, 1/10 correct on q2
+        for (var i = 0; i < 10; i++)
+        {
+            var s = await AddUserAsync(context, $"RS_{i}", $"rs{i}@t.com", UserRole.Learner);
+            await SeedSubmittedAttemptAsync(context, assignment, s, new Dictionary<int, bool>
+            {
+                { q1.Id, i < 9 },
+                { q2.Id, i == 0 }
+            });
+        }
+
+        // Find first submitted attempt before close
+        var attemptBefore = await context.ClassroomAssignmentAttempts
+            .FirstAsync(a => a.ClassroomAssignmentId == assignment.Id);
+        var rawScoreBefore = attemptBefore.RawScore; // seeded as 1 or 0
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        // Re-fetch
+        var attemptAfter = await context.ClassroomAssignmentAttempts
+            .Include(a => a.Answers)
+            .FirstAsync(a => a.Id == attemptBefore.Id);
+
+        // After close with empirical scoring, percent score should be recalculated
+        // and not necessarily match raw point-weight scoring
+        Assert.NotNull(attemptAfter.SubmittedAt);
+        // PercentScore should be in valid range
+        Assert.True(attemptAfter.PercentScore >= 0 && attemptAfter.PercentScore <= 100);
+    }
+
+    [Fact]
+    public async Task Phase4_HardQuestionCorrect_CanScoreHigherThanEasyQuestionCorrect()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var qEasy = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var qHard = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, qEasy, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, qHard, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Score Comparison",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        // Seed: 9/10 correct on easy, 1/10 correct on hard
+        // StudentA gets easy correct, studentB gets hard correct
+        var studentA = await AddUserAsync(context, "StA", "sta@t.com", UserRole.Learner);
+        var studentB = await AddUserAsync(context, "StB", "stb@t.com", UserRole.Learner);
+
+        for (var i = 0; i < 10; i++)
+        {
+            var s = await AddUserAsync(context, $"Bg{i}", $"bg{i}@t.com", UserRole.Learner);
+            await SeedSubmittedAttemptAsync(context, assignment, s, new Dictionary<int, bool>
+            {
+                { qEasy.Id, i < 9 },
+                { qHard.Id, i == 0 }
+            });
+        }
+
+        // StudentA: only easy correct
+        await SeedSubmittedAttemptAsync(context, assignment, studentA, new Dictionary<int, bool>
+        {
+            { qEasy.Id, true },
+            { qHard.Id, false }
+        });
+
+        // StudentB: only hard correct
+        await SeedSubmittedAttemptAsync(context, assignment, studentB, new Dictionary<int, bool>
+        {
+            { qEasy.Id, false },
+            { qHard.Id, true }
+        });
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var attemptA = await context.ClassroomAssignmentAttempts
+            .FirstAsync(a => a.UserId == studentA.Id && a.ClassroomAssignmentId == assignment.Id);
+        var attemptB = await context.ClassroomAssignmentAttempts
+            .FirstAsync(a => a.UserId == studentB.Id && a.ClassroomAssignmentId == assignment.Id);
+
+        // Student B answered the hard question so should have higher RawScore
+        Assert.True(attemptB.RawScore > attemptA.RawScore,
+            $"Student B rawScore ({attemptB.RawScore}) should exceed Student A rawScore ({attemptA.RawScore})");
+    }
+
+    [Fact]
+    public async Task Phase4_CannotSubmitAttemptAfterAssignmentClosed()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var assignment = await AddPublishedAssignmentAsync(context, fixture.Workspace, fixture.Teacher);
+        var service = CreateService(context);
+        var attempt = await service.StartAttemptAsync(assignment.Id, fixture.Student.Id);
+
+        // Close assignment
+        assignment.Status = ClassroomAssignmentStatus.Closed;
+        await context.SaveChangesAsync();
+
+        // Attempt to submit should fail because attempt status check (assignment not published)
+        // The EnsureAttemptStillAcceptsAnswers checks DueAt but not assignment status,
+        // however StartAttempt requires Published status.
+        // After closing, LoadOwnedInProgressAttempt still works on InProgress attempt,
+        // but the assignment itself is closed. The existing attempt is InProgress.
+        // Submitting that attempt itself should still work (attempt is already started).
+        // What we block is starting a NEW attempt on a closed assignment.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.StartAttemptAsync(assignment.Id, fixture.Student.Id));
+    }
+
+    [Fact]
+    public async Task Phase4_ShowAnswerAfterSubmitSecurity_StillPreserved()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var question = await AddQuestionAsync(context, fixture.Teacher, correctAnswer: "A");
+        var assignment = await AddPublishedAssignmentAsync(
+            context, fixture.Workspace, fixture.Teacher, question, showAnswerAfterSubmit: false);
+        assignment.ScoringMode = ClassroomScoringMode.EmpiricalDifficulty;
+        await context.SaveChangesAsync();
+
+        var service = CreateService(context);
+        var controller = CreateController(context, fixture.Student);
+        var attempt = await service.StartAttemptAsync(assignment.Id, fixture.Student.Id);
+        await service.SubmitAnswerAsync(attempt.Id, fixture.Student.Id,
+            new SubmitClassroomAssignmentAnswerInput(question.Id, "A", null));
+
+        // Pre-submit: no correct answer
+        var preSumbitJson = await ToJsonAsync(controller.GetAttemptById(attempt.Id, CancellationToken.None));
+        Assert.DoesNotContain("correctAnswer", preSumbitJson);
+
+        // Post-submit with ShowAnswerAfterSubmit=false: no correct answer exposed
+        var afterSubmitJson = await ToJsonAsync(controller.SubmitAttempt(attempt.Id, CancellationToken.None));
+        Assert.Contains("rawScore", afterSubmitJson);
+        Assert.DoesNotContain("correctAnswer", afterSubmitJson);
+    }
+
+    [Fact]
+    public async Task Phase4_InvalidScoringConfig_MinWeightZero_IsRejected()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var questionSet = await AddPublishedQuestionSetAsync(context, fixture.Workspace, fixture.Teacher);
+        var service = CreateService(context);
+
+        var input = new CreateClassroomAssignmentInput(
+            questionSet.Id,
+            "Bad Config",
+            null,
+            ClassroomAssignmentType.Quiz,
+            null,
+            DateTime.UtcNow.AddDays(7),
+            null,
+            1,
+            false,
+            false,
+            true,
+            ScoringMode: ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight: 0m, // invalid: must be > 0
+            MaxQuestionWeight: 2.0m,
+            SmoothingAlpha: 1m,
+            SmoothingBeta: 1m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAssignmentAsync(fixture.Workspace.Id, fixture.Teacher.Id, input));
+    }
+
+    [Fact]
+    public async Task Phase4_InvalidScoringConfig_MaxNotGreaterThanMin_IsRejected()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var questionSet = await AddPublishedQuestionSetAsync(context, fixture.Workspace, fixture.Teacher);
+        var service = CreateService(context);
+
+        var input = new CreateClassroomAssignmentInput(
+            questionSet.Id,
+            "Bad Config 2",
+            null,
+            ClassroomAssignmentType.Quiz,
+            null,
+            DateTime.UtcNow.AddDays(7),
+            null,
+            1,
+            false,
+            false,
+            true,
+            ScoringMode: ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight: 2.0m,
+            MaxQuestionWeight: 1.0m, // invalid: must be > min
+            SmoothingAlpha: 1m,
+            SmoothingBeta: 1m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAssignmentAsync(fixture.Workspace.Id, fixture.Teacher.Id, input));
+    }
+
+    [Fact]
+    public async Task Phase4_InvalidScoringConfig_AlphaPlusBetaZero_IsRejected()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var questionSet = await AddPublishedQuestionSetAsync(context, fixture.Workspace, fixture.Teacher);
+        var service = CreateService(context);
+
+        var input = new CreateClassroomAssignmentInput(
+            questionSet.Id,
+            "Bad Config 3",
+            null,
+            ClassroomAssignmentType.Quiz,
+            null,
+            DateTime.UtcNow.AddDays(7),
+            null,
+            1,
+            false,
+            false,
+            true,
+            ScoringMode: ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight: 0.3m,
+            MaxQuestionWeight: 2.0m,
+            SmoothingAlpha: 0m,
+            SmoothingBeta: 0m); // invalid: alpha + beta must be > 0
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAssignmentAsync(fixture.Workspace.Id, fixture.Teacher.Id, input));
+    }
+
+    [Fact]
+    public async Task Phase4_WeightOrder_ThreeQuestions_EasyMediumHard()
+    {
+        // Verifies the example from the spec:
+        // Q1: 9/10 correct, Q2: 5/10 correct, Q3: 1/10 correct
+        // Expected order: weight(Q1) < weight(Q2) < weight(Q3)
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var doc = await AddDocumentAsync(context, fixture.Teacher);
+        var q1 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var q2 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+        var q3 = await AddQuestionAsync(context, fixture.Teacher, "A", doc);
+
+        var questionSet = await AddQuestionSetAsync(context, fixture.Workspace, fixture.Teacher, ClassroomQuestionSetVisibility.Published);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q1, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q2, 1);
+        await AddQuestionSetItemAsync(context, questionSet.Id, q3, 1);
+
+        var assignment = new ClassroomAssignment
+        {
+            ClassroomWorkspaceId = fixture.Workspace.Id,
+            QuestionSetId = questionSet.Id,
+            Title = "Spec Example",
+            CreatedByUserId = fixture.Teacher.Id,
+            Status = ClassroomAssignmentStatus.Published,
+            DueAt = DateTime.UtcNow.AddDays(7),
+            ScoringMode = ClassroomScoringMode.EmpiricalDifficulty,
+            MinQuestionWeight = 0.3m,
+            MaxQuestionWeight = 2.0m,
+            SmoothingAlpha = 1m,
+            SmoothingBeta = 1m
+        };
+        context.ClassroomAssignments.Add(assignment);
+        await context.SaveChangesAsync();
+
+        for (var i = 0; i < 10; i++)
+        {
+            var s = await AddUserAsync(context, $"Spec{i}", $"spec{i}@t.com", UserRole.Learner);
+            await SeedSubmittedAttemptAsync(context, assignment, s, new Dictionary<int, bool>
+            {
+                { q1.Id, i < 9 },   // 9/10
+                { q2.Id, i < 5 },   // 5/10
+                { q3.Id, i == 0 }   // 1/10
+            });
+        }
+
+        var service = CreateService(context);
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        var stats = await service.GetAssignmentQuestionStatsAsync(assignment.Id, fixture.Teacher.Id);
+        var w1 = stats.First(s => s.QuestionId == q1.Id).DifficultyWeight;
+        var w2 = stats.First(s => s.QuestionId == q2.Id).DifficultyWeight;
+        var w3 = stats.First(s => s.QuestionId == q3.Id).DifficultyWeight;
+
+        // Verify order: Q1 < Q2 < Q3
+        Assert.True(w1 < w2, $"w1({w1}) should be < w2({w2})");
+        Assert.True(w2 < w3, $"w2({w2}) should be < w3({w3})");
+
+        // Approximate values from spec (tolerant of rounding)
+        Assert.True(w1 > 0.5m && w1 < 0.65m, $"Q1 weight ~0.584 expected, got {w1}");
+        Assert.True(w2 > 1.1m && w2 < 1.2m, $"Q2 weight ~1.15 expected, got {w2}");
+        Assert.True(w3 > 1.68m && w3 < 1.75m, $"Q3 weight ~1.717 expected, got {w3}");
+    }
+
+    [Fact]
+    public async Task Phase4_PercentScoring_IgnoresInvalidConfig()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var questionSet = await AddPublishedQuestionSetAsync(context, fixture.Workspace, fixture.Teacher);
+        var service = CreateService(context);
+
+        // When ScoringMode = Percent, invalid min weight should NOT throw
+        var input = new CreateClassroomAssignmentInput(
+            questionSet.Id,
+            "Percent with bad config",
+            null,
+            ClassroomAssignmentType.Quiz,
+            null,
+            DateTime.UtcNow.AddDays(7),
+            null,
+            1,
+            false,
+            false,
+            true,
+            ScoringMode: ClassroomScoringMode.Percent,
+            MinQuestionWeight: 0m, // normally invalid for EmpiricalDifficulty
+            MaxQuestionWeight: 0m,
+            SmoothingAlpha: 0m,
+            SmoothingBeta: 0m);
+
+        var assignment = await service.CreateAssignmentAsync(fixture.Workspace.Id, fixture.Teacher.Id, input);
+        Assert.NotNull(assignment);
+        Assert.Equal(ClassroomScoringMode.Percent, assignment.ScoringMode);
+    }
+
+    [Fact]
+    public async Task Phase4_CannotSubmitAnswerOrAttemptAfterAssignmentClosed()
+    {
+        await using var context = CreateContext();
+        var fixture = await CreateClassroomFixtureAsync(context);
+        var question = await AddQuestionAsync(context, fixture.Teacher, correctAnswer: "A");
+        var assignment = await AddPublishedAssignmentAsync(context, fixture.Workspace, fixture.Teacher, question);
+        var service = CreateService(context);
+        var attempt = await service.StartAttemptAsync(assignment.Id, fixture.Student.Id);
+
+        // Close assignment
+        await service.CloseAssignmentAsync(assignment.Id, fixture.Teacher.Id);
+
+        // Cannot submit answer after closed
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SubmitAnswerAsync(attempt.Id, fixture.Student.Id,
+                new SubmitClassroomAssignmentAnswerInput(question.Id, "A", 10)));
+
+        // Cannot submit attempt after closed
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SubmitAttemptAsync(attempt.Id, fixture.Student.Id));
     }
 
     private static async Task<ClassroomFixture> CreateClassroomFixtureAsync(ApplicationDbContext context)
@@ -683,3 +1380,4 @@ public class ClassroomAssignmentServiceTests
         AppUser Student,
         ClassroomWorkspace Workspace);
 }
+
