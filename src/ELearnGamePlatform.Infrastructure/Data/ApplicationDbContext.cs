@@ -17,6 +17,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<ClassroomJoinCode> ClassroomJoinCodes { get; set; }
     public DbSet<ClassroomQuestionSet> ClassroomQuestionSets { get; set; }
     public DbSet<ClassroomQuestionSetItem> ClassroomQuestionSetItems { get; set; }
+    public DbSet<ClassroomAssignment> ClassroomAssignments { get; set; }
+    public DbSet<ClassroomAssignmentAttempt> ClassroomAssignmentAttempts { get; set; }
+    public DbSet<ClassroomAssignmentAnswer> ClassroomAssignmentAnswers { get; set; }
     public DbSet<Document> Documents { get; set; }
     public DbSet<FolderProject> FolderProjects { get; set; }
     public DbSet<Question> Questions { get; set; }
@@ -79,6 +82,11 @@ public class ApplicationDbContext : DbContext
                 .WithOne(questionSet => questionSet.ClassroomWorkspace)
                 .HasForeignKey(questionSet => questionSet.ClassroomWorkspaceId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Assignments)
+                .WithOne(assignment => assignment.ClassroomWorkspace)
+                .HasForeignKey(assignment => assignment.ClassroomWorkspaceId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ClassroomMember>(entity =>
@@ -140,6 +148,11 @@ public class ApplicationDbContext : DbContext
                 .WithOne(item => item.ClassroomQuestionSet)
                 .HasForeignKey(item => item.ClassroomQuestionSetId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Assignments)
+                .WithOne(assignment => assignment.QuestionSet)
+                .HasForeignKey(assignment => assignment.QuestionSetId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ClassroomQuestionSetItem>(entity =>
@@ -153,6 +166,74 @@ public class ApplicationDbContext : DbContext
 
             entity.HasOne(e => e.Question)
                 .WithMany(question => question.ClassroomQuestionSetItems)
+                .HasForeignKey(e => e.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ClassroomAssignment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ClassroomWorkspaceId);
+            entity.HasIndex(e => e.QuestionSetId);
+            entity.HasIndex(e => e.CreatedByUserId);
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.Title)
+                .HasMaxLength(240)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(1200);
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Attempts)
+                .WithOne(attempt => attempt.Assignment)
+                .HasForeignKey(attempt => attempt.ClassroomAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClassroomAssignmentAttempt>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ClassroomAssignmentId, e.UserId });
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.RawScore)
+                .HasColumnType("numeric(10,2)");
+
+            entity.Property(e => e.PercentScore)
+                .HasColumnType("numeric(5,2)");
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Answers)
+                .WithOne(answer => answer.Attempt)
+                .HasForeignKey(answer => answer.AttemptId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ClassroomAssignmentAnswer>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.AttemptId, e.QuestionId }).IsUnique();
+            entity.HasIndex(e => e.QuestionId);
+
+            entity.Property(e => e.SelectedAnswer)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.PointEarned)
+                .HasColumnType("numeric(10,2)");
+
+            entity.HasOne(e => e.Question)
+                .WithMany(question => question.ClassroomAssignmentAnswers)
                 .HasForeignKey(e => e.QuestionId)
                 .OnDelete(DeleteBehavior.Restrict);
         });

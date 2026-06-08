@@ -403,6 +403,75 @@ export async function unpublishClassroomQuestionSet(questionSetId) {
   return response.data;
 }
 
+export async function getClassroomAssignments(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/assignments`);
+  return response.data;
+}
+
+export async function getStudentClassroomAssignments(classroomId) {
+  const response = await apiClient.get(`/classroom-workspaces/${classroomId}/student/assignments`);
+  return response.data;
+}
+
+export async function createClassroomAssignment(classroomId, payload) {
+  const response = await apiClient.post(`/classroom-workspaces/${classroomId}/assignments`, payload);
+  return response.data;
+}
+
+export async function getClassroomAssignmentDetail(assignmentId) {
+  const response = await apiClient.get(`/classroom-assignments/${assignmentId}`);
+  return response.data;
+}
+
+export async function updateClassroomAssignment(assignmentId, payload) {
+  const response = await apiClient.put(`/classroom-assignments/${assignmentId}`, payload);
+  return response.data;
+}
+
+export async function deleteClassroomAssignment(assignmentId) {
+  await apiClient.delete(`/classroom-assignments/${assignmentId}`);
+}
+
+export async function publishClassroomAssignment(assignmentId) {
+  const response = await apiClient.post(`/classroom-assignments/${assignmentId}/publish`);
+  return response.data;
+}
+
+export async function closeClassroomAssignment(assignmentId) {
+  const response = await apiClient.post(`/classroom-assignments/${assignmentId}/close`);
+  return response.data;
+}
+
+export async function getClassroomAssignmentAttempts(assignmentId) {
+  const response = await apiClient.get(`/classroom-assignments/${assignmentId}/attempts`);
+  return response.data;
+}
+
+export async function startClassroomAssignmentAttempt(assignmentId) {
+  const response = await apiClient.post(`/classroom-assignments/${assignmentId}/attempts/start`);
+  return response.data;
+}
+
+export async function submitClassroomAssignmentAnswer(attemptId, payload) {
+  const response = await apiClient.post(`/classroom-assignment-attempts/${attemptId}/answers`, payload);
+  return response.data;
+}
+
+export async function submitClassroomAssignmentAttempt(attemptId) {
+  const response = await apiClient.post(`/classroom-assignment-attempts/${attemptId}/submit`);
+  return response.data;
+}
+
+export async function getMyClassroomAssignmentAttempts() {
+  const response = await apiClient.get('/classroom-assignment-attempts/my');
+  return response.data;
+}
+
+export async function getClassroomAssignmentAttemptDetail(attemptId) {
+  const response = await apiClient.get(`/classroom-assignment-attempts/${attemptId}`);
+  return response.data;
+}
+
 export const classroomService = {
   createClassroomWorkspace,
   getTeachingClassrooms,
@@ -423,6 +492,20 @@ export const classroomService = {
   reorderClassroomQuestionSetItems,
   publishClassroomQuestionSet,
   unpublishClassroomQuestionSet,
+  getClassroomAssignments,
+  getStudentClassroomAssignments,
+  createClassroomAssignment,
+  getClassroomAssignmentDetail,
+  updateClassroomAssignment,
+  deleteClassroomAssignment,
+  publishClassroomAssignment,
+  closeClassroomAssignment,
+  getClassroomAssignmentAttempts,
+  startClassroomAssignmentAttempt,
+  submitClassroomAssignmentAnswer,
+  submitClassroomAssignmentAttempt,
+  getMyClassroomAssignmentAttempts,
+  getClassroomAssignmentAttemptDetail,
 };
 
 export const questionService = {

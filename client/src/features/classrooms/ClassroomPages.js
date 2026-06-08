@@ -45,6 +45,77 @@ function getText(t, key, fallback, vars) {
   return value === key ? fallback : value;
 }
 
+function parseQuestionOptions(options) {
+  if (!options) {
+    return [];
+  }
+
+  if (Array.isArray(options)) {
+    return options;
+  }
+
+  if (typeof options === 'string') {
+    const trimmed = options.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+      if (parsed && typeof parsed === 'object') {
+        return Object.entries(parsed).map(([key, text]) => ({ key, text: String(text) }));
+      }
+    } catch {
+      return [{ key: '', text: trimmed }];
+    }
+
+    return [{ key: '', text: trimmed }];
+  }
+
+  return [];
+}
+
+function getOptionValue(option, index) {
+  return String(option?.key || option?.value || option?.id || index + 1);
+}
+
+function getOptionText(option) {
+  return String(option?.text || option?.label || option?.value || option?.key || '');
+}
+
+function buildAssignmentPayload(form) {
+  return {
+    title: form.title.trim(),
+    description: form.description.trim() || null,
+    questionSetId: Number(form.questionSetId),
+    type: form.type,
+    startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
+    dueAt: form.dueAt ? new Date(form.dueAt).toISOString() : null,
+    timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : null,
+    attemptLimit: Number(form.attemptLimit) || 1,
+    shuffleQuestions: Boolean(form.shuffleQuestions),
+    shuffleOptions: Boolean(form.shuffleOptions),
+    showAnswerAfterSubmit: Boolean(form.showAnswerAfterSubmit),
+  };
+}
+
+const emptyAssignmentForm = {
+  title: '',
+  description: '',
+  questionSetId: '',
+  type: 'Quiz',
+  startAt: '',
+  dueAt: '',
+  timeLimitMinutes: '',
+  attemptLimit: '1',
+  shuffleQuestions: false,
+  shuffleOptions: false,
+  showAnswerAfterSubmit: true,
+};
+
 export function TeachingClassroomsPage() {
   const { t } = useLanguage();
   const { currentUser } = useAuth();
@@ -411,6 +482,10 @@ export function ClassroomDetailPage({ membersOnly = false }) {
           <Link className="classroom-button primary classroom-inline-action" to={`/classrooms/${classroomId}/question-sets`}>
             <LuListChecks aria-hidden="true" />
             {getText(t, 'classrooms.questionSets.open', 'Bo cau hoi')}
+          </Link>
+          <Link className="classroom-button classroom-inline-action" to={isTeacher ? `/classrooms/${classroomId}/assignments` : `/classrooms/${classroomId}/student/assignments`}>
+            <LuClipboard aria-hidden="true" />
+            {getText(t, 'classrooms.assignments.open', 'Assignments')}
           </Link>
         </article>
 
@@ -961,6 +1036,963 @@ export function ClassroomQuestionSetDetailPage() {
   );
 }
 
+export function ClassroomAssignmentsPage() {
+  const { classroomId } = useParams();
+  const { t } = useLanguage();
+  const [classroom, setClassroom] = useState(null);
+  const [assignments, setAssignments] = useState([]);
+  const [questionSets, setQuestionSets] = useState([]);
+  const [form, setForm] = useState(emptyAssignmentForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const classroomData = await classroomService.getClassroomDetail(classroomId);
+      setClassroom(classroomData);
+      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+        setAssignments([]);
+        setQuestionSets([]);
+        return;
+      }
+
+      const [assignmentData, questionSetData] = await Promise.all([
+        classroomService.getClassroomAssignments(classroomId),
+        classroomService.getClassroomQuestionSets(classroomId),
+      ]);
+      setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
+      setQuestionSets((Array.isArray(questionSetData) ? questionSetData : []).filter((set) => set.visibility === 'Published'));
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.load', 'Khong tai duoc assignments.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, t]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
+
+  const handleCreate = async (event) => {
+    event.preventDefault();
+    if (!form.title.trim() || !form.questionSetId) {
+      setError(getText(t, 'classrooms.assignments.errors.required', 'Nhap tieu de va chon bo cau hoi.'));
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const created = await classroomService.createClassroomAssignment(classroomId, buildAssignmentPayload(form));
+      setAssignments((current) => [created, ...current]);
+      setForm(emptyAssignmentForm);
+      setSuccess(getText(t, 'classrooms.assignments.feedback.created', 'Da tao assignment.'));
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.create', 'Khong tao duoc assignment.')));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (!isTeacher) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle={classroom?.name || ''}>
+        <ClassroomTabs />
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi quan ly assignment.')} />
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
+          <LuGraduationCap aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.studentList', 'Assignments cua hoc vien')}
+        </Link>
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle={classroom?.name || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} success={success} />
+      <ClassroomResourceLinks classroomId={classroomId} isTeacher={isTeacher} t={t} />
+
+      <section className="classroom-layout">
+        <form className="classroom-panel classroom-form" onSubmit={handleCreate}>
+          <div>
+            <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Teacher tools')}</span>
+            <h2>{getText(t, 'classrooms.assignments.createTitle', 'Tao assignment')}</h2>
+          </div>
+          <AssignmentFields form={form} onChange={setForm} questionSets={questionSets} t={t} />
+          <button className="classroom-button primary" type="submit" disabled={saving}>
+            <LuPlus aria-hidden="true" />
+            {saving ? getText(t, 'classrooms.assignments.creating', 'Dang tao...') : getText(t, 'classrooms.assignments.create', 'Tao assignment')}
+          </button>
+        </form>
+
+        <AssignmentList
+          assignments={assignments}
+          classroomId={classroomId}
+          emptyBody={getText(t, 'classrooms.assignments.emptyBody', 'Tao assignment tu bo cau hoi da Published.')}
+          loading={false}
+          onRetry={loadPage}
+          t={t}
+          teacher
+        />
+      </section>
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentDetailPage() {
+  const { classroomId, assignmentId } = useParams();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [classroom, setClassroom] = useState(null);
+  const [assignment, setAssignment] = useState(null);
+  const [questionSets, setQuestionSets] = useState([]);
+  const [form, setForm] = useState(emptyAssignmentForm);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+
+  const syncForm = (data) => {
+    setForm({
+      title: data?.title || '',
+      description: data?.description || '',
+      questionSetId: data?.questionSetId ? String(data.questionSetId) : '',
+      type: data?.type || 'Quiz',
+      startAt: data?.startAt ? String(data.startAt).slice(0, 16) : '',
+      dueAt: data?.dueAt ? String(data.dueAt).slice(0, 16) : '',
+      timeLimitMinutes: data?.timeLimitMinutes ? String(data.timeLimitMinutes) : '',
+      attemptLimit: data?.attemptLimit ? String(data.attemptLimit) : '1',
+      shuffleQuestions: Boolean(data?.shuffleQuestions),
+      shuffleOptions: Boolean(data?.shuffleOptions),
+      showAnswerAfterSubmit: Boolean(data?.showAnswerAfterSubmit),
+    });
+  };
+
+  const loadDetail = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const classroomData = await classroomService.getClassroomDetail(classroomId);
+      setClassroom(classroomData);
+      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+        setAssignment(null);
+        return;
+      }
+
+      const [assignmentData, questionSetData] = await Promise.all([
+        classroomService.getClassroomAssignmentDetail(assignmentId),
+        classroomService.getClassroomQuestionSets(classroomId),
+      ]);
+      setAssignment(assignmentData);
+      setQuestionSets((Array.isArray(questionSetData) ? questionSetData : []).filter((set) => set.visibility === 'Published'));
+      syncForm(assignmentData);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.detail', 'Khong tai duoc assignment.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId, classroomId, t]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  const runAction = async (action, successMessage, fallbackMessage) => {
+    setWorking(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const updated = await action();
+      if (updated) {
+        setAssignment(updated);
+        syncForm(updated);
+      } else {
+        await loadDetail();
+      }
+      setSuccess(successMessage);
+    } catch (err) {
+      setError(getApiErrorMessage(err, fallbackMessage));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleUpdate = async (event) => {
+    event.preventDefault();
+    if (!form.title.trim()) {
+      setError(getText(t, 'classrooms.assignments.errors.titleRequired', 'Nhap tieu de assignment.'));
+      return;
+    }
+
+    await runAction(
+      () => classroomService.updateClassroomAssignment(assignmentId, buildAssignmentPayload(form)),
+      getText(t, 'classrooms.assignments.feedback.updated', 'Da cap nhat assignment.'),
+      getText(t, 'classrooms.assignments.errors.update', 'Khong cap nhat duoc assignment.')
+    );
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(getText(t, 'classrooms.assignments.confirmDelete', 'Xoa assignment nay?'))) {
+      return;
+    }
+
+    setWorking(true);
+    setError('');
+    try {
+      await classroomService.deleteClassroomAssignment(assignmentId);
+      navigate(`/classrooms/${classroomId}/assignments`);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.delete', 'Khong xoa duoc assignment.')));
+      setWorking(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (!isTeacher) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
+        <ClassroomTabs />
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi quan ly assignment.')} />
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments/${assignmentId}`}>
+          <LuGraduationCap aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.openStudentView', 'Mo trang hoc vien')}
+        </Link>
+      </ClassroomShell>
+    );
+  }
+
+  if (error && !assignment) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
+        <ClassroomTabs />
+        <MessageBar error={error} />
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+        </Link>
+      </ClassroomShell>
+    );
+  }
+
+  const items = Array.isArray(assignment?.items) ? assignment.items : [];
+
+  return (
+    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} success={success} />
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+        </Link>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/attempts`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.viewAttempts', 'Attempts')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadDetail}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </div>
+
+      <section className="classroom-detail-grid">
+        <article className="classroom-panel classroom-summary">
+          <span className={`classroom-badge ${assignment?.status === 'Published' ? '' : 'muted'}`}>{assignment?.status || 'Draft'}</span>
+          <h2>{assignment?.title}</h2>
+          <p>{assignment?.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+          <div className="classroom-metrics">
+            <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Cau hoi')} value={assignment?.itemCount || items.length} />
+            <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Diem')} value={assignment?.totalPoints || 0} />
+            <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')} value={assignment?.attemptLimit || 1} />
+          </div>
+          <small className="classroom-muted">
+            {assignment?.type} | Due: {formatDateTime(assignment?.dueAt)}
+          </small>
+        </article>
+
+        <form className="classroom-panel classroom-form" onSubmit={handleUpdate}>
+          <div className="classroom-section-head">
+            <div>
+              <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Teacher tools')}</span>
+              <h2>{getText(t, 'classrooms.assignments.editTitle', 'Sua assignment')}</h2>
+            </div>
+            <div className="classroom-row-actions">
+              {assignment?.status !== 'Published' && (
+                <button className="classroom-button primary" type="button" onClick={() => runAction(
+                  () => classroomService.publishClassroomAssignment(assignmentId),
+                  getText(t, 'classrooms.assignments.feedback.published', 'Da publish assignment.'),
+                  getText(t, 'classrooms.assignments.errors.publish', 'Khong publish duoc assignment.')
+                )} disabled={working}>
+                  <LuCheck aria-hidden="true" />
+                  {getText(t, 'classrooms.assignments.publish', 'Publish')}
+                </button>
+              )}
+              {assignment?.status !== 'Closed' && (
+                <button className="classroom-button" type="button" onClick={() => runAction(
+                  () => classroomService.closeClassroomAssignment(assignmentId),
+                  getText(t, 'classrooms.assignments.feedback.closed', 'Da dong assignment.'),
+                  getText(t, 'classrooms.assignments.errors.close', 'Khong dong duoc assignment.')
+                )} disabled={working}>
+                  <LuBan aria-hidden="true" />
+                  {getText(t, 'classrooms.assignments.close', 'Close')}
+                </button>
+              )}
+              <button className="classroom-icon-button danger" type="button" onClick={handleDelete} disabled={working} title={getText(t, 'classrooms.assignments.delete', 'Xoa')}>
+                <LuTrash2 aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <AssignmentFields form={form} onChange={setForm} questionSets={questionSets} t={t} />
+          <button className="classroom-button primary" type="submit" disabled={working}>
+            <LuSave aria-hidden="true" />
+            {getText(t, 'classrooms.assignments.save', 'Luu')}
+          </button>
+        </form>
+      </section>
+
+      <section className="classroom-panel classroom-question-set-items">
+        <div className="classroom-section-head">
+          <div>
+            <span className="classroom-kicker">{getText(t, 'classrooms.assignments.questions', 'Questions')}</span>
+            <h2>{getText(t, 'classrooms.assignments.questionsInAssignment', 'Cau hoi trong assignment')}</h2>
+          </div>
+        </div>
+        <AssignmentQuestions items={items} showSensitive />
+      </section>
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentTeacherAttemptsPage() {
+  const { classroomId, assignmentId } = useParams();
+  const { t } = useLanguage();
+  const [classroom, setClassroom] = useState(null);
+  const [assignment, setAssignment] = useState(null);
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const classroomData = await classroomService.getClassroomDetail(classroomId);
+      setClassroom(classroomData);
+      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+        setAttempts([]);
+        return;
+      }
+
+      const [assignmentData, attemptsData] = await Promise.all([
+        classroomService.getClassroomAssignmentDetail(assignmentId),
+        classroomService.getClassroomAssignmentAttempts(assignmentId),
+      ]);
+      setAssignment(assignmentData);
+      setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.attempts', 'Khong tai duoc attempts.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId, classroomId, t]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (classroom?.currentUserRole !== ROLE_TEACHER) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle={classroom?.name || ''}>
+        <ClassroomTabs />
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi xem attempts.')} />
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle={assignment?.title || classroom?.name || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} />
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.backToDetail', 'Ve assignment')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadPage}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </div>
+
+      <section className="classroom-panel classroom-question-set-items">
+        {!attempts.length ? (
+          <p className="classroom-muted">{getText(t, 'classrooms.assignments.noAttempts', 'Chua co attempt nao.')}</p>
+        ) : (
+          <div className="classroom-question-list">
+            {attempts.map((attempt) => (
+              <article className="classroom-question-row" key={attempt.id}>
+                <div>
+                  <strong>{attempt.user?.fullName || attempt.user?.email || `User ${attempt.userId}`}</strong>
+                  <small>
+                    Attempt #{attempt.attemptNumber || '-'} | {attempt.status}
+                    {' | '}
+                    Score: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
+                    {' | '}
+                    Started: {formatDateTime(attempt.startedAt)}
+                    {' | '}
+                    Submitted: {formatDateTime(attempt.submittedAt)}
+                    {' | '}
+                    Duration: {attempt.durationSeconds ?? 0}s
+                  </small>
+                  <AttemptAnswers answers={attempt.answers || []} reveal />
+                </div>
+                <Link className="classroom-button" to={`/classroom-attempts/${attempt.id}/result`}>
+                  {getText(t, 'classrooms.assignments.viewAttempt', 'Xem chi tiet')}
+                </Link>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </ClassroomShell>
+  );
+}
+
+export function StudentClassroomAssignmentsPage() {
+  const { classroomId } = useParams();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [classroom, setClassroom] = useState(null);
+  const [assignments, setAssignments] = useState([]);
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [startingId, setStartingId] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const [classroomData, assignmentData, attemptsData] = await Promise.all([
+        classroomService.getClassroomDetail(classroomId),
+        classroomService.getStudentClassroomAssignments(classroomId),
+        classroomService.getMyClassroomAssignmentAttempts(),
+      ]);
+      setClassroom(classroomData);
+      setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
+      setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentLoad', 'Khong tai duoc assignment cua hoc vien.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, t]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
+
+  const startAssignment = async (assignmentId) => {
+    setStartingId(assignmentId);
+    setError('');
+    setSuccess('');
+    try {
+      const attempt = await classroomService.startClassroomAssignmentAttempt(assignmentId);
+      setSuccess(getText(t, 'classrooms.assignments.feedback.started', 'Da mo attempt.'));
+      navigate(`/classroom-attempts/${attempt.id}`);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Khong bat dau duoc assignment.')));
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Assignments cua hoc vien')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Assignments cua hoc vien')} subtitle={classroom?.name || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} success={success} />
+      <ClassroomResourceLinks classroomId={classroomId} isTeacher={false} t={t} />
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to="/classroom-attempts/history">
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.history', 'Lich su lam bai')}
+        </Link>
+      </div>
+      <AssignmentList
+        assignments={assignments}
+        attempts={attempts}
+        classroomId={classroomId}
+        emptyBody={getText(t, 'classrooms.assignments.studentEmpty', 'Chua co assignment da Published.')}
+        loading={false}
+        onRetry={loadPage}
+        onStart={startAssignment}
+        startingId={startingId}
+        t={t}
+      />
+    </ClassroomShell>
+  );
+}
+
+export function StudentClassroomAssignmentDetailPage() {
+  const { classroomId, assignmentId } = useParams();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [classroom, setClassroom] = useState(null);
+  const [assignment, setAssignment] = useState(null);
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const [classroomData, assignmentsData, attemptsData] = await Promise.all([
+        classroomService.getClassroomDetail(classroomId),
+        classroomService.getStudentClassroomAssignments(classroomId),
+        classroomService.getMyClassroomAssignmentAttempts(),
+      ]);
+      setClassroom(classroomData);
+      setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
+      const visibleAssignment = (Array.isArray(assignmentsData) ? assignmentsData : [])
+        .find((item) => String(item.id) === String(assignmentId));
+      if (!visibleAssignment) {
+        setAssignment(null);
+        setError(getText(t, 'classrooms.assignments.errors.studentForbidden', 'Assignment khong kha dung cho hoc vien nay.'));
+        return;
+      }
+      setAssignment(visibleAssignment);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentDetail', 'Khong tai duoc assignment.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId, classroomId, t]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
+
+  const startAssignment = async () => {
+    setStarting(true);
+    setError('');
+    try {
+      const attempt = await classroomService.startClassroomAssignmentAttempt(assignmentId);
+      navigate(`/classroom-attempts/${attempt.id}`);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Khong bat dau duoc assignment.')));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.studentDetailTitle', 'Assignment')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  const attempt = findLatestAttemptForAssignment(attempts, assignmentId);
+  const items = Array.isArray(assignment?.items) ? assignment.items : [];
+
+  return (
+    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.studentDetailTitle', 'Assignment')} subtitle={classroom?.name || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} />
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+        </Link>
+        {attempt?.status === 'InProgress' ? (
+          <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
+            <LuCheck aria-hidden="true" />
+            {getText(t, 'classrooms.assignments.resume', 'Tiep tuc lam')}
+          </Link>
+        ) : (
+          <button className="classroom-button primary" type="button" onClick={startAssignment} disabled={starting || !assignment}>
+            <LuCheck aria-hidden="true" />
+            {starting ? getText(t, 'classrooms.assignments.starting', 'Dang mo...') : getText(t, 'classrooms.assignments.start', 'Start')}
+          </button>
+        )}
+      </div>
+
+      {assignment && (
+        <>
+          <section className="classroom-panel classroom-summary">
+            <span className="classroom-badge">{assignment.status}</span>
+            <h2>{assignment.title}</h2>
+            <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+            <div className="classroom-metrics">
+              <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Cau hoi')} value={assignment.itemCount || items.length} />
+              <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Diem')} value={assignment.totalPoints || 0} />
+              <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')} value={assignment.attemptLimit || 1} />
+            </div>
+          </section>
+          <section className="classroom-panel classroom-question-set-items">
+            <AssignmentQuestions items={items} />
+          </section>
+        </>
+      )}
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentAttemptPage() {
+  const { attemptId } = useParams();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [attempt, setAttempt] = useState(null);
+  const [answers, setAnswers] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [workingQuestionId, setWorkingQuestionId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const loadAttempt = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await classroomService.getClassroomAssignmentAttemptDetail(attemptId);
+      setAttempt(data);
+      const nextAnswers = {};
+      (Array.isArray(data?.answers) ? data.answers : []).forEach((answer) => {
+        nextAnswers[answer.questionId] = answer.selectedAnswer || '';
+      });
+      setAnswers(nextAnswers);
+      if (data?.status === 'Submitted') {
+        navigate(`/classroom-attempts/${attemptId}/result`, { replace: true });
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.attemptDetail', 'Khong tai duoc attempt.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [attemptId, navigate, t]);
+
+  useEffect(() => {
+    loadAttempt();
+  }, [loadAttempt]);
+
+  const items = Array.isArray(attempt?.assignment?.items) ? attempt.assignment.items : [];
+  const answeredCount = items.filter((item) => answers[item.questionId]).length;
+
+  const submitAnswer = async (questionId) => {
+    setWorkingQuestionId(questionId);
+    setError('');
+    setSuccess('');
+
+    try {
+      await classroomService.submitClassroomAssignmentAnswer(attemptId, {
+        questionId,
+        selectedAnswer: answers[questionId] || '',
+        timeSpentSeconds: null,
+      });
+      setSuccess(getText(t, 'classrooms.assignments.feedback.answerSaved', 'Da luu cau tra loi.'));
+      await loadAttempt();
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.answer', 'Khong luu duoc cau tra loi.')));
+    } finally {
+      setWorkingQuestionId(null);
+    }
+  };
+
+  const submitAttempt = async () => {
+    if (!window.confirm(getText(t, 'classrooms.assignments.confirmSubmit', 'Nop bai? Ban se khong the sua cau tra loi sau khi nop.'))) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await classroomService.submitClassroomAssignmentAttempt(attemptId);
+      navigate(`/classroom-attempts/${attemptId}/result`);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.submitAttempt', 'Khong nop duoc bai.')));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptTitle', 'Lam assignment')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={attempt?.assignment?.title || getText(t, 'classrooms.assignments.attemptTitle', 'Lam assignment')} subtitle={`${answeredCount}/${items.length} ${getText(t, 'classrooms.assignments.answered', 'da tra loi')}`}>
+      <ClassroomTabs />
+      <MessageBar error={error} success={success} />
+      <section className="classroom-panel classroom-attempt-toolbar">
+        <div>
+          <span className="classroom-kicker">{attempt?.status || 'InProgress'}</span>
+          <h2>{getText(t, 'classrooms.assignments.progress', 'Tien do')}: {answeredCount}/{items.length}</h2>
+        </div>
+        <button className="classroom-button primary" type="button" onClick={submitAttempt} disabled={submitting || !items.length}>
+          <LuCheck aria-hidden="true" />
+          {submitting ? getText(t, 'classrooms.assignments.submitting', 'Dang nop...') : getText(t, 'classrooms.assignments.submitAttempt', 'Nop bai')}
+        </button>
+      </section>
+
+      <section className="classroom-question-list">
+        {items.map((item, index) => (
+          <QuestionAttemptCard
+            answer={answers[item.questionId] || ''}
+            item={item}
+            key={item.id || item.questionId}
+            onAnswer={(value) => setAnswers((current) => ({ ...current, [item.questionId]: value }))}
+            onSubmit={() => submitAnswer(item.questionId)}
+            saving={workingQuestionId === item.questionId}
+            t={t}
+            index={index}
+          />
+        ))}
+      </section>
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentResultPage() {
+  const { attemptId } = useParams();
+  const { t } = useLanguage();
+  const [attempt, setAttempt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadAttempt = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await classroomService.getClassroomAssignmentAttemptDetail(attemptId);
+      setAttempt(data);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.result', 'Khong tai duoc ket qua.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [attemptId, t]);
+
+  useEffect(() => {
+    loadAttempt();
+  }, [loadAttempt]);
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Ket qua assignment')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  const answers = Array.isArray(attempt?.answers) ? attempt.answers : [];
+  const reveal = answers.some((answer) => Object.prototype.hasOwnProperty.call(answer, 'isCorrect') || answer.question?.correctAnswer);
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Ket qua assignment')} subtitle={attempt?.assignment?.title || ''}>
+      <ClassroomTabs />
+      <MessageBar error={error} />
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to="/classroom-attempts/history">
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.history', 'Lich su lam bai')}
+        </Link>
+      </div>
+      {attempt && (
+        <>
+          <section className="classroom-panel classroom-summary">
+            <span className="classroom-badge">{attempt.status}</span>
+            <div className="classroom-metrics">
+              <Metric label={getText(t, 'classrooms.assignments.rawScore', 'Diem')} value={attempt.rawScore ?? '-'} />
+              <Metric label={getText(t, 'classrooms.assignments.percentScore', 'Phan tram')} value={attempt.percentScore != null ? `${attempt.percentScore}%` : '-'} />
+              <Metric label={getText(t, 'classrooms.assignments.answeredCount', 'Da tra loi')} value={answers.length} />
+            </div>
+            {!attempt.assignment?.showAnswerAfterSubmit && (
+              <p className="classroom-muted">{getText(t, 'classrooms.assignments.hiddenAnswers', 'Giao vien dang an dap an dung; trang nay chi hien tong diem.')}</p>
+            )}
+          </section>
+
+          {reveal && (
+            <section className="classroom-panel classroom-question-set-items">
+              <div className="classroom-section-head">
+                <div>
+                  <span className="classroom-kicker">{getText(t, 'classrooms.assignments.review', 'Review')}</span>
+                  <h2>{getText(t, 'classrooms.assignments.answerReview', 'Xem lai cau tra loi')}</h2>
+                </div>
+              </div>
+              <AttemptAnswers answers={answers} reveal />
+            </section>
+          )}
+        </>
+      )}
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentHistoryPage() {
+  const { t } = useLanguage();
+  const [attempts, setAttempts] = useState([]);
+  const [classrooms, setClassrooms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const [attemptData, joinedData] = await Promise.all([
+        classroomService.getMyClassroomAssignmentAttempts(),
+        classroomService.getJoinedClassrooms(),
+      ]);
+      setAttempts(Array.isArray(attemptData) ? attemptData : []);
+      setClassrooms(Array.isArray(joinedData) ? joinedData : []);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.history', 'Khong tai duoc lich su assignment.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const classroomById = new Map(classrooms.map((classroom) => [String(getClassroomId(classroom)), classroom]));
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lich su assignment')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lich su assignment')} subtitle={getText(t, 'classrooms.assignments.historySubtitle', 'Tat ca attempt cua ban trong classroom.')}>
+      <ClassroomTabs />
+      <MessageBar error={error} />
+      <div className="classroom-page-actions">
+        <button className="classroom-button" type="button" onClick={loadHistory}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </div>
+
+      {!attempts.length ? (
+        <section className="classroom-panel classroom-empty">
+          <LuClipboard aria-hidden="true" />
+          <h2>{getText(t, 'classrooms.assignments.historyEmptyTitle', 'Chua co attempt')}</h2>
+          <p>{getText(t, 'classrooms.assignments.historyEmptyBody', 'Bat dau mot assignment de lich su xuat hien tai day.')}</p>
+        </section>
+      ) : (
+        <section className="classroom-list">
+          {attempts.map((attempt) => {
+            const classroom = classroomById.get(String(attempt.assignment?.classroomWorkspaceId));
+            return (
+              <article className="classroom-card" key={attempt.id}>
+                <span className="classroom-card-icon"><LuClipboard aria-hidden="true" /></span>
+                <div>
+                  <div className="classroom-card-title-row">
+                    <h2>{attempt.assignment?.title || `Assignment #${attempt.classroomAssignmentId}`}</h2>
+                    <span className={`classroom-badge ${attempt.status === 'Submitted' ? '' : 'muted'}`}>{attempt.status}</span>
+                  </div>
+                  <p>{classroom?.name || `Classroom #${attempt.assignment?.classroomWorkspaceId || '-'}`}</p>
+                  <small>
+                    Attempt #{attempt.attemptNumber || '-'} | Started: {formatDateTime(attempt.startedAt)}
+                    {' | '}
+                    Submitted: {formatDateTime(attempt.submittedAt)}
+                    {' | '}
+                    Score: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
+                  </small>
+                  <div className="classroom-row-actions classroom-card-actions">
+                    {attempt.status === 'InProgress' ? (
+                      <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
+                        {getText(t, 'classrooms.assignments.resume', 'Tiep tuc')}
+                      </Link>
+                    ) : (
+                      <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}/result`}>
+                        {getText(t, 'classrooms.assignments.result', 'Ket qua')}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      )}
+    </ClassroomShell>
+  );
+}
+
 function ClassroomShell({ children, subtitle, title }) {
   return (
     <main className="classroom-page">
@@ -1187,6 +2219,352 @@ function QuestionSetItems({ isTeacher, items, onMove, onRemove, t, working }) {
 
 function compareQuestionSetItems(left, right) {
   return (left.orderIndex ?? 0) - (right.orderIndex ?? 0) || (left.id ?? 0) - (right.id ?? 0);
+}
+
+function ClassroomResourceLinks({ classroomId, isTeacher, t }) {
+  return (
+    <div className="classroom-page-actions">
+      <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
+        <LuSchool aria-hidden="true" />
+        {getText(t, 'classrooms.assignments.classOverview', 'Tong quan lop')}
+      </Link>
+      <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets`}>
+        <LuListChecks aria-hidden="true" />
+        {getText(t, 'classrooms.questionSets.open', 'Bo cau hoi')}
+      </Link>
+      <Link className="classroom-button primary" to={isTeacher ? `/classrooms/${classroomId}/assignments` : `/classrooms/${classroomId}/student/assignments`}>
+        <LuClipboard aria-hidden="true" />
+        {getText(t, 'classrooms.assignments.open', 'Assignments')}
+      </Link>
+      {isTeacher && (
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/members`}>
+          <LuGraduationCap aria-hidden="true" />
+          {getText(t, 'classrooms.members.title', 'Danh sach thanh vien')}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function AssignmentFields({ form, onChange, questionSets, t }) {
+  const update = (patch) => onChange((current) => ({ ...current, ...patch }));
+
+  return (
+    <>
+      <label>
+        <span>{getText(t, 'classrooms.assignments.fields.title', 'Tieu de')}</span>
+        <input
+          value={form.title}
+          onChange={(event) => update({ title: event.target.value })}
+          placeholder={getText(t, 'classrooms.assignments.fields.titlePlaceholder', 'Vi du: N5 midterm quiz')}
+        />
+      </label>
+      <label>
+        <span>{getText(t, 'classrooms.assignments.fields.description', 'Mo ta')}</span>
+        <textarea
+          rows={3}
+          value={form.description}
+          onChange={(event) => update({ description: event.target.value })}
+          placeholder={getText(t, 'classrooms.assignments.fields.descriptionPlaceholder', 'Huong dan ngan cho hoc vien')}
+        />
+      </label>
+      <label>
+        <span>{getText(t, 'classrooms.assignments.fields.questionSet', 'Published QuestionSet')}</span>
+        {questionSets.length ? (
+          <select value={form.questionSetId} onChange={(event) => update({ questionSetId: event.target.value })}>
+            <option value="">{getText(t, 'classrooms.assignments.fields.selectQuestionSet', 'Chon bo cau hoi')}</option>
+            {questionSets.map((questionSet) => (
+              <option key={questionSet.id} value={questionSet.id}>
+                #{questionSet.id} - {questionSet.title}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            inputMode="numeric"
+            value={form.questionSetId}
+            onChange={(event) => update({ questionSetId: event.target.value.replace(/\D/g, '') })}
+            placeholder="QuestionSet ID"
+          />
+        )}
+      </label>
+      <div className="classroom-form-grid">
+        <label>
+          <span>{getText(t, 'classrooms.assignments.fields.type', 'Type')}</span>
+          <select value={form.type} onChange={(event) => update({ type: event.target.value })}>
+            {['Quiz', 'Test', 'Flashcard', 'Mixed'].map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{getText(t, 'classrooms.assignments.fields.attemptLimit', 'Attempt limit')}</span>
+          <input
+            inputMode="numeric"
+            min="1"
+            value={form.attemptLimit}
+            onChange={(event) => update({ attemptLimit: event.target.value.replace(/\D/g, '') || '1' })}
+          />
+        </label>
+        <label>
+          <span>{getText(t, 'classrooms.assignments.fields.timeLimit', 'Time limit')}</span>
+          <input
+            inputMode="numeric"
+            value={form.timeLimitMinutes}
+            onChange={(event) => update({ timeLimitMinutes: event.target.value.replace(/\D/g, '') })}
+            placeholder={getText(t, 'classrooms.assignments.fields.optionalMinutes', 'Phut, optional')}
+          />
+        </label>
+      </div>
+      <div className="classroom-form-grid">
+        <label>
+          <span>{getText(t, 'classrooms.assignments.fields.startAt', 'Start at')}</span>
+          <input type="datetime-local" value={form.startAt} onChange={(event) => update({ startAt: event.target.value })} />
+        </label>
+        <label>
+          <span>{getText(t, 'classrooms.assignments.fields.dueAt', 'Due at')}</span>
+          <input type="datetime-local" value={form.dueAt} onChange={(event) => update({ dueAt: event.target.value })} />
+        </label>
+      </div>
+      <label className="classroom-checkbox">
+        <input type="checkbox" checked={form.shuffleQuestions} onChange={(event) => update({ shuffleQuestions: event.target.checked })} />
+        <span>{getText(t, 'classrooms.assignments.fields.shuffleQuestions', 'Shuffle questions')}</span>
+      </label>
+      <label className="classroom-checkbox">
+        <input type="checkbox" checked={form.shuffleOptions} onChange={(event) => update({ shuffleOptions: event.target.checked })} />
+        <span>{getText(t, 'classrooms.assignments.fields.shuffleOptions', 'Shuffle options')}</span>
+      </label>
+      <label className="classroom-checkbox">
+        <input type="checkbox" checked={form.showAnswerAfterSubmit} onChange={(event) => update({ showAnswerAfterSubmit: event.target.checked })} />
+        <span>{getText(t, 'classrooms.assignments.fields.showAnswers', 'Show answer after submit')}</span>
+      </label>
+    </>
+  );
+}
+
+function AssignmentList({ assignments, attempts = [], classroomId, emptyBody, loading, onRetry, onStart, startingId, t, teacher = false }) {
+  if (loading) {
+    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />;
+  }
+
+  if (!assignments.length) {
+    return (
+      <section className="classroom-panel classroom-empty">
+        <LuClipboard aria-hidden="true" />
+        <h2>{getText(t, 'classrooms.assignments.emptyTitle', 'Chua co assignment')}</h2>
+        <p>{emptyBody}</p>
+        <button className="classroom-button" type="button" onClick={onRetry}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="classroom-list">
+      {assignments.map((assignment) => {
+        const assignmentAttempts = getAttemptsForAssignment(attempts, assignment.id);
+        const attempt = assignmentAttempts[0];
+        const studentStatus = getStudentAssignmentStatus(assignment, assignmentAttempts);
+        return (
+          <article className="classroom-card" key={assignment.id}>
+            <span className="classroom-card-icon"><LuClipboard aria-hidden="true" /></span>
+            <div>
+              <div className="classroom-card-title-row">
+                <h2>{assignment.title}</h2>
+                <span className={`classroom-badge ${assignment.status === 'Published' ? '' : 'muted'}`}>{teacher ? assignment.status : studentStatus}</span>
+              </div>
+              <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+              <small>
+                {assignment.type} | {getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')}: {assignment.attemptLimit || 1}
+                {' | '}
+                Due: {formatDateTime(assignment.dueAt)}
+              </small>
+              <div className="classroom-row-actions classroom-card-actions">
+                {teacher ? (
+                  <>
+                    <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignment.id}`}>
+                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiet')}
+                    </Link>
+                    <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignment.id}/attempts`}>
+                      {getText(t, 'classrooms.assignments.viewAttempts', 'Attempts')}
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments/${assignment.id}`}>
+                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiet')}
+                    </Link>
+                    {attempt?.status === 'InProgress' ? (
+                      <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
+                        {getText(t, 'classrooms.assignments.resume', 'Tiep tuc')}
+                      </Link>
+                    ) : attempt?.status === 'Submitted' ? (
+                      <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}/result`}>
+                        {getText(t, 'classrooms.assignments.result', 'Ket qua')}
+                      </Link>
+                    ) : (
+                      <button className="classroom-button primary" type="button" onClick={() => onStart?.(assignment.id)} disabled={startingId === assignment.id}>
+                        {startingId === assignment.id ? getText(t, 'classrooms.assignments.starting', 'Dang mo...') : getText(t, 'classrooms.assignments.start', 'Start')}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function findLatestAttemptForAssignment(attempts, assignmentId) {
+  return getAttemptsForAssignment(attempts, assignmentId)[0];
+}
+
+function getAttemptsForAssignment(attempts, assignmentId) {
+  return (Array.isArray(attempts) ? attempts : [])
+    .filter((attempt) => String(attempt.classroomAssignmentId) === String(assignmentId))
+    .sort((left, right) => new Date(right.startedAt || 0) - new Date(left.startedAt || 0));
+}
+
+function getStudentAssignmentStatus(assignment, assignmentAttempts) {
+  const attempts = Array.isArray(assignmentAttempts) ? assignmentAttempts : [];
+  const attempt = attempts[0];
+  if (attempt?.status === 'Submitted') {
+    return 'Da nop';
+  }
+  if (attempt?.status === 'InProgress') {
+    return 'Dang lam';
+  }
+  if (attempt?.status === 'Expired') {
+    return 'Het han';
+  }
+  if (assignment?.dueAt && new Date(assignment.dueAt) < new Date()) {
+    return 'Het han';
+  }
+  if (attempts.length >= (Number(assignment?.attemptLimit) || 1)) {
+    return 'Het luot lam';
+  }
+  return 'Chua lam';
+}
+
+function AssignmentQuestions({ items, showSensitive = false }) {
+  if (!items.length) {
+    return <p className="classroom-muted">Chua co cau hoi.</p>;
+  }
+
+  return (
+    <div className="classroom-question-list">
+      {items.map((item, index) => (
+        <div className="classroom-question-row" key={item.id || item.questionId}>
+          <div>
+            <strong>{index + 1}. {item.question?.questionText || `Question #${item.questionId}`}</strong>
+            <small>
+              ID {item.questionId} | {item.question?.questionType || '-'} | Diem: {item.pointWeight ?? '-'}
+            </small>
+            <OptionPreview options={item.question?.options} />
+            {showSensitive && item.question?.correctAnswer && (
+              <p className="classroom-answer-key">Correct: {item.question.correctAnswer}</p>
+            )}
+            {showSensitive && item.question?.explanation && (
+              <p className="classroom-muted">{item.question.explanation}</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OptionPreview({ options }) {
+  const parsedOptions = parseQuestionOptions(options);
+  if (!parsedOptions.length) {
+    return null;
+  }
+
+  return (
+    <ul className="classroom-option-list">
+      {parsedOptions.map((option, index) => (
+        <li key={`${getOptionValue(option, index)}-${index}`}>
+          <strong>{getOptionValue(option, index)}.</strong> {getOptionText(option)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function QuestionAttemptCard({ answer, item, onAnswer, onSubmit, saving, t, index }) {
+  const options = parseQuestionOptions(item.question?.options);
+  return (
+    <article className="classroom-panel classroom-attempt-question">
+      <div className="classroom-section-head">
+        <div>
+          <span className="classroom-kicker">Question {index + 1}</span>
+          <h2>{item.question?.questionText || `Question #${item.questionId}`}</h2>
+          <p className="classroom-muted">Diem: {item.pointWeight ?? '-'}</p>
+        </div>
+      </div>
+
+      {options.length ? (
+        <div className="classroom-answer-options">
+          {options.map((option, optionIndex) => {
+            const value = getOptionValue(option, optionIndex);
+            return (
+              <label className="classroom-answer-option" key={`${value}-${optionIndex}`}>
+                <input
+                  checked={answer === value}
+                  name={`question-${item.questionId}`}
+                  onChange={() => onAnswer(value)}
+                  type="radio"
+                  value={value}
+                />
+                <span><strong>{value}.</strong> {getOptionText(option)}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <label className="classroom-form">
+          <span>{getText(t, 'classrooms.assignments.selectedAnswer', 'Cau tra loi')}</span>
+          <input value={answer} onChange={(event) => onAnswer(event.target.value)} placeholder="A" />
+        </label>
+      )}
+
+      <button className="classroom-button" type="button" onClick={onSubmit} disabled={saving || !answer}>
+        <LuSave aria-hidden="true" />
+        {saving ? getText(t, 'classrooms.assignments.savingAnswer', 'Dang luu...') : getText(t, 'classrooms.assignments.submitAnswer', 'Luu cau tra loi')}
+      </button>
+    </article>
+  );
+}
+
+function AttemptAnswers({ answers, reveal }) {
+  if (!answers.length) {
+    return <p className="classroom-muted">Chua co cau tra loi.</p>;
+  }
+
+  return (
+    <div className="classroom-answer-review">
+      {answers.map((answer) => (
+        <div className="classroom-answer-review-row" key={answer.id || answer.questionId}>
+          <strong>{answer.question?.questionText || `Question #${answer.questionId}`}</strong>
+          <small>Selected: {answer.selectedAnswer || '-'}</small>
+          {reveal && Object.prototype.hasOwnProperty.call(answer, 'isCorrect') && (
+            <small>{answer.isCorrect ? 'Dung' : 'Sai'} | Diem: {answer.pointEarned ?? 0}</small>
+          )}
+          {reveal && answer.question?.correctAnswer && (
+            <small>Correct: {answer.question.correctAnswer}</small>
+          )}
+          {reveal && answer.question?.explanation && (
+            <small>{answer.question.explanation}</small>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function JoinCodeList({ codes, disablingCodeId, onCopy, onDisable, t }) {

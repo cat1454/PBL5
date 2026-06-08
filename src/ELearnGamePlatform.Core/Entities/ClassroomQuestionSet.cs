@@ -49,4 +49,5 @@ public class ClassroomQuestionSet
     public virtual AppUser? CreatedByUser { get; set; }
 
     public virtual ICollection<ClassroomQuestionSetItem> Items { get; set; } = new List<ClassroomQuestionSetItem>();
+    public virtual ICollection<ClassroomAssignment> Assignments { get; set; } = new List<ClassroomAssignment>();
 }

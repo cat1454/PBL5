@@ -122,6 +122,7 @@
 
 .classroom-form input,
 .classroom-form textarea,
+.classroom-form select,
 .classroom-join-form input,
 .classroom-question-tools input,
 .classroom-inline-form input {
@@ -135,6 +136,26 @@
 
 .classroom-form textarea {
   resize: vertical;
+}
+
+.classroom-form select {
+  min-height: 44px;
+}
+
+.classroom-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.classroom-checkbox {
+  align-items: center;
+  flex-direction: row !important;
+}
+
+.classroom-checkbox input {
+  height: 18px;
+  width: 18px;
 }
 
 .classroom-button {
@@ -289,6 +310,11 @@
   gap: 8px;
 }
 
+.classroom-card-actions {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
 .classroom-page-actions {
   display: flex;
   flex-wrap: wrap;
@@ -413,6 +439,66 @@
   overflow-wrap: anywhere;
 }
 
+.classroom-option-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.classroom-option-list li,
+.classroom-answer-option,
+.classroom-answer-review-row {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
+  padding: 9px 10px;
+}
+
+.classroom-answer-key {
+  color: #0f766e !important;
+  font-weight: 800;
+  margin: 10px 0 0;
+}
+
+.classroom-attempt-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.classroom-attempt-question {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.classroom-answer-options,
+.classroom-answer-review {
+  display: grid;
+  gap: 10px;
+}
+
+.classroom-answer-option {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+}
+
+.classroom-answer-option input {
+  height: 18px;
+  width: 18px;
+}
+
+.classroom-answer-review-row {
+  display: grid;
+  gap: 4px;
+}
+
 .classroom-message {
   border-radius: 8px;
   font-weight: 800;
@@ -468,7 +554,8 @@
   .classroom-code-row,
   .classroom-question-row,
   .classroom-question-tools,
-  .classroom-inline-form {
+  .classroom-inline-form,
+  .classroom-form-grid {
     grid-template-columns: 1fr;
   }
 
@@ -477,6 +564,11 @@
   }
 
   .classroom-section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .classroom-attempt-toolbar {
     align-items: flex-start;
     flex-direction: column;
   }

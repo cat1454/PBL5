@@ -89,6 +89,7 @@ benchmarks/output/*
 
 # Local agent and generated snapshots
 .local-agent-rules/
+.codex-runlogs/
 commit-history/
 .playwright-mcp/
 

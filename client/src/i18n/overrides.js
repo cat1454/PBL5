@@ -1417,4 +1417,34 @@ overrides.en.classrooms = {
   },
 };
 
+overrides.vi.app = {
+  ...(overrides.vi.app || {}),
+  pageTitle: {
+    ...(overrides.vi.app?.pageTitle || {}),
+    classroomAssignments: 'Assignments',
+    classroomAssignmentDetail: 'Chi tiết assignment',
+    classroomAssignmentAttempts: 'Attempts',
+    studentClassroomAssignments: 'Assignments của học viên',
+    studentClassroomAssignmentDetail: 'Assignment',
+    classroomAttempt: 'Làm assignment',
+    classroomAttemptResult: 'Kết quả assignment',
+    classroomAttemptHistory: 'Lịch sử assignment',
+  },
+};
+
+overrides.en.app = {
+  ...(overrides.en.app || {}),
+  pageTitle: {
+    ...(overrides.en.app?.pageTitle || {}),
+    classroomAssignments: 'Assignments',
+    classroomAssignmentDetail: 'Assignment detail',
+    classroomAssignmentAttempts: 'Attempts',
+    studentClassroomAssignments: 'Student assignments',
+    studentClassroomAssignmentDetail: 'Assignment',
+    classroomAttempt: 'Assignment attempt',
+    classroomAttemptResult: 'Assignment result',
+    classroomAttemptHistory: 'Assignment history',
+  },
+};
+
 export default overrides;
