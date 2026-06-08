@@ -3331,5 +3331,27 @@ Object.assign(translations.vi.slides, {
   },
 });
 
+Object.assign(translations.vi.app.pageTitle, {
+  classroomAssignments: 'Assignments',
+  classroomAssignmentDetail: 'Chi tiet assignment',
+  classroomAssignmentAttempts: 'Attempts',
+  studentClassroomAssignments: 'Assignments cua hoc vien',
+  studentClassroomAssignmentDetail: 'Assignment',
+  classroomAttempt: 'Lam assignment',
+  classroomAttemptResult: 'Ket qua assignment',
+  classroomAttemptHistory: 'Lich su assignment',
+});
+
+Object.assign(translations.en.app.pageTitle, {
+  classroomAssignments: 'Assignments',
+  classroomAssignmentDetail: 'Assignment detail',
+  classroomAssignmentAttempts: 'Attempts',
+  studentClassroomAssignments: 'Student assignments',
+  studentClassroomAssignmentDetail: 'Assignment',
+  classroomAttempt: 'Assignment attempt',
+  classroomAttemptResult: 'Assignment result',
+  classroomAttemptHistory: 'Assignment history',
+});
+
 
 export default translations;

@@ -38,4 +38,5 @@ public class ClassroomWorkspace
     public virtual ICollection<ClassroomMember> Members { get; set; } = new List<ClassroomMember>();
     public virtual ICollection<ClassroomJoinCode> JoinCodes { get; set; } = new List<ClassroomJoinCode>();
     public virtual ICollection<ClassroomQuestionSet> QuestionSets { get; set; } = new List<ClassroomQuestionSet>();
+    public virtual ICollection<ClassroomAssignment> Assignments { get; set; } = new List<ClassroomAssignment>();
 }
