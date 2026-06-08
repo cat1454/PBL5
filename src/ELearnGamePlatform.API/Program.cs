@@ -165,6 +165,7 @@ builder.Services.AddScoped<IClassroomPermissionService, ClassroomPermissionServi
 builder.Services.AddScoped<IClassroomQuestionSetService, ClassroomQuestionSetService>();
 builder.Services.AddScoped<IClassroomAssignmentService, ClassroomAssignmentService>();
 builder.Services.AddScoped<IClassroomLeaderboardService, ClassroomLeaderboardService>();
+builder.Services.AddScoped<IClassroomAnalyticsService, ClassroomAnalyticsService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();

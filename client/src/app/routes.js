@@ -27,6 +27,8 @@ import {
   TeachingClassroomsPage,
   ClassroomLeaderboardPage,
   ClassroomAssignmentLeaderboardPage,
+  ClassroomAnalyticsPage,
+  StudentClassroomAnalyticsPage,
 } from '../features/classrooms/ClassroomPages';
 import DashboardPage from '../features/dashboard/DashboardPage';
 import { useLanguage } from '../context/LanguageContext';
@@ -248,6 +250,22 @@ export const PROTECTED_ROUTES = [
     path: '/classrooms/:classroomId/assignments/:assignmentId/leaderboard',
     element: <ClassroomAssignmentLeaderboardPage />,
     titleKey: 'app.pageTitle.classroomAssignmentLeaderboard',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'classroomAnalytics',
+    path: '/classrooms/:classroomId/analytics',
+    element: <ClassroomAnalyticsPage />,
+    titleKey: 'app.pageTitle.classroomAnalytics',
+    frame: 'standard',
+    surface: 'classrooms',
+  },
+  {
+    id: 'studentClassroomAnalytics',
+    path: '/classrooms/:classroomId/student/analytics',
+    element: <StudentClassroomAnalyticsPage />,
+    titleKey: 'app.pageTitle.studentClassroomAnalytics',
     frame: 'standard',
     surface: 'classrooms',
   },

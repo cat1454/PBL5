@@ -4,6 +4,8 @@ import {
   LuArrowDown,
   LuArrowUp,
   LuBan,
+  LuChartBar,
+  LuTriangleAlert,
   LuCheck,
   LuClipboard,
   LuCopy,
@@ -26,7 +28,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import './classrooms.css';
 
-const ROLE_TEACHER = 'Teacher';
+const ROLE_TEACHER = 'Giảng viên';
 
 function getClassroomId(classroom) {
   return classroom?.id || classroom?.classroomWorkspaceId;
@@ -38,6 +40,24 @@ function formatDateTime(value) {
   }
 
   return new Date(value).toLocaleString();
+}
+
+function translateAssignmentStatus(status, t) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'draft') return getText(t, 'classrooms.assignments.status.draft', 'Bản nháp');
+  if (s === 'published') return getText(t, 'classrooms.assignments.status.published', 'Đã công bố');
+  if (s === 'closed') return getText(t, 'classrooms.assignments.status.closed', 'Đã đóng');
+  return status || '-';
+}
+
+function translateAttemptStatus(status, t) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'inprogress' || s === 'in_progress') return getText(t, 'classrooms.assignments.status.inProgress', 'Đang làm');
+  if (s === 'submitted') return getText(t, 'classrooms.assignments.status.submitted', 'Đã nộp');
+  if (s === 'expired') return getText(t, 'classrooms.assignments.status.expired', 'Hết hạn');
+  if (s === 'notstarted' || s === 'not_started') return getText(t, 'classrooms.assignments.status.notStarted', 'Chưa làm');
+  if (s === 'noattemptsleft' || s === 'no_attempts_left') return getText(t, 'classrooms.assignments.status.noAttemptsLeft', 'Hết lượt làm');
+  return status || '-';
 }
 
 function getText(t, key, fallback, vars) {
@@ -174,7 +194,7 @@ export function TeachingClassroomsPage() {
       const data = await classroomService.getTeachingClassrooms();
       setClassrooms(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.loadTeaching', 'Khong tai duoc danh sach lop dang day.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.loadTeaching', 'Không tải được danh sách lớp đang dạy.')));
     } finally {
       setLoading(false);
     }
@@ -187,7 +207,7 @@ export function TeachingClassroomsPage() {
   const handleCreate = async (event) => {
     event.preventDefault();
     if (!form.name.trim()) {
-      setError(getText(t, 'classrooms.errors.nameRequired', 'Hay nhap ten lop.'));
+      setError(getText(t, 'classrooms.errors.nameRequired', 'Hãy nhập tên lớp.'));
       return;
     }
 
@@ -201,10 +221,10 @@ export function TeachingClassroomsPage() {
         description: form.description.trim(),
       });
       setForm({ name: '', description: '' });
-      setSuccess(getText(t, 'classrooms.feedback.created', 'Da tao lop hoc.'));
+      setSuccess(getText(t, 'classrooms.feedback.created', 'Đã tạo lớp học.'));
       setClassrooms((current) => [classroom, ...current]);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.createFailed', 'Khong tao duoc lop hoc.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.createFailed', 'Không tạo được lớp học.')));
     } finally {
       setCreating(false);
     }
@@ -212,8 +232,8 @@ export function TeachingClassroomsPage() {
 
   return (
     <ClassroomShell
-      title={getText(t, 'classrooms.teaching.title', 'Lop dang day')}
-      subtitle={getText(t, 'classrooms.teaching.subtitle', 'Tao lop, chia se ma tham gia va xem thanh vien.')}
+      title={getText(t, 'classrooms.teaching.title', 'Lớp đang dạy')}
+      subtitle={getText(t, 'classrooms.teaching.subtitle', 'Tạo lớp, chia sẻ mã tham gia và xem thành viên.')}
     >
       <ClassroomTabs active="teaching" />
       <MessageBar error={error} success={success} />
@@ -222,50 +242,50 @@ export function TeachingClassroomsPage() {
         {canCreateClassroom ? (
           <form className="classroom-panel classroom-form" onSubmit={handleCreate}>
             <div>
-              <span className="classroom-kicker">{getText(t, 'classrooms.create.kicker', 'Teacher')}</span>
-              <h2>{getText(t, 'classrooms.create.title', 'Tao lop moi')}</h2>
+              <span className="classroom-kicker">{getText(t, 'classrooms.create.kicker', 'Giảng viên')}</span>
+              <h2>{getText(t, 'classrooms.create.title', 'Tạo lớp mới')}</h2>
             </div>
             <label>
-              <span>{getText(t, 'classrooms.create.name', 'Ten lop')}</span>
+              <span>{getText(t, 'classrooms.create.name', 'Tên lớp')}</span>
               <input
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder={getText(t, 'classrooms.create.namePlaceholder', 'Vi du: JLPT N5 Reading')}
+                placeholder={getText(t, 'classrooms.create.namePlaceholder', 'Ví dụ: JLPT N5 Reading')}
               />
             </label>
             <label>
-              <span>{getText(t, 'classrooms.create.description', 'Mo ta')}</span>
+              <span>{getText(t, 'classrooms.create.description', 'Mô tả')}</span>
               <textarea
                 value={form.description}
                 onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                placeholder={getText(t, 'classrooms.create.descriptionPlaceholder', 'Muc tieu, lich hoc hoac ghi chu ngan')}
+                placeholder={getText(t, 'classrooms.create.descriptionPlaceholder', 'Mục tiêu, lịch học hoặc ghi chú ngắn')}
                 rows={4}
               />
             </label>
             <button className="classroom-button primary" type="submit" disabled={creating}>
               <LuPlus aria-hidden="true" />
-              {creating ? getText(t, 'classrooms.create.creating', 'Dang tao...') : getText(t, 'classrooms.create.submit', 'Tao lop')}
+              {creating ? getText(t, 'classrooms.create.creating', 'Đang tạo...') : getText(t, 'classrooms.create.submit', 'Tạo lớp')}
             </button>
           </form>
         ) : (
           <section className="classroom-panel classroom-empty">
             <LuSchool aria-hidden="true" />
-            <h2>{getText(t, 'classrooms.teaching.teacherOnlyTitle', 'Can tai khoan giao vien')}</h2>
-            <p>{getText(t, 'classrooms.teaching.teacherOnlyBody', 'Hoc vien co the xem lop da tham gia hoac nhap join code tu giao vien.')}</p>
+            <h2>{getText(t, 'classrooms.teaching.teacherOnlyTitle', 'Cần tài khoản giảng viên')}</h2>
+            <p>{getText(t, 'classrooms.teaching.teacherOnlyBody', 'Học viên có thể xem lớp đã tham gia hoặc nhập mã tham gia từ giảng viên.')}</p>
             <Link className="classroom-button primary" to="/classrooms/join">
               <LuDoorOpen aria-hidden="true" />
-              {getText(t, 'classrooms.tabs.join', 'Nhap code')}
+              {getText(t, 'classrooms.tabs.join', 'Nhập mã')}
             </Link>
           </section>
         )}
 
         <ClassroomList
           classrooms={classrooms}
-          emptyBody={getText(t, 'classrooms.teaching.emptyBody', 'Tao lop dau tien de moi hoc vien bang join code.')}
-          emptyTitle={getText(t, 'classrooms.teaching.emptyTitle', 'Chua co lop dang day')}
+          emptyBody={getText(t, 'classrooms.teaching.emptyBody', 'Tạo lớp đầu tiên để mời học viên bằng mã tham gia.')}
+          emptyTitle={getText(t, 'classrooms.teaching.emptyTitle', 'Chưa có lớp đang dạy')}
           loading={loading}
           onRetry={loadClassrooms}
-          retryLabel={getText(t, 'classrooms.actions.retry', 'Thu lai')}
+          retryLabel={getText(t, 'classrooms.actions.retry', 'Thử lại')}
           t={t}
         />
       </section>
@@ -287,7 +307,7 @@ export function JoinedClassroomsPage() {
       const data = await classroomService.getJoinedClassrooms();
       setClassrooms(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.loadJoined', 'Khong tai duoc danh sach lop da tham gia.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.loadJoined', 'Không tải được danh sách lớp đã tham gia.')));
     } finally {
       setLoading(false);
     }
@@ -299,18 +319,18 @@ export function JoinedClassroomsPage() {
 
   return (
     <ClassroomShell
-      title={getText(t, 'classrooms.joined.title', 'Lop da tham gia')}
-      subtitle={getText(t, 'classrooms.joined.subtitle', 'Xem cac classroom ban dang la hoc vien.')}
+      title={getText(t, 'classrooms.joined.title', 'Lớp đã tham gia')}
+      subtitle={getText(t, 'classrooms.joined.subtitle', 'Xem các lớp học bạn đang là học viên.')}
     >
       <ClassroomTabs active="joined" />
       <MessageBar error={error} />
       <ClassroomList
         classrooms={classrooms}
-        emptyBody={getText(t, 'classrooms.joined.emptyBody', 'Nhap join code giao vien cung cap de tham gia lop dau tien.')}
-        emptyTitle={getText(t, 'classrooms.joined.emptyTitle', 'Chua tham gia lop nao')}
+        emptyBody={getText(t, 'classrooms.joined.emptyBody', 'Nhập mã tham gia giảng viên cung cấp để tham gia lớp đầu tiên.')}
+        emptyTitle={getText(t, 'classrooms.joined.emptyTitle', 'Chưa tham gia lớp nào')}
         loading={loading}
         onRetry={loadClassrooms}
-        retryLabel={getText(t, 'classrooms.actions.retry', 'Thu lai')}
+        retryLabel={getText(t, 'classrooms.actions.retry', 'Thử lại')}
         t={t}
       />
     </ClassroomShell>
@@ -346,7 +366,7 @@ export function JoinClassroomPage() {
         navigate(classroomId ? `/classrooms/${classroomId}` : '/classrooms/joined');
       }, 450);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.joinFailed', 'Khong tham gia duoc lop.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.joinFailed', 'Không tham gia được lớp.')));
     } finally {
       setJoining(false);
     }
@@ -354,8 +374,8 @@ export function JoinClassroomPage() {
 
   return (
     <ClassroomShell
-      title={getText(t, 'classrooms.join.title', 'Tham gia lop')}
-      subtitle={getText(t, 'classrooms.join.subtitle', 'Nhap join code tu giao vien de vao classroom.')}
+      title={getText(t, 'classrooms.join.title', 'Tham gia lớp')}
+      subtitle={getText(t, 'classrooms.join.subtitle', 'Nhập mã tham gia từ giảng viên để vào lớp học.')}
     >
       <ClassroomTabs active="join" />
       <MessageBar error={error} success={success} />
@@ -371,7 +391,7 @@ export function JoinClassroomPage() {
         </label>
         <button className="classroom-button primary" type="submit" disabled={joining}>
           <LuCheck aria-hidden="true" />
-          {joining ? getText(t, 'classrooms.join.joining', 'Dang tham gia...') : getText(t, 'classrooms.join.submit', 'Tham gia lop')}
+          {joining ? getText(t, 'classrooms.join.joining', 'Đang tham gia...') : getText(t, 'classrooms.join.submit', 'Tham gia lớp')}
         </button>
       </form>
     </ClassroomShell>
@@ -401,7 +421,7 @@ export function ClassroomDetailPage({ membersOnly = false }) {
       const data = await classroomService.getClassroomDetail(classroomId);
       setClassroom(data);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.detailFailed', 'Khong tai duoc chi tiet lop.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.detailFailed', 'Không tải được chi tiết lớp.')));
     } finally {
       setLoading(false);
     }
@@ -416,9 +436,9 @@ export function ClassroomDetailPage({ membersOnly = false }) {
       setMembers(Array.isArray(data) ? data : []);
     } catch (err) {
       if (isApiForbidden(err)) {
-        setMembersError(getText(t, 'classrooms.errors.membersForbidden', 'Chi giao vien cua lop moi xem duoc danh sach thanh vien.'));
+        setMembersError(getText(t, 'classrooms.errors.membersForbidden', 'Chỉ giảng viên của lớp mới xem được danh sách thành viên.'));
       } else {
-        setMembersError(getApiErrorMessage(err, getText(t, 'classrooms.errors.membersFailed', 'Khong tai duoc danh sach thanh vien.')));
+        setMembersError(getApiErrorMessage(err, getText(t, 'classrooms.errors.membersFailed', 'Không tải được danh sách thành viên.')));
       }
     } finally {
       setMembersLoading(false);
@@ -447,9 +467,9 @@ export function ClassroomDetailPage({ membersOnly = false }) {
 
     try {
       await classroomService.createClassroomJoinCode(classroomId, {});
-      await refreshAfterCodeChange(getText(t, 'classrooms.feedback.codeCreated', 'Da tao join code.'));
+      await refreshAfterCodeChange(getText(t, 'classrooms.feedback.codeCreated', 'Đã tạo mã tham gia.'));
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.codeCreateFailed', 'Khong tao duoc join code.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.codeCreateFailed', 'Không tạo được mã tham gia.')));
     } finally {
       setCreatingCode(false);
     }
@@ -462,9 +482,9 @@ export function ClassroomDetailPage({ membersOnly = false }) {
 
     try {
       await classroomService.disableClassroomJoinCode(classroomId, codeId);
-      await refreshAfterCodeChange(getText(t, 'classrooms.feedback.codeDisabled', 'Da tat join code.'));
+      await refreshAfterCodeChange(getText(t, 'classrooms.feedback.codeDisabled', 'Đã tắt mã tham gia.'));
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.codeDisableFailed', 'Khong tat duoc join code.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.errors.codeDisableFailed', 'Không tắt được mã tham gia.')));
     } finally {
       setDisablingCodeId(null);
     }
@@ -473,37 +493,34 @@ export function ClassroomDetailPage({ membersOnly = false }) {
   const handleCopyCode = async (code) => {
     try {
       await navigator.clipboard.writeText(code);
-      setSuccess(getText(t, 'classrooms.feedback.codeCopied', 'Da copy join code.'));
+      setSuccess(getText(t, 'classrooms.feedback.codeCopied', 'Đã sao chép mã tham gia.'));
     } catch {
-      setError(getText(t, 'classrooms.errors.copyFailed', 'Khong copy duoc code. Hay copy thu cong.'));
+      setError(getText(t, 'classrooms.errors.copyFailed', 'Không sao chép được mã. Hãy sao chép thủ công.'));
     }
   };
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.detail.title', 'Chi tiet lop')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.detail.title', 'Chi tiết lớp')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (error && !classroom) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.detail.title', 'Chi tiet lop')} subtitle="">
-        <ClassroomTabs />
+      <ClassroomShell title={getText(t, 'classrooms.detail.title', 'Chi tiết lớp')} subtitle="">
         <MessageBar error={error} />
         <button className="classroom-button" type="button" onClick={loadDetail}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+          {getText(t, 'classrooms.actions.retry', 'Thử lại')}
         </button>
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiet lop')} subtitle={classroom?.description || getText(t, 'classrooms.detail.noDescription', 'Chua co mo ta.')}>
-      <ClassroomTabs />
+    <ClassroomShell title={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiết lớp')} subtitle={classroom?.description || getText(t, 'classrooms.detail.noDescription', 'Chưa có mô tả.')}>
       <MessageBar error={error} success={success} />
 
       <section className="classroom-detail-grid">
@@ -511,25 +528,36 @@ export function ClassroomDetailPage({ membersOnly = false }) {
           <span className="classroom-kicker">{classroom?.currentUserRole || '-'}</span>
           <h2>{classroom?.name}</h2>
           <div className="classroom-metrics">
-            <Metric label={getText(t, 'classrooms.metrics.members', 'Thanh vien')} value={classroom?.memberCount || 0} />
-            <Metric label={getText(t, 'classrooms.metrics.teachers', 'Giao vien')} value={classroom?.teacherCount || 0} />
-            <Metric label={getText(t, 'classrooms.metrics.students', 'Hoc vien')} value={classroom?.studentCount || 0} />
+            <Metric label={getText(t, 'classrooms.metrics.members', 'Thành viên')} value={classroom?.memberCount || 0} />
+            <Metric label={getText(t, 'classrooms.metrics.teachers', 'Giảng viên')} value={classroom?.teacherCount || 0} />
+            <Metric label={getText(t, 'classrooms.metrics.students', 'Học viên')} value={classroom?.studentCount || 0} />
           </div>
           <p className="classroom-muted">
-            {getText(t, 'classrooms.detail.updated', 'Cap nhat')}: {formatDateTime(classroom?.updatedAt)}
+            {getText(t, 'classrooms.detail.updated', 'Cập nhật')}: {formatDateTime(classroom?.updatedAt)}
           </p>
           <Link className="classroom-button primary classroom-inline-action" to={`/classrooms/${classroomId}/question-sets`}>
             <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.questionSets.open', 'Bo cau hoi')}
+            {getText(t, 'classrooms.questionSets.open', 'Bộ câu hỏi')}
           </Link>
           <Link className="classroom-button classroom-inline-action" to={isTeacher ? `/classrooms/${classroomId}/assignments` : `/classrooms/${classroomId}/student/assignments`}>
             <LuClipboard aria-hidden="true" />
-            {getText(t, 'classrooms.assignments.open', 'Assignments')}
+            {getText(t, 'classrooms.assignments.open', 'Bài kiểm tra')}
           </Link>
           <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/leaderboard`}>
             <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')}
+            {getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp học')}
           </Link>
+          {isTeacher ? (
+            <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/analytics`}>
+              <LuChartBar aria-hidden="true" />
+              {getText(t, 'classrooms.analytics.openAnalytics', 'Analytics')}
+            </Link>
+          ) : (
+            <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/student/analytics`}>
+              <LuChartBar aria-hidden="true" />
+              {getText(t, 'classrooms.analytics.openMyProgress', 'Tiến độ của tôi')}
+            </Link>
+          )}
         </article>
 
         {isTeacher && (
@@ -537,11 +565,11 @@ export function ClassroomDetailPage({ membersOnly = false }) {
             <div className="classroom-section-head">
               <div>
                 <span className="classroom-kicker">{getText(t, 'classrooms.codes.kicker', 'Join code')}</span>
-                <h2>{getText(t, 'classrooms.codes.title', 'Moi hoc vien')}</h2>
+                <h2>{getText(t, 'classrooms.codes.title', 'Mời học viên')}</h2>
               </div>
               <button className="classroom-button primary" type="button" onClick={handleCreateCode} disabled={creatingCode}>
                 <LuPlus aria-hidden="true" />
-                {creatingCode ? getText(t, 'classrooms.codes.creating', 'Dang tao...') : getText(t, 'classrooms.codes.create', 'Tao code')}
+                {creatingCode ? getText(t, 'classrooms.codes.creating', 'Đang tạo...') : getText(t, 'classrooms.codes.create', 'Tao code')}
               </button>
             </div>
             <JoinCodeList
@@ -567,8 +595,8 @@ export function ClassroomDetailPage({ membersOnly = false }) {
         <section className="classroom-panel classroom-student-note">
           <LuGraduationCap aria-hidden="true" />
           <div>
-            <h2>{getText(t, 'classrooms.student.title', 'Ban dang la hoc vien')}</h2>
-            <p>{getText(t, 'classrooms.student.body', 'Trang classroom cua hoc vien chi hien thi thong tin lop. Cac flow xu ly tai lieu van nam trong personal workspace rieng cua ban.')}</p>
+            <h2>{getText(t, 'classrooms.student.title', 'Bạn đang là học viên')}</h2>
+            <p>{getText(t, 'classrooms.student.body', 'Trang lớp học của học viên chỉ hiển thị thông tin lớp. Các luồng xử lý tài liệu vẫn nằm trong không gian làm việc cá nhân riêng của bạn.')}</p>
           </div>
         </section>
       )}
@@ -600,7 +628,7 @@ export function ClassroomQuestionSetsPage() {
       setClassroom(classroomData);
       setQuestionSets(Array.isArray(setsData) ? setsData : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.load', 'Khong tai duoc bo cau hoi.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.load', 'Không tải được bộ câu hỏi.')));
     } finally {
       setLoading(false);
     }
@@ -613,7 +641,7 @@ export function ClassroomQuestionSetsPage() {
   const handleCreate = async (event) => {
     event.preventDefault();
     if (!form.title.trim()) {
-      setError(getText(t, 'classrooms.questionSets.errors.titleRequired', 'Nhap tieu de bo cau hoi.'));
+      setError(getText(t, 'classrooms.questionSets.errors.titleRequired', 'Nhập tiêu đề bộ câu hỏi.'));
       return;
     }
 
@@ -628,10 +656,10 @@ export function ClassroomQuestionSetsPage() {
         documentId: form.documentId ? Number(form.documentId) : null,
       });
       setForm({ title: '', description: '', documentId: '' });
-      setSuccess(getText(t, 'classrooms.questionSets.feedback.created', 'Da tao bo cau hoi.'));
+      setSuccess(getText(t, 'classrooms.questionSets.feedback.created', 'Đã tạo bộ câu hỏi.'));
       setQuestionSets((current) => [created, ...current]);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.create', 'Khong tao duoc bo cau hoi.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.create', 'Không tạo được bộ câu hỏi.')));
     } finally {
       setSaving(false);
     }
@@ -639,29 +667,27 @@ export function ClassroomQuestionSetsPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.questionSets.title', 'Bo cau hoi')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.questionSets.title', 'Bộ câu hỏi')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   return (
     <ClassroomShell
-      title={getText(t, 'classrooms.questionSets.title', 'Bo cau hoi')}
-      subtitle={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiet lop')}
+      title={getText(t, 'classrooms.questionSets.title', 'Bộ câu hỏi')}
+      subtitle={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiết lớp')}
     >
-      <ClassroomTabs />
       <MessageBar error={error} success={success} />
 
       <div className="classroom-page-actions">
         <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
           <LuSchool aria-hidden="true" />
-          {getText(t, 'classrooms.questionSets.backToClassroom', 'Ve lop hoc')}
+          {getText(t, 'classrooms.questionSets.backToClassroom', 'Về lớp học')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadPage}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
@@ -669,21 +695,21 @@ export function ClassroomQuestionSetsPage() {
         {isTeacher ? (
           <form className="classroom-panel classroom-form" onSubmit={handleCreate}>
             <div>
-              <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.teacherTools', 'Teacher tools')}</span>
-              <h2>{getText(t, 'classrooms.questionSets.createTitle', 'Tao bo cau hoi')}</h2>
+              <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.teacherTools', 'Công cụ giảng viên')}</span>
+              <h2>{getText(t, 'classrooms.questionSets.createTitle', 'Tạo bộ câu hỏi')}</h2>
             </div>
             <QuestionSetFields form={form} onChange={setForm} t={t} />
             <button className="classroom-button primary" type="submit" disabled={saving}>
               <LuPlus aria-hidden="true" />
-              {saving ? getText(t, 'classrooms.questionSets.creating', 'Dang tao...') : getText(t, 'classrooms.questionSets.create', 'Tao bo cau hoi')}
+              {saving ? getText(t, 'classrooms.questionSets.creating', 'Đang tạo...') : getText(t, 'classrooms.questionSets.create', 'Tạo bộ câu hỏi')}
             </button>
           </form>
         ) : (
           <section className="classroom-panel classroom-student-note">
             <LuGraduationCap aria-hidden="true" />
             <div>
-              <h2>{getText(t, 'classrooms.questionSets.studentTitle', 'Bo cau hoi da cong bo')}</h2>
-              <p>{getText(t, 'classrooms.questionSets.studentBody', 'Hoc vien chi xem duoc bo cau hoi da Published va khong co cong cu quan tri.')}</p>
+              <h2>{getText(t, 'classrooms.questionSets.studentTitle', 'Bộ câu hỏi đã công bố')}</h2>
+              <p>{getText(t, 'classrooms.questionSets.studentBody', 'Học sinh chỉ xem được bộ câu hỏi đã công bố và không có công cụ quản trị.')}</p>
             </div>
           </section>
         )}
@@ -743,7 +769,7 @@ export function ClassroomQuestionSetDetailPage() {
           .find((candidate) => String(candidate.id) === String(questionSetId));
         if (!visibleQuestionSet) {
           setQuestionSet(null);
-          setError(getText(t, 'classrooms.questionSets.errors.forbidden', 'Ban khong co quyen xem hoac quan ly bo cau hoi nay.'));
+          setError(getText(t, 'classrooms.questionSets.errors.forbidden', 'Bạn không có quyền xem hoặc quản lý bộ câu hỏi này.'));
           return;
         }
 
@@ -754,8 +780,8 @@ export function ClassroomQuestionSetDetailPage() {
       syncEditForm(questionSetData);
     } catch (err) {
       const fallback = isApiForbidden(err)
-        ? getText(t, 'classrooms.questionSets.errors.forbidden', 'Ban khong co quyen xem hoac quan ly bo cau hoi nay.')
-        : getText(t, 'classrooms.questionSets.errors.detail', 'Khong tai duoc chi tiet bo cau hoi.');
+        ? getText(t, 'classrooms.questionSets.errors.forbidden', 'Bạn không có quyền xem hoặc quản lý bộ câu hỏi này.')
+        : getText(t, 'classrooms.questionSets.errors.detail', 'Không tải được chi tiết bộ câu hỏi.');
       setError(getApiErrorMessage(err, fallback));
     } finally {
       setLoading(false);
@@ -792,7 +818,7 @@ export function ClassroomQuestionSetDetailPage() {
   const handleUpdate = async (event) => {
     event.preventDefault();
     if (!editForm.title.trim()) {
-      setError(getText(t, 'classrooms.questionSets.errors.titleRequired', 'Nhap tieu de bo cau hoi.'));
+      setError(getText(t, 'classrooms.questionSets.errors.titleRequired', 'Nhập tiêu đề bộ câu hỏi.'));
       return;
     }
 
@@ -802,8 +828,8 @@ export function ClassroomQuestionSetDetailPage() {
         description: editForm.description.trim() || null,
         documentId: editForm.documentId ? Number(editForm.documentId) : null,
       }),
-      getText(t, 'classrooms.questionSets.feedback.updated', 'Da cap nhat bo cau hoi.'),
-      getText(t, 'classrooms.questionSets.errors.update', 'Khong cap nhat duoc bo cau hoi.')
+      getText(t, 'classrooms.questionSets.feedback.updated', 'Đã cập nhật bộ câu hỏi.'),
+      getText(t, 'classrooms.questionSets.errors.update', 'Không cập nhật được bộ câu hỏi.')
     );
   };
 
@@ -816,7 +842,7 @@ export function ClassroomQuestionSetDetailPage() {
       await classroomService.deleteClassroomQuestionSet(questionSetId);
       navigate(`/classrooms/${classroomId}/question-sets`);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.delete', 'Khong xoa duoc bo cau hoi.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.delete', 'Không xóa được bộ câu hỏi.')));
       setWorking(false);
     }
   };
@@ -833,7 +859,7 @@ export function ClassroomQuestionSetDetailPage() {
       );
       setAvailableQuestions(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.available', 'Khong tai duoc cau hoi kha dung.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.available', 'Không tải được câu hỏi khả dụng.')));
     } finally {
       setAvailableLoading(false);
     }
@@ -842,7 +868,7 @@ export function ClassroomQuestionSetDetailPage() {
   const addQuestion = async (questionId) => {
     const resolvedQuestionId = questionId || Number(itemForm.questionId);
     if (!resolvedQuestionId) {
-      setError(getText(t, 'classrooms.questionSets.errors.questionRequired', 'Nhap Question ID.'));
+      setError(getText(t, 'classrooms.questionSets.errors.questionRequired', 'Nhập Question ID.'));
       return;
     }
 
@@ -852,8 +878,8 @@ export function ClassroomQuestionSetDetailPage() {
         pointWeight: Number(itemForm.pointWeight) || 1,
         sectionCode: itemForm.sectionCode.trim() || null,
       }),
-      getText(t, 'classrooms.questionSets.feedback.questionAdded', 'Da them cau hoi.'),
-      getText(t, 'classrooms.questionSets.errors.addQuestion', 'Khong them duoc cau hoi.')
+      getText(t, 'classrooms.questionSets.feedback.questionAdded', 'Đã thêm câu hỏi.'),
+      getText(t, 'classrooms.questionSets.errors.addQuestion', 'Không thêm được câu hỏi.')
     );
     setItemForm((current) => ({ ...current, questionId: '' }));
   };
@@ -861,8 +887,8 @@ export function ClassroomQuestionSetDetailPage() {
   const removeQuestion = async (itemId) => {
     await runTeacherAction(
       () => classroomService.removeQuestionFromClassroomQuestionSet(questionSetId, itemId),
-      getText(t, 'classrooms.questionSets.feedback.questionRemoved', 'Da xoa cau hoi khoi bo.'),
-      getText(t, 'classrooms.questionSets.errors.removeQuestion', 'Khong xoa duoc cau hoi.')
+      getText(t, 'classrooms.questionSets.feedback.questionRemoved', 'Đã xóa câu hỏi khỏi bộ.'),
+      getText(t, 'classrooms.questionSets.errors.removeQuestion', 'Không xóa được câu hỏi.')
     );
   };
 
@@ -881,45 +907,43 @@ export function ClassroomQuestionSetDetailPage() {
         questionSetId,
         swapped.map((item, orderIndex) => ({ itemId: item.id, orderIndex }))
       ),
-      getText(t, 'classrooms.questionSets.feedback.reordered', 'Da sap xep lai cau hoi.'),
-      getText(t, 'classrooms.questionSets.errors.reorder', 'Khong sap xep duoc cau hoi.')
+      getText(t, 'classrooms.questionSets.feedback.reordered', 'Đã sắp xếp lại câu hỏi.'),
+      getText(t, 'classrooms.questionSets.errors.reorder', 'Không sắp xếp được câu hỏi.')
     );
   };
 
   const publish = () => runTeacherAction(
     () => classroomService.publishClassroomQuestionSet(questionSetId),
-    getText(t, 'classrooms.questionSets.feedback.published', 'Da publish bo cau hoi.'),
-    getText(t, 'classrooms.questionSets.errors.publish', 'Khong publish duoc bo cau hoi.')
+    getText(t, 'classrooms.questionSets.feedback.published', 'Đã công bố bộ câu hỏi.'),
+    getText(t, 'classrooms.questionSets.errors.publish', 'Không công bố được bộ câu hỏi.')
   );
 
   const unpublish = () => runTeacherAction(
     () => classroomService.unpublishClassroomQuestionSet(questionSetId),
-    getText(t, 'classrooms.questionSets.feedback.unpublished', 'Da dua bo cau hoi ve draft.'),
-    getText(t, 'classrooms.questionSets.errors.unpublish', 'Khong unpublish duoc bo cau hoi.')
+    getText(t, 'classrooms.questionSets.feedback.unpublished', 'Đã đưa bộ câu hỏi về bản nháp.'),
+    getText(t, 'classrooms.questionSets.errors.unpublish', 'Không gỡ công bố được bộ câu hỏi.')
   );
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiet bo cau hoi')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiết bộ câu hỏi')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (error && !questionSet) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiet bo cau hoi')} subtitle="">
-        <ClassroomTabs />
+      <ClassroomShell title={getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiết bộ câu hỏi')} subtitle="">
         <MessageBar error={error} />
         <div className="classroom-page-actions">
           <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets`}>
             <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.questionSets.backToList', 'Ve danh sach')}
+            {getText(t, 'classrooms.questionSets.backToList', 'Về danh sách')}
           </Link>
           <button className="classroom-button" type="button" onClick={loadDetail}>
             <LuRefreshCw aria-hidden="true" />
-            {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+            {getText(t, 'classrooms.actions.retry', 'Thử lại')}
           </button>
         </div>
       </ClassroomShell>
@@ -930,18 +954,17 @@ export function ClassroomQuestionSetDetailPage() {
   const isPublished = questionSet?.visibility === 'Published';
 
   return (
-    <ClassroomShell title={questionSet?.title || getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiet bo cau hoi')} subtitle={classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={questionSet?.title || getText(t, 'classrooms.questionSets.detailTitle', 'Chi tiết bộ câu hỏi')} subtitle={classroom?.name || ''}>
       <MessageBar error={error} success={success} />
 
       <div className="classroom-page-actions">
         <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets`}>
           <LuListChecks aria-hidden="true" />
-          {getText(t, 'classrooms.questionSets.backToList', 'Ve danh sach')}
+          {getText(t, 'classrooms.questionSets.backToList', 'Về danh sách')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadDetail}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
@@ -949,14 +972,14 @@ export function ClassroomQuestionSetDetailPage() {
         <article className="classroom-panel classroom-summary">
           <span className={`classroom-badge ${isPublished ? '' : 'muted'}`}>{questionSet?.visibility || 'Draft'}</span>
           <h2>{questionSet?.title}</h2>
-          <p>{questionSet?.description || getText(t, 'classrooms.questionSets.noDescription', 'Chua co mo ta.')}</p>
+          <p>{questionSet?.description || getText(t, 'classrooms.questionSets.noDescription', 'Chưa có mô tả.')}</p>
           <div className="classroom-metrics">
-            <Metric label={getText(t, 'classrooms.questionSets.itemCount', 'Cau hoi')} value={questionSet?.itemCount || orderedItems.length} />
-            <Metric label={getText(t, 'classrooms.questionSets.totalPoints', 'Diem')} value={questionSet?.totalPoints || 0} />
+            <Metric label={getText(t, 'classrooms.questionSets.itemCount', 'Câu hỏi')} value={questionSet?.itemCount || orderedItems.length} />
+            <Metric label={getText(t, 'classrooms.questionSets.totalPoints', 'Điểm')} value={questionSet?.totalPoints || 0} />
             <Metric label="Document ID" value={questionSet?.documentId || '-'} />
           </div>
           {!isTeacher && (
-            <p className="classroom-muted">{getText(t, 'classrooms.questionSets.readOnly', 'Ban dang xem o che do chi doc.')}</p>
+            <p className="classroom-muted">{getText(t, 'classrooms.questionSets.readOnly', 'Bạn đang xem ở chế độ chỉ đọc.')}</p>
           )}
         </article>
 
@@ -964,8 +987,8 @@ export function ClassroomQuestionSetDetailPage() {
           <form className="classroom-panel classroom-form" onSubmit={handleUpdate}>
             <div className="classroom-section-head">
               <div>
-                <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.teacherTools', 'Teacher tools')}</span>
-                <h2>{getText(t, 'classrooms.questionSets.editTitle', 'Sua bo cau hoi')}</h2>
+                <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.teacherTools', 'Công cụ giảng viên')}</span>
+                <h2>{getText(t, 'classrooms.questionSets.editTitle', 'Sửa bộ câu hỏi')}</h2>
               </div>
               <div className="classroom-row-actions">
                 {isPublished ? (
@@ -976,10 +999,10 @@ export function ClassroomQuestionSetDetailPage() {
                 ) : (
                   <button className="classroom-button primary" type="button" onClick={publish} disabled={working}>
                     <LuCheck aria-hidden="true" />
-                    {getText(t, 'classrooms.questionSets.publish', 'Publish')}
+                    {getText(t, 'classrooms.questionSets.publish', 'Công bố')}
                   </button>
                 )}
-                <button className="classroom-icon-button danger" type="button" onClick={handleDelete} disabled={working} title={getText(t, 'classrooms.questionSets.delete', 'Xoa')}>
+                <button className="classroom-icon-button danger" type="button" onClick={handleDelete} disabled={working} title={getText(t, 'classrooms.questionSets.delete', 'Xóa')}>
                   <LuTrash2 aria-hidden="true" />
                 </button>
               </div>
@@ -987,7 +1010,7 @@ export function ClassroomQuestionSetDetailPage() {
             <QuestionSetFields form={editForm} onChange={setEditForm} t={t} />
             <button className="classroom-button primary" type="submit" disabled={working}>
               <LuSave aria-hidden="true" />
-              {getText(t, 'classrooms.questionSets.save', 'Luu')}
+              {getText(t, 'classrooms.questionSets.save', 'Lưu')}
             </button>
           </form>
         )}
@@ -998,11 +1021,11 @@ export function ClassroomQuestionSetDetailPage() {
           <div className="classroom-section-head">
             <div>
               <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.availableKicker', 'Question source')}</span>
-              <h2>{getText(t, 'classrooms.questionSets.availableTitle', 'Cau hoi kha dung')}</h2>
+              <h2>{getText(t, 'classrooms.questionSets.availableTitle', 'Câu hỏi khả dụng')}</h2>
             </div>
             <button className="classroom-button" type="button" onClick={loadAvailableQuestions} disabled={availableLoading}>
               <LuRefreshCw aria-hidden="true" />
-              {availableLoading ? getText(t, 'classrooms.states.loading', 'Dang tai...') : getText(t, 'classrooms.questionSets.loadQuestions', 'Tai cau hoi')}
+              {availableLoading ? getText(t, 'classrooms.states.loading', 'Đang tải...') : getText(t, 'classrooms.questionSets.loadQuestions', 'Tải câu hỏi')}
             </button>
           </div>
 
@@ -1027,7 +1050,7 @@ export function ClassroomQuestionSetDetailPage() {
                 />
               </label>
               <label>
-                <span>{getText(t, 'classrooms.questionSets.pointWeight', 'Diem')}</span>
+                <span>{getText(t, 'classrooms.questionSets.pointWeight', 'Điểm')}</span>
                 <input
                   inputMode="decimal"
                   value={itemForm.pointWeight}
@@ -1044,7 +1067,7 @@ export function ClassroomQuestionSetDetailPage() {
               </label>
               <button className="classroom-button primary" type="submit" disabled={working}>
                 <LuPlus aria-hidden="true" />
-                {getText(t, 'classrooms.questionSets.addById', 'Them bang ID')}
+                {getText(t, 'classrooms.questionSets.addById', 'Thêm bằng ID')}
               </button>
             </form>
           </div>
@@ -1063,7 +1086,7 @@ export function ClassroomQuestionSetDetailPage() {
         <div className="classroom-section-head">
           <div>
             <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.itemsKicker', 'Questions')}</span>
-            <h2>{getText(t, 'classrooms.questionSets.itemsTitle', 'Cau hoi trong bo')}</h2>
+            <h2>{getText(t, 'classrooms.questionSets.itemsTitle', 'Câu hỏi trong bộ')}</h2>
           </div>
         </div>
         <QuestionSetItems
@@ -1113,7 +1136,7 @@ export function ClassroomAssignmentsPage() {
       setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
       setQuestionSets((Array.isArray(questionSetData) ? questionSetData : []).filter((set) => set.visibility === 'Published'));
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.load', 'Khong tai duoc assignments.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.load', 'Không tải được bài kiểm tra.')));
     } finally {
       setLoading(false);
     }
@@ -1126,7 +1149,7 @@ export function ClassroomAssignmentsPage() {
   const handleCreate = async (event) => {
     event.preventDefault();
     if (!form.title.trim() || !form.questionSetId) {
-      setError(getText(t, 'classrooms.assignments.errors.required', 'Nhap tieu de va chon bo cau hoi.'));
+      setError(getText(t, 'classrooms.assignments.errors.required', 'Nhập tiêu đề và chọn bộ câu hỏi.'));
       return;
     }
 
@@ -1144,9 +1167,9 @@ export function ClassroomAssignmentsPage() {
       const created = await classroomService.createClassroomAssignment(classroomId, buildAssignmentPayload(form));
       setAssignments((current) => [created, ...current]);
       setForm(emptyAssignmentForm);
-      setSuccess(getText(t, 'classrooms.assignments.feedback.created', 'Da tao assignment.'));
+      setSuccess(getText(t, 'classrooms.assignments.feedback.created', 'Đã tạo bài kiểm tra.'));
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.create', 'Khong tao duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.create', 'Không tạo được bài kiểm tra.')));
     } finally {
       setSaving(false);
     }
@@ -1154,49 +1177,46 @@ export function ClassroomAssignmentsPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (!isTeacher) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle={classroom?.name || ''}>
-        <ClassroomTabs />
-        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi quan ly assignment.')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Bài kiểm tra')} subtitle={classroom?.name || ''}>
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chỉ giảng viên của lớp mới quản lý bài kiểm tra.')} />
         <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
           <LuGraduationCap aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.studentList', 'Assignments cua hoc vien')}
+          {getText(t, 'classrooms.assignments.studentList', 'Bài kiểm tra của học viên')}
         </Link>
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Assignments')} subtitle={classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={getText(t, 'classrooms.assignments.title', 'Bài kiểm tra')} subtitle={classroom?.name || ''}>
       <MessageBar error={error} success={success} />
       <ClassroomResourceLinks classroomId={classroomId} isTeacher={isTeacher} t={t} />
 
       <section className="classroom-layout">
         <form className="classroom-panel classroom-form" onSubmit={handleCreate}>
           <div>
-            <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Teacher tools')}</span>
-            <h2>{getText(t, 'classrooms.assignments.createTitle', 'Tao assignment')}</h2>
+            <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Công cụ giảng viên')}</span>
+            <h2>{getText(t, 'classrooms.assignments.createTitle', 'Tạo bài kiểm tra')}</h2>
           </div>
           <AssignmentFields form={form} onChange={setForm} questionSets={questionSets} t={t} />
           <button className="classroom-button primary" type="submit" disabled={saving}>
             <LuPlus aria-hidden="true" />
-            {saving ? getText(t, 'classrooms.assignments.creating', 'Dang tao...') : getText(t, 'classrooms.assignments.create', 'Tao assignment')}
+            {saving ? getText(t, 'classrooms.assignments.creating', 'Đang tạo...') : getText(t, 'classrooms.assignments.create', 'Tạo bài kiểm tra')}
           </button>
         </form>
 
         <AssignmentList
           assignments={assignments}
           classroomId={classroomId}
-          emptyBody={getText(t, 'classrooms.assignments.emptyBody', 'Tao assignment tu bo cau hoi da Published.')}
+          emptyBody={getText(t, 'classrooms.assignments.emptyBody', 'Tạo bài kiểm tra từ bộ câu hỏi đã công bố.')}
           loading={false}
           onRetry={loadPage}
           t={t}
@@ -1275,7 +1295,7 @@ export function ClassroomAssignmentDetailPage() {
         setQuestionStats([]);
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.detail', 'Khong tai duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.detail', 'Không tải được bài kiểm tra.')));
     } finally {
       setLoading(false);
     }
@@ -1319,7 +1339,7 @@ export function ClassroomAssignmentDetailPage() {
   const handleUpdate = async (event) => {
     event.preventDefault();
     if (!form.title.trim()) {
-      setError(getText(t, 'classrooms.assignments.errors.titleRequired', 'Nhap tieu de assignment.'));
+      setError(getText(t, 'classrooms.assignments.errors.titleRequired', 'Nhập tiêu đề bài kiểm tra.'));
       return;
     }
 
@@ -1331,13 +1351,13 @@ export function ClassroomAssignmentDetailPage() {
 
     await runAction(
       () => classroomService.updateClassroomAssignment(assignmentId, buildAssignmentPayload(form)),
-      getText(t, 'classrooms.assignments.feedback.updated', 'Da cap nhat assignment.'),
-      getText(t, 'classrooms.assignments.errors.update', 'Khong cap nhat duoc assignment.')
+      getText(t, 'classrooms.assignments.feedback.updated', 'Đã cập nhật bài kiểm tra.'),
+      getText(t, 'classrooms.assignments.errors.update', 'Không cập nhật được bài kiểm tra.')
     );
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(getText(t, 'classrooms.assignments.confirmDelete', 'Xoa assignment nay?'))) {
+    if (!window.confirm(getText(t, 'classrooms.assignments.confirmDelete', 'Xóa bài kiểm tra này?'))) {
       return;
     }
 
@@ -1347,28 +1367,26 @@ export function ClassroomAssignmentDetailPage() {
       await classroomService.deleteClassroomAssignment(assignmentId);
       navigate(`/classrooms/${classroomId}/assignments`);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.delete', 'Khong xoa duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.delete', 'Không xóa được bài kiểm tra.')));
       setWorking(false);
     }
   };
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiết bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (!isTeacher) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
-        <ClassroomTabs />
-        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi quan ly assignment.')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiết bài kiểm tra')} subtitle={classroom?.name || ''}>
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chỉ giảng viên của lớp mới quản lý bài kiểm tra.')} />
         <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments/${assignmentId}`}>
           <LuGraduationCap aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.openStudentView', 'Mo trang hoc vien')}
+          {getText(t, 'classrooms.assignments.openStudentView', 'Mở trang học viên')}
         </Link>
       </ClassroomShell>
     );
@@ -1376,12 +1394,11 @@ export function ClassroomAssignmentDetailPage() {
 
   if (error && !assignment) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
-        <ClassroomTabs />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.detailTitle', 'Chi tiết bài kiểm tra')} subtitle={classroom?.name || ''}>
         <MessageBar error={error} />
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments`}>
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+          {getText(t, 'classrooms.assignments.backToList', 'Về danh sách')}
         </Link>
       </ClassroomShell>
     );
@@ -1390,25 +1407,24 @@ export function ClassroomAssignmentDetailPage() {
   const items = Array.isArray(assignment?.items) ? assignment.items : [];
 
   return (
-    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.detailTitle', 'Chi tiet assignment')} subtitle={classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.detailTitle', 'Chi tiết bài kiểm tra')} subtitle={classroom?.name || ''}>
       <MessageBar error={error} success={success} />
       <div className="classroom-page-actions">
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments`}>
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+          {getText(t, 'classrooms.assignments.backToList', 'Về danh sách')}
         </Link>
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/attempts`}>
           <LuListChecks aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.viewAttempts', 'Attempts')}
+          {getText(t, 'classrooms.assignments.viewAttempts', 'Lượt làm')}
         </Link>
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/leaderboard`}>
           <LuListChecks aria-hidden="true" />
-          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadDetail}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
@@ -1416,11 +1432,11 @@ export function ClassroomAssignmentDetailPage() {
         <article className="classroom-panel classroom-summary">
           <span className={`classroom-badge ${assignment?.status === 'Published' ? '' : 'muted'}`}>{assignment?.status || 'Draft'}</span>
           <h2>{assignment?.title}</h2>
-          <p>{assignment?.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+          <p>{assignment?.description || getText(t, 'classrooms.assignments.noDescription', 'Chưa có mô tả.')}</p>
           <div className="classroom-metrics">
-            <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Cau hoi')} value={assignment?.itemCount || items.length} />
-            <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Diem')} value={assignment?.totalPoints || 0} />
-            <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')} value={assignment?.attemptLimit || 1} />
+            <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Câu hỏi')} value={assignment?.itemCount || items.length} />
+            <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Điểm')} value={assignment?.totalPoints || 0} />
+            <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lượt làm')} value={assignment?.attemptLimit || 1} />
           </div>
           <small className="classroom-muted">
             {assignment?.type} | Due: {formatDateTime(assignment?.dueAt)}
@@ -1454,31 +1470,31 @@ export function ClassroomAssignmentDetailPage() {
         <form className="classroom-panel classroom-form" onSubmit={handleUpdate}>
           <div className="classroom-section-head">
             <div>
-              <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Teacher tools')}</span>
-              <h2>{getText(t, 'classrooms.assignments.editTitle', 'Sua assignment')}</h2>
+              <span className="classroom-kicker">{getText(t, 'classrooms.assignments.teacherTools', 'Công cụ giảng viên')}</span>
+              <h2>{getText(t, 'classrooms.assignments.editTitle', 'Sửa bài kiểm tra')}</h2>
             </div>
             <div className="classroom-row-actions">
               {assignment?.status !== 'Published' && (
                 <button className="classroom-button primary" type="button" onClick={() => runAction(
                   () => classroomService.publishClassroomAssignment(assignmentId),
-                  getText(t, 'classrooms.assignments.feedback.published', 'Da publish assignment.'),
-                  getText(t, 'classrooms.assignments.errors.publish', 'Khong publish duoc assignment.')
+                  getText(t, 'classrooms.assignments.feedback.published', 'Đã công bố bài kiểm tra.'),
+                  getText(t, 'classrooms.assignments.errors.publish', 'Không công bố được bài kiểm tra.')
                 )} disabled={working}>
                   <LuCheck aria-hidden="true" />
-                  {getText(t, 'classrooms.assignments.publish', 'Publish')}
+                  {getText(t, 'classrooms.assignments.publish', 'Công bố')}
                 </button>
               )}
               {assignment?.status !== 'Closed' && (
                 <button className="classroom-button" type="button" onClick={() => runAction(
                   () => classroomService.closeClassroomAssignment(assignmentId),
-                  getText(t, 'classrooms.assignments.feedback.closed', 'Da dong assignment.'),
-                  getText(t, 'classrooms.assignments.errors.close', 'Khong dong duoc assignment.')
+                  getText(t, 'classrooms.assignments.feedback.closed', 'Đã đóng bài kiểm tra.'),
+                  getText(t, 'classrooms.assignments.errors.close', 'Không đóng được bài kiểm tra.')
                 )} disabled={working}>
                   <LuBan aria-hidden="true" />
-                  {getText(t, 'classrooms.assignments.close', 'Close')}
+                  {getText(t, 'classrooms.assignments.close', 'Đóng')}
                 </button>
               )}
-              <button className="classroom-icon-button danger" type="button" onClick={handleDelete} disabled={working} title={getText(t, 'classrooms.assignments.delete', 'Xoa')}>
+              <button className="classroom-icon-button danger" type="button" onClick={handleDelete} disabled={working} title={getText(t, 'classrooms.assignments.delete', 'Xóa')}>
                 <LuTrash2 aria-hidden="true" />
               </button>
             </div>
@@ -1486,7 +1502,7 @@ export function ClassroomAssignmentDetailPage() {
           <AssignmentFields form={form} onChange={setForm} questionSets={questionSets} t={t} />
           <button className="classroom-button primary" type="submit" disabled={working}>
             <LuSave aria-hidden="true" />
-            {getText(t, 'classrooms.assignments.save', 'Luu')}
+            {getText(t, 'classrooms.assignments.save', 'Lưu')}
           </button>
         </form>
       </section>
@@ -1554,7 +1570,7 @@ export function ClassroomAssignmentDetailPage() {
         <div className="classroom-section-head">
           <div>
             <span className="classroom-kicker">{getText(t, 'classrooms.assignments.questions', 'Questions')}</span>
-            <h2>{getText(t, 'classrooms.assignments.questionsInAssignment', 'Cau hoi trong assignment')}</h2>
+            <h2>{getText(t, 'classrooms.assignments.questionsInAssignment', 'Câu hỏi trong bài kiểm tra')}</h2>
           </div>
         </div>
         <AssignmentQuestions items={items} showSensitive />
@@ -1603,40 +1619,37 @@ export function ClassroomAssignmentTeacherAttemptsPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Lượt làm')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (classroom?.currentUserRole !== ROLE_TEACHER) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle={classroom?.name || ''}>
-        <ClassroomTabs />
-        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chi giao vien cua lop moi xem attempts.')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Lượt làm')} subtitle={classroom?.name || ''}>
+        <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chỉ giảng viên của lớp mới xem lượt làm bài.')} />
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Attempts')} subtitle={assignment?.title || classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Lượt làm')} subtitle={assignment?.title || classroom?.name || ''}>
       <MessageBar error={error} />
       <div className="classroom-page-actions">
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}`}>
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.backToDetail', 'Ve assignment')}
+          {getText(t, 'classrooms.assignments.backToDetail', 'Về bài kiểm tra')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadPage}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
       <section className="classroom-panel classroom-question-set-items">
         {!attempts.length ? (
-          <p className="classroom-muted">{getText(t, 'classrooms.assignments.noAttempts', 'Chua co attempt nao.')}</p>
+          <p className="classroom-muted">{getText(t, 'classrooms.assignments.noAttempts', 'Chưa có lượt làm nào.')}</p>
         ) : (
           <div className="classroom-question-list">
             {attempts.map((attempt) => (
@@ -1644,20 +1657,20 @@ export function ClassroomAssignmentTeacherAttemptsPage() {
                 <div>
                   <strong>{attempt.user?.fullName || attempt.user?.email || `User ${attempt.userId}`}</strong>
                   <small>
-                    Attempt #{attempt.attemptNumber || '-'} | {attempt.status}
+                    Lượt làm #{attempt.attemptNumber || '-'} | {attempt.status}
                     {' | '}
-                    Score: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
+                    Điểm: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
                     {' | '}
-                    Started: {formatDateTime(attempt.startedAt)}
+                    Bắt đầu: {formatDateTime(attempt.startedAt)}
                     {' | '}
-                    Submitted: {formatDateTime(attempt.submittedAt)}
+                    Đã nộp: {formatDateTime(attempt.submittedAt)}
                     {' | '}
-                    Duration: {attempt.durationSeconds ?? 0}s
+                    Thời gian: {attempt.durationSeconds ?? 0} giây
                   </small>
                   <AttemptAnswers answers={attempt.answers || []} reveal />
                 </div>
                 <Link className="classroom-button" to={`/classroom-attempts/${attempt.id}/result`}>
-                  {getText(t, 'classrooms.assignments.viewAttempt', 'Xem chi tiet')}
+                  {getText(t, 'classrooms.assignments.viewAttempt', 'Xem chi tiết')}
                 </Link>
               </article>
             ))}
@@ -1694,7 +1707,7 @@ export function StudentClassroomAssignmentsPage() {
       setAssignments(Array.isArray(assignmentData) ? assignmentData : []);
       setAttempts(Array.isArray(attemptsData) ? attemptsData : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentLoad', 'Khong tai duoc assignment cua hoc vien.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentLoad', 'Không tải được bài kiểm tra của học viên.')));
     } finally {
       setLoading(false);
     }
@@ -1710,10 +1723,10 @@ export function StudentClassroomAssignmentsPage() {
     setSuccess('');
     try {
       const attempt = await classroomService.startClassroomAssignmentAttempt(assignmentId);
-      setSuccess(getText(t, 'classrooms.assignments.feedback.started', 'Da mo attempt.'));
+      setSuccess(getText(t, 'classrooms.assignments.feedback.started', 'Đã mở lượt làm.'));
       navigate(`/classroom-attempts/${attempt.id}`);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Khong bat dau duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Không bắt đầu được bài kiểm tra.')));
     } finally {
       setStartingId(null);
     }
@@ -1721,29 +1734,27 @@ export function StudentClassroomAssignmentsPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Assignments cua hoc vien')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Bài kiểm tra của học viên')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Assignments cua hoc vien')} subtitle={classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={getText(t, 'classrooms.assignments.studentTitle', 'Bài kiểm tra của học viên')} subtitle={classroom?.name || ''}>
       <MessageBar error={error} success={success} />
       <ClassroomResourceLinks classroomId={classroomId} isTeacher={false} t={t} />
       <div className="classroom-page-actions">
         <Link className="classroom-button" to="/classroom-attempts/history">
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.history', 'Lich su lam bai')}
+          {getText(t, 'classrooms.assignments.history', 'Lịch sử làm bài')}
         </Link>
       </div>
       <AssignmentList
         assignments={assignments}
         attempts={attempts}
         classroomId={classroomId}
-        emptyBody={getText(t, 'classrooms.assignments.studentEmpty', 'Chua co assignment da Published.')}
+        emptyBody={getText(t, 'classrooms.assignments.studentEmpty', 'Chưa có bài kiểm tra đã công bố.')}
         loading={false}
         onRetry={loadPage}
         onStart={startAssignment}
@@ -1781,12 +1792,12 @@ export function StudentClassroomAssignmentDetailPage() {
         .find((item) => String(item.id) === String(assignmentId));
       if (!visibleAssignment) {
         setAssignment(null);
-        setError(getText(t, 'classrooms.assignments.errors.studentForbidden', 'Assignment khong kha dung cho hoc vien nay.'));
+        setError(getText(t, 'classrooms.assignments.errors.studentForbidden', 'Bài kiểm tra không khả dụng cho học viên này.'));
         return;
       }
       setAssignment(visibleAssignment);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentDetail', 'Khong tai duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.studentDetail', 'Không tải được bài kiểm tra.')));
     } finally {
       setLoading(false);
     }
@@ -1803,7 +1814,7 @@ export function StudentClassroomAssignmentDetailPage() {
       const attempt = await classroomService.startClassroomAssignmentAttempt(assignmentId);
       navigate(`/classroom-attempts/${attempt.id}`);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Khong bat dau duoc assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.start', 'Không bắt đầu được bài kiểm tra.')));
     } finally {
       setStarting(false);
     }
@@ -1811,9 +1822,8 @@ export function StudentClassroomAssignmentDetailPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.studentDetailTitle', 'Assignment')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.studentDetailTitle', 'Bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
@@ -1822,17 +1832,16 @@ export function StudentClassroomAssignmentDetailPage() {
   const items = Array.isArray(assignment?.items) ? assignment.items : [];
 
   return (
-    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.studentDetailTitle', 'Assignment')} subtitle={classroom?.name || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={assignment?.title || getText(t, 'classrooms.assignments.studentDetailTitle', 'Bài kiểm tra')} subtitle={classroom?.name || ''}>
       <MessageBar error={error} />
       <div className="classroom-page-actions">
         <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+          {getText(t, 'classrooms.assignments.backToList', 'Về danh sách')}
         </Link>
         <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/leaderboard`}>
           <LuListChecks aria-hidden="true" />
-          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')}
         </Link>
         {attempt?.status === 'InProgress' ? (
           <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
@@ -1852,11 +1861,11 @@ export function StudentClassroomAssignmentDetailPage() {
           <section className="classroom-panel classroom-summary">
             <span className="classroom-badge">{assignment.status}</span>
             <h2>{assignment.title}</h2>
-            <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+            <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chưa có mô tả.')}</p>
             <div className="classroom-metrics">
-              <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Cau hoi')} value={assignment.itemCount || items.length} />
-              <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Diem')} value={assignment.totalPoints || 0} />
-              <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')} value={assignment.attemptLimit || 1} />
+              <Metric label={getText(t, 'classrooms.assignments.itemCount', 'Câu hỏi')} value={assignment.itemCount || items.length} />
+              <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Điểm')} value={assignment.totalPoints || 0} />
+              <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lượt làm')} value={assignment.attemptLimit || 1} />
             </div>
             {assignment.scoringMode === 'EmpiricalDifficulty' && (
               <div className="classroom-scoring-mode-notice text-primary" style={{ marginTop: '1rem', fontWeight: 500 }}>
@@ -1966,25 +1975,23 @@ export function ClassroomAssignmentAttemptPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptTitle', 'Lam assignment')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.attemptTitle', 'Làm bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={attempt?.assignment?.title || getText(t, 'classrooms.assignments.attemptTitle', 'Lam assignment')} subtitle={`${answeredCount}/${items.length} ${getText(t, 'classrooms.assignments.answered', 'da tra loi')}`}>
-      <ClassroomTabs />
+    <ClassroomShell title={attempt?.assignment?.title || getText(t, 'classrooms.assignments.attemptTitle', 'Làm bài kiểm tra')} subtitle={`${answeredCount}/${items.length} ${getText(t, 'classrooms.assignments.answered', 'đã trả lời')}`}>
       <MessageBar error={error} success={success} />
       <section className="classroom-panel classroom-attempt-toolbar">
         <div>
           <span className="classroom-kicker">{attempt?.status || 'InProgress'}</span>
-          <h2>{getText(t, 'classrooms.assignments.progress', 'Tien do')}: {answeredCount}/{items.length}</h2>
+          <h2>{getText(t, 'classrooms.assignments.progress', 'Tiến độ')}: {answeredCount}/{items.length}</h2>
         </div>
         <button className="classroom-button primary" type="button" onClick={submitAttempt} disabled={submitting || !items.length}>
           <LuCheck aria-hidden="true" />
-          {submitting ? getText(t, 'classrooms.assignments.submitting', 'Dang nop...') : getText(t, 'classrooms.assignments.submitAttempt', 'Nop bai')}
+          {submitting ? getText(t, 'classrooms.assignments.submitting', 'Đang nộp...') : getText(t, 'classrooms.assignments.submitAttempt', 'Nộp bài')}
         </button>
       </section>
 
@@ -2021,7 +2028,7 @@ export function ClassroomAssignmentResultPage() {
       const data = await classroomService.getClassroomAssignmentAttemptDetail(attemptId);
       setAttempt(data);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.result', 'Khong tai duoc ket qua.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.result', 'Không tải được kết quả.')));
     } finally {
       setLoading(false);
     }
@@ -2033,9 +2040,8 @@ export function ClassroomAssignmentResultPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Ket qua assignment')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Kết quả bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
@@ -2044,18 +2050,17 @@ export function ClassroomAssignmentResultPage() {
   const reveal = answers.some((answer) => Object.prototype.hasOwnProperty.call(answer, 'isCorrect') || answer.question?.correctAnswer);
 
   return (
-    <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Ket qua assignment')} subtitle={attempt?.assignment?.title || ''}>
-      <ClassroomTabs />
+    <ClassroomShell title={getText(t, 'classrooms.assignments.resultTitle', 'Kết quả bài kiểm tra')} subtitle={attempt?.assignment?.title || ''}>
       <MessageBar error={error} />
       <div className="classroom-page-actions">
         <Link className="classroom-button" to="/classroom-attempts/history">
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.history', 'Lich su lam bai')}
+          {getText(t, 'classrooms.assignments.history', 'Lịch sử làm bài')}
         </Link>
         {attempt?.assignment?.classroomWorkspaceId && (
           <Link className="classroom-button" to={`/classrooms/${attempt.assignment.classroomWorkspaceId}/assignments/${attempt.classroomAssignmentId || attempt.assignment.id}/leaderboard`}>
             <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+            {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')}
           </Link>
         )}
       </div>
@@ -2064,8 +2069,8 @@ export function ClassroomAssignmentResultPage() {
           <section className="classroom-panel classroom-summary">
             <span className="classroom-badge">{attempt.status}</span>
             <div className="classroom-metrics">
-              <Metric label={getText(t, 'classrooms.assignments.rawScore', 'Diem')} value={attempt.rawScore ?? '-'} />
-              <Metric label={getText(t, 'classrooms.assignments.percentScore', 'Phan tram')} value={attempt.percentScore != null ? `${attempt.percentScore}%` : '-'} />
+              <Metric label={getText(t, 'classrooms.assignments.rawScore', 'Điểm')} value={attempt.rawScore ?? '-'} />
+              <Metric label={getText(t, 'classrooms.assignments.percentScore', 'Phần trăm')} value={attempt.percentScore != null ? `${attempt.percentScore}%` : '-'} />
               <Metric label={getText(t, 'classrooms.assignments.answeredCount', 'Da tra loi')} value={answers.length} />
             </div>
             {attempt.assignment?.scoringMode === 'EmpiricalDifficulty' && (
@@ -2074,7 +2079,7 @@ export function ClassroomAssignmentResultPage() {
               </div>
             )}
             {!attempt.assignment?.showAnswerAfterSubmit && (
-              <p className="classroom-muted" style={{ marginTop: '0.5rem' }}>{getText(t, 'classrooms.assignments.hiddenAnswers', 'Giao vien dang an dap an dung; trang nay chi hien tong diem.')}</p>
+              <p className="classroom-muted" style={{ marginTop: '0.5rem' }}>{getText(t, 'classrooms.assignments.hiddenAnswers', 'Giảng viên đang ẩn đáp án đúng; trang này chỉ hiện tổng điểm.')}</p>
             )}
           </section>
 
@@ -2092,8 +2097,8 @@ export function ClassroomAssignmentResultPage() {
             <section className="classroom-panel classroom-question-set-items">
               <div className="classroom-section-head">
                 <div>
-                  <span className="classroom-kicker">{getText(t, 'classrooms.assignments.review', 'Review')}</span>
-                  <h2>{getText(t, 'classrooms.assignments.answerReview', 'Xem lai cau tra loi')}</h2>
+                  <span className="classroom-kicker">{getText(t, 'classrooms.assignments.review', 'Soát lại')}</span>
+                  <h2>{getText(t, 'classrooms.assignments.answerReview', 'Xem lại câu trả lời')}</h2>
                 </div>
               </div>
               <AttemptAnswers answers={answers} reveal />
@@ -2124,7 +2129,7 @@ export function ClassroomAssignmentHistoryPage() {
       setAttempts(Array.isArray(attemptData) ? attemptData : []);
       setClassrooms(Array.isArray(joinedData) ? joinedData : []);
     } catch (err) {
-      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.history', 'Khong tai duoc lich su assignment.')));
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.history', 'Không tải được lịch sử làm bài kiểm tra.')));
     } finally {
       setLoading(false);
     }
@@ -2138,29 +2143,27 @@ export function ClassroomAssignmentHistoryPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lich su assignment')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lịch sử làm bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   return (
-    <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lich su assignment')} subtitle={getText(t, 'classrooms.assignments.historySubtitle', 'Tat ca attempt cua ban trong classroom.')}>
-      <ClassroomTabs />
+    <ClassroomShell title={getText(t, 'classrooms.assignments.historyTitle', 'Lịch sử làm bài kiểm tra')} subtitle={getText(t, 'classrooms.assignments.historySubtitle', 'Tất cả lượt làm của bạn trong lớp học.')}>
       <MessageBar error={error} />
       <div className="classroom-page-actions">
         <button className="classroom-button" type="button" onClick={loadHistory}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
       {!attempts.length ? (
         <section className="classroom-panel classroom-empty">
           <LuClipboard aria-hidden="true" />
-          <h2>{getText(t, 'classrooms.assignments.historyEmptyTitle', 'Chua co attempt')}</h2>
-          <p>{getText(t, 'classrooms.assignments.historyEmptyBody', 'Bat dau mot assignment de lich su xuat hien tai day.')}</p>
+          <h2>{getText(t, 'classrooms.assignments.historyEmptyTitle', 'Chưa có lượt làm nào')}</h2>
+          <p>{getText(t, 'classrooms.assignments.historyEmptyBody', 'Bắt đầu một bài kiểm tra để lịch sử xuất hiện tại đây.')}</p>
         </section>
       ) : (
         <section className="classroom-list">
@@ -2176,11 +2179,11 @@ export function ClassroomAssignmentHistoryPage() {
                   </div>
                   <p>{classroom?.name || `Classroom #${attempt.assignment?.classroomWorkspaceId || '-'}`}</p>
                   <small style={{ display: 'block', marginBottom: '0.5rem' }}>
-                    Attempt #{attempt.attemptNumber || '-'} | Started: {formatDateTime(attempt.startedAt)}
+                    Lượt làm #{attempt.attemptNumber || '-'} | Bắt đầu: {formatDateTime(attempt.startedAt)}
                     {' | '}
-                    Submitted: {formatDateTime(attempt.submittedAt)}
+                    Đã nộp: {formatDateTime(attempt.submittedAt)}
                     {' | '}
-                    Score: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
+                    Điểm: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
                     {attempt.assignment?.scoringMode === 'EmpiricalDifficulty' && (
                       <span className="scoring-badge-pill" style={{ marginLeft: '0.5rem', color: 'var(--color-primary)', fontWeight: 500 }}>
                         {attempt.assignment?.status === 'Closed'
@@ -2211,11 +2214,12 @@ export function ClassroomAssignmentHistoryPage() {
 }
 
 function ClassroomShell({ children, subtitle, title }) {
+  const { t } = useLanguage();
   return (
     <main className="classroom-page">
       <header className="classroom-hero">
         <div>
-          <span className="classroom-kicker">Classroom</span>
+          <span className="classroom-kicker">{getText(t, 'classrooms.detail.kicker', 'Lớp học')}</span>
           <h1>{title}</h1>
           {subtitle && <p>{subtitle}</p>}
         </div>
@@ -2228,9 +2232,9 @@ function ClassroomShell({ children, subtitle, title }) {
 function ClassroomTabs({ active }) {
   const { t } = useLanguage();
   const tabs = [
-    { id: 'teaching', to: '/classrooms/teaching', label: getText(t, 'classrooms.tabs.teaching', 'Dang day'), icon: <LuSchool aria-hidden="true" /> },
-    { id: 'joined', to: '/classrooms/joined', label: getText(t, 'classrooms.tabs.joined', 'Da tham gia'), icon: <LuGraduationCap aria-hidden="true" /> },
-    { id: 'join', to: '/classrooms/join', label: getText(t, 'classrooms.tabs.join', 'Nhap code'), icon: <LuDoorOpen aria-hidden="true" /> },
+    { id: 'teaching', to: '/classrooms/teaching', label: getText(t, 'classrooms.tabs.teaching', 'Đang dạy'), icon: <LuSchool aria-hidden="true" /> },
+    { id: 'joined', to: '/classrooms/joined', label: getText(t, 'classrooms.tabs.joined', 'Đã tham gia'), icon: <LuGraduationCap aria-hidden="true" /> },
+    { id: 'join', to: '/classrooms/join', label: getText(t, 'classrooms.tabs.join', 'Nhập mã'), icon: <LuDoorOpen aria-hidden="true" /> },
   ];
 
   return (
@@ -2247,7 +2251,7 @@ function ClassroomTabs({ active }) {
 
 function ClassroomList({ classrooms, emptyBody, emptyTitle, loading, onRetry, retryLabel, t }) {
   if (loading) {
-    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />;
+    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />;
   }
 
   if (!classrooms.length) {
@@ -2271,11 +2275,11 @@ function ClassroomList({ classrooms, emptyBody, emptyTitle, loading, onRetry, re
           <span className="classroom-card-icon"><LuSchool aria-hidden="true" /></span>
           <div>
             <h2>{classroom.name}</h2>
-            <p>{classroom.description || getText(t, 'classrooms.detail.noDescription', 'Chua co mo ta.')}</p>
+            <p>{classroom.description || getText(t, 'classrooms.detail.noDescription', 'Chưa có mô tả.')}</p>
             <small>
-              {getText(t, 'classrooms.metrics.members', 'Thanh vien')}: {classroom.memberCount || 0}
+              {getText(t, 'classrooms.metrics.members', 'Thành viên')}: {classroom.memberCount || 0}
               {' · '}
-              {getText(t, 'classrooms.detail.updated', 'Cap nhat')}: {formatDateTime(classroom.updatedAt)}
+              {getText(t, 'classrooms.detail.updated', 'Cập nhật')}: {formatDateTime(classroom.updatedAt)}
             </small>
           </div>
         </Link>
@@ -2288,20 +2292,20 @@ function QuestionSetFields({ form, onChange, t }) {
   return (
     <>
       <label>
-        <span>{getText(t, 'classrooms.questionSets.fields.title', 'Tieu de')}</span>
+        <span>{getText(t, 'classrooms.questionSets.fields.title', 'Tiêu đề')}</span>
         <input
           value={form.title}
           onChange={(event) => onChange((current) => ({ ...current, title: event.target.value }))}
-          placeholder={getText(t, 'classrooms.questionSets.fields.titlePlaceholder', 'Vi du: N5 vocabulary review')}
+          placeholder={getText(t, 'classrooms.questionSets.fields.titlePlaceholder', 'Ví dụ: Ôn tập từ vựng N5')}
         />
       </label>
       <label>
-        <span>{getText(t, 'classrooms.questionSets.fields.description', 'Mo ta')}</span>
+        <span>{getText(t, 'classrooms.questionSets.fields.description', 'Mô tả')}</span>
         <textarea
           rows={3}
           value={form.description}
           onChange={(event) => onChange((current) => ({ ...current, description: event.target.value }))}
-          placeholder={getText(t, 'classrooms.questionSets.fields.descriptionPlaceholder', 'Ghi chu ngan cho giao vien')}
+          placeholder={getText(t, 'classrooms.questionSets.fields.descriptionPlaceholder', 'Ghi chú ngắn cho giảng viên')}
         />
       </label>
       <label>
@@ -2319,18 +2323,18 @@ function QuestionSetFields({ form, onChange, t }) {
 
 function QuestionSetList({ classroomId, questionSets, loading, onRetry, t }) {
   if (loading) {
-    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />;
+    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />;
   }
 
   if (!questionSets.length) {
     return (
       <section className="classroom-panel classroom-empty">
         <LuFileQuestion aria-hidden="true" />
-        <h2>{getText(t, 'classrooms.questionSets.emptyTitle', 'Chua co bo cau hoi')}</h2>
-        <p>{getText(t, 'classrooms.questionSets.emptyBody', 'Tao bo cau hoi dau tien de gom cac cau hoi da sinh trong classroom.')}</p>
+        <h2>{getText(t, 'classrooms.questionSets.emptyTitle', 'Chưa có bộ câu hỏi')}</h2>
+        <p>{getText(t, 'classrooms.questionSets.emptyBody', 'Tạo bộ câu hỏi đầu tiên để gom các câu hỏi đã sinh trong lớp học.')}</p>
         <button className="classroom-button" type="button" onClick={onRetry}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </section>
     );
@@ -2346,11 +2350,11 @@ function QuestionSetList({ classroomId, questionSets, loading, onRetry, t }) {
               <h2>{questionSet.title}</h2>
               <span className={`classroom-badge ${questionSet.visibility === 'Published' ? '' : 'muted'}`}>{questionSet.visibility}</span>
             </div>
-            <p>{questionSet.description || getText(t, 'classrooms.questionSets.noDescription', 'Chua co mo ta.')}</p>
+            <p>{questionSet.description || getText(t, 'classrooms.questionSets.noDescription', 'Chưa có mô tả.')}</p>
             <small>
-              {getText(t, 'classrooms.questionSets.itemCount', 'Cau hoi')}: {questionSet.itemCount || 0}
+              {getText(t, 'classrooms.questionSets.itemCount', 'Câu hỏi')}: {questionSet.itemCount || 0}
               {' | '}
-              {getText(t, 'classrooms.detail.updated', 'Cap nhat')}: {formatDateTime(questionSet.updatedAt)}
+              {getText(t, 'classrooms.detail.updated', 'Cập nhật')}: {formatDateTime(questionSet.updatedAt)}
             </small>
           </div>
         </Link>
@@ -2361,11 +2365,11 @@ function QuestionSetList({ classroomId, questionSets, loading, onRetry, t }) {
 
 function AvailableQuestionList({ loading, onAdd, questions, t, working }) {
   if (loading) {
-    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />;
+    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />;
   }
 
   if (!questions.length) {
-    return <p className="classroom-muted">{getText(t, 'classrooms.questionSets.availableEmpty', 'Chua co cau hoi kha dung cho Document ID nay.')}</p>;
+    return <p className="classroom-muted">{getText(t, 'classrooms.questionSets.availableEmpty', 'Chưa có câu hỏi khả dụng cho mã tài liệu này.')}</p>;
   }
 
   return (
@@ -2385,7 +2389,7 @@ function AvailableQuestionList({ loading, onAdd, questions, t, working }) {
           </div>
           <button className="classroom-button" type="button" onClick={() => onAdd(question.id)} disabled={working}>
             <LuPlus aria-hidden="true" />
-            {getText(t, 'classrooms.questionSets.add', 'Them')}
+            {getText(t, 'classrooms.questionSets.add', 'Thêm')}
           </button>
         </div>
       ))}
@@ -2395,7 +2399,7 @@ function AvailableQuestionList({ loading, onAdd, questions, t, working }) {
 
 function QuestionSetItems({ isTeacher, items, onMove, onRemove, t, working }) {
   if (!items.length) {
-    return <p className="classroom-muted">{getText(t, 'classrooms.questionSets.itemsEmpty', 'Bo cau hoi nay chua co cau hoi nao.')}</p>;
+    return <p className="classroom-muted">{getText(t, 'classrooms.questionSets.itemsEmpty', 'Bộ câu hỏi này chưa có câu hỏi nào.')}</p>;
   }
 
   return (
@@ -2411,19 +2415,19 @@ function QuestionSetItems({ isTeacher, items, onMove, onRemove, t, working }) {
               {' | '}
               Document {item.question?.documentId || '-'}
               {' | '}
-              {getText(t, 'classrooms.questionSets.pointWeight', 'Diem')}: {item.pointWeight}
+              {getText(t, 'classrooms.questionSets.pointWeight', 'Điểm')}: {item.pointWeight}
               {item.sectionCode ? ` | ${item.sectionCode}` : ''}
             </small>
           </div>
           {isTeacher && (
             <div className="classroom-row-actions">
-              <button className="classroom-icon-button" type="button" onClick={() => onMove(item.id, -1)} disabled={working || index === 0} title={getText(t, 'classrooms.questionSets.moveUp', 'Len')}>
+              <button className="classroom-icon-button" type="button" onClick={() => onMove(item.id, -1)} disabled={working || index === 0} title={getText(t, 'classrooms.questionSets.moveUp', 'Lên')}>
                 <LuArrowUp aria-hidden="true" />
               </button>
-              <button className="classroom-icon-button" type="button" onClick={() => onMove(item.id, 1)} disabled={working || index === items.length - 1} title={getText(t, 'classrooms.questionSets.moveDown', 'Xuong')}>
+              <button className="classroom-icon-button" type="button" onClick={() => onMove(item.id, 1)} disabled={working || index === items.length - 1} title={getText(t, 'classrooms.questionSets.moveDown', 'Xuống')}>
                 <LuArrowDown aria-hidden="true" />
               </button>
-              <button className="classroom-icon-button danger" type="button" onClick={() => onRemove(item.id)} disabled={working} title={getText(t, 'classrooms.questionSets.remove', 'Xoa')}>
+              <button className="classroom-icon-button danger" type="button" onClick={() => onRemove(item.id)} disabled={working} title={getText(t, 'classrooms.questionSets.remove', 'Xóa')}>
                 <LuTrash2 aria-hidden="true" />
               </button>
             </div>
@@ -2443,20 +2447,20 @@ function ClassroomResourceLinks({ classroomId, isTeacher, t }) {
     <div className="classroom-page-actions">
       <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
         <LuSchool aria-hidden="true" />
-        {getText(t, 'classrooms.assignments.classOverview', 'Tong quan lop')}
+        {getText(t, 'classrooms.assignments.classOverview', 'Tổng quan lớp')}
       </Link>
       <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets`}>
         <LuListChecks aria-hidden="true" />
-        {getText(t, 'classrooms.questionSets.open', 'Bo cau hoi')}
+        {getText(t, 'classrooms.questionSets.open', 'Bộ câu hỏi')}
       </Link>
       <Link className="classroom-button primary" to={isTeacher ? `/classrooms/${classroomId}/assignments` : `/classrooms/${classroomId}/student/assignments`}>
         <LuClipboard aria-hidden="true" />
-        {getText(t, 'classrooms.assignments.open', 'Assignments')}
+        {getText(t, 'classrooms.assignments.open', 'Bài kiểm tra')}
       </Link>
       {isTeacher && (
         <Link className="classroom-button" to={`/classrooms/${classroomId}/members`}>
           <LuGraduationCap aria-hidden="true" />
-          {getText(t, 'classrooms.members.title', 'Danh sach thanh vien')}
+          {getText(t, 'classrooms.members.title', 'Danh sách thành viên')}
         </Link>
       )}
     </div>
@@ -2469,7 +2473,7 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
   return (
     <>
       <label>
-        <span>{getText(t, 'classrooms.assignments.fields.title', 'Tieu de')}</span>
+        <span>{getText(t, 'classrooms.assignments.fields.title', 'Tiêu đề')}</span>
         <input
           value={form.title}
           onChange={(event) => update({ title: event.target.value })}
@@ -2477,19 +2481,19 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
         />
       </label>
       <label>
-        <span>{getText(t, 'classrooms.assignments.fields.description', 'Mo ta')}</span>
+        <span>{getText(t, 'classrooms.assignments.fields.description', 'Mô tả')}</span>
         <textarea
           rows={3}
           value={form.description}
           onChange={(event) => update({ description: event.target.value })}
-          placeholder={getText(t, 'classrooms.assignments.fields.descriptionPlaceholder', 'Huong dan ngan cho hoc vien')}
+          placeholder={getText(t, 'classrooms.assignments.fields.descriptionPlaceholder', 'Hướng dẫn ngắn cho học viên')}
         />
       </label>
       <label>
-        <span>{getText(t, 'classrooms.assignments.fields.questionSet', 'Published QuestionSet')}</span>
+        <span>{getText(t, 'classrooms.assignments.fields.questionSet', 'Bộ câu hỏi đã công bố')}</span>
         {questionSets.length ? (
           <select value={form.questionSetId} onChange={(event) => update({ questionSetId: event.target.value })}>
-            <option value="">{getText(t, 'classrooms.assignments.fields.selectQuestionSet', 'Chon bo cau hoi')}</option>
+            <option value="">{getText(t, 'classrooms.assignments.fields.selectQuestionSet', 'Chọn bộ câu hỏi')}</option>
             {questionSets.map((questionSet) => (
               <option key={questionSet.id} value={questionSet.id}>
                 #{questionSet.id} - {questionSet.title}
@@ -2507,7 +2511,7 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
       </label>
       <div className="classroom-form-grid">
         <label>
-          <span>{getText(t, 'classrooms.assignments.fields.type', 'Type')}</span>
+          <span>{getText(t, 'classrooms.assignments.fields.type', 'Loại bài')}</span>
           <select value={form.type} onChange={(event) => update({ type: event.target.value })}>
             {['Quiz', 'Test', 'Flashcard', 'Mixed'].map((type) => (
               <option key={type} value={type}>{type}</option>
@@ -2515,7 +2519,7 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
           </select>
         </label>
         <label>
-          <span>{getText(t, 'classrooms.assignments.fields.attemptLimit', 'Attempt limit')}</span>
+          <span>{getText(t, 'classrooms.assignments.fields.attemptLimit', 'Giới hạn lượt nộp')}</span>
           <input
             inputMode="numeric"
             min="1"
@@ -2524,22 +2528,22 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
           />
         </label>
         <label>
-          <span>{getText(t, 'classrooms.assignments.fields.timeLimit', 'Time limit')}</span>
+          <span>{getText(t, 'classrooms.assignments.fields.timeLimit', 'Thời gian làm bài')}</span>
           <input
             inputMode="numeric"
             value={form.timeLimitMinutes}
             onChange={(event) => update({ timeLimitMinutes: event.target.value.replace(/\D/g, '') })}
-            placeholder={getText(t, 'classrooms.assignments.fields.optionalMinutes', 'Phut, optional')}
+            placeholder={getText(t, 'classrooms.assignments.fields.optionalMinutes', 'Phút, không bắt buộc')}
           />
         </label>
       </div>
       <div className="classroom-form-grid">
         <label>
-          <span>{getText(t, 'classrooms.assignments.fields.startAt', 'Start at')}</span>
+          <span>{getText(t, 'classrooms.assignments.fields.startAt', 'Thời gian bắt đầu')}</span>
           <input type="datetime-local" value={form.startAt} onChange={(event) => update({ startAt: event.target.value })} />
         </label>
         <label>
-          <span>{getText(t, 'classrooms.assignments.fields.dueAt', 'Due at')}</span>
+          <span>{getText(t, 'classrooms.assignments.fields.dueAt', 'Hạn nộp')}</span>
           <input type="datetime-local" value={form.dueAt} onChange={(event) => update({ dueAt: event.target.value })} />
         </label>
       </div>
@@ -2621,18 +2625,18 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
 
 function AssignmentList({ assignments, attempts = [], classroomId, emptyBody, loading, onRetry, onStart, startingId, t, teacher = false }) {
   if (loading) {
-    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />;
+    return <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />;
   }
 
   if (!assignments.length) {
     return (
       <section className="classroom-panel classroom-empty">
         <LuClipboard aria-hidden="true" />
-        <h2>{getText(t, 'classrooms.assignments.emptyTitle', 'Chua co assignment')}</h2>
+        <h2>{getText(t, 'classrooms.assignments.emptyTitle', 'Chưa có bài kiểm tra')}</h2>
         <p>{emptyBody}</p>
         <button className="classroom-button" type="button" onClick={onRetry}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </section>
     );
@@ -2650,40 +2654,42 @@ function AssignmentList({ assignments, attempts = [], classroomId, emptyBody, lo
             <div>
               <div className="classroom-card-title-row">
                 <h2>{assignment.title}</h2>
-                <span className={`classroom-badge ${assignment.status === 'Published' ? '' : 'muted'}`}>{teacher ? assignment.status : studentStatus}</span>
+                <span className={`classroom-badge ${assignment.status === 'Published' ? '' : 'muted'}`}>
+                  {teacher ? translateAssignmentStatus(assignment.status, t) : translateAttemptStatus(studentStatus, t)}
+                </span>
               </div>
-              <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chua co mo ta.')}</p>
+              <p>{assignment.description || getText(t, 'classrooms.assignments.noDescription', 'Chưa có mô tả.')}</p>
               <small>
-                {assignment.type} | {getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')}: {assignment.attemptLimit || 1}
+                {assignment.type} | {getText(t, 'classrooms.assignments.attemptLimit', 'Lượt làm')}: {assignment.attemptLimit || 1}
                 {' | '}
-                Due: {formatDateTime(assignment.dueAt)}
+                {getText(t, 'classrooms.assignments.fields.dueAt', 'Hạn nộp')}: {formatDateTime(assignment.dueAt)}
               </small>
               <div className="classroom-row-actions classroom-card-actions">
                 {teacher ? (
                   <>
                     <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignment.id}`}>
-                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiet')}
+                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiết')}
                     </Link>
                     <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignment.id}/attempts`}>
-                      {getText(t, 'classrooms.assignments.viewAttempts', 'Attempts')}
+                      {getText(t, 'classrooms.assignments.viewAttempts', 'Lượt làm')}
                     </Link>
                   </>
                 ) : (
                   <>
                     <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments/${assignment.id}`}>
-                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiet')}
+                      {getText(t, 'classrooms.assignments.openDetail', 'Chi tiết')}
                     </Link>
                     {attempt?.status === 'InProgress' ? (
                       <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
-                        {getText(t, 'classrooms.assignments.resume', 'Tiep tuc')}
+                        {getText(t, 'classrooms.assignments.resume', 'Tiếp tục')}
                       </Link>
                     ) : attempt?.status === 'Submitted' ? (
                       <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}/result`}>
-                        {getText(t, 'classrooms.assignments.result', 'Ket qua')}
+                        {getText(t, 'classrooms.assignments.result', 'Kết quả')}
                       </Link>
                     ) : (
                       <button className="classroom-button primary" type="button" onClick={() => onStart?.(assignment.id)} disabled={startingId === assignment.id}>
-                        {startingId === assignment.id ? getText(t, 'classrooms.assignments.starting', 'Dang mo...') : getText(t, 'classrooms.assignments.start', 'Start')}
+                        {startingId === assignment.id ? getText(t, 'classrooms.assignments.starting', 'Đang mở...') : getText(t, 'classrooms.assignments.start', 'Bắt đầu')}
                       </button>
                     )}
                   </>
@@ -2711,26 +2717,27 @@ function getStudentAssignmentStatus(assignment, assignmentAttempts) {
   const attempts = Array.isArray(assignmentAttempts) ? assignmentAttempts : [];
   const attempt = attempts[0];
   if (attempt?.status === 'Submitted') {
-    return 'Da nop';
+    return 'submitted';
   }
   if (attempt?.status === 'InProgress') {
-    return 'Dang lam';
+    return 'inProgress';
   }
   if (attempt?.status === 'Expired') {
-    return 'Het han';
+    return 'expired';
   }
   if (assignment?.dueAt && new Date(assignment.dueAt) < new Date()) {
-    return 'Het han';
+    return 'expired';
   }
   if (attempts.length >= (Number(assignment?.attemptLimit) || 1)) {
-    return 'Het luot lam';
+    return 'noAttemptsLeft';
   }
-  return 'Chua lam';
+  return 'notStarted';
 }
 
 function AssignmentQuestions({ items, showSensitive = false }) {
+  const { t } = useLanguage();
   if (!items.length) {
-    return <p className="classroom-muted">Chua co cau hoi.</p>;
+    return <p className="classroom-muted">{getText(t, 'classrooms.questionSets.itemsEmpty', 'Chưa có câu hỏi nào.')}</p>;
   }
 
   return (
@@ -2738,13 +2745,13 @@ function AssignmentQuestions({ items, showSensitive = false }) {
       {items.map((item, index) => (
         <div className="classroom-question-row" key={item.id || item.questionId}>
           <div>
-            <strong>{index + 1}. {item.question?.questionText || `Question #${item.questionId}`}</strong>
+            <strong>{index + 1}. {item.question?.questionText || `${getText(t, 'classrooms.assignments.questionKicker', 'Câu hỏi')} #${item.questionId}`}</strong>
             <small>
-              ID {item.questionId} | {item.question?.questionType || '-'} | Diem: {item.pointWeight ?? '-'}
+              {getText(t, 'classrooms.assignments.stats.questionId', 'Mã câu hỏi')}: {item.questionId} | {item.question?.questionType || '-'} | {getText(t, 'classrooms.assignments.pointLabel', 'Điểm:')} {item.pointWeight ?? '-'}
             </small>
             <OptionPreview options={item.question?.options} />
             {showSensitive && item.question?.correctAnswer && (
-              <p className="classroom-answer-key">Correct: {item.question.correctAnswer}</p>
+              <p className="classroom-answer-key">{getText(t, 'classrooms.assignments.correctAnswerLabel', 'Đáp án đúng:')} {item.question.correctAnswer}</p>
             )}
             {showSensitive && item.question?.explanation && (
               <p className="classroom-muted">{item.question.explanation}</p>
@@ -2779,9 +2786,9 @@ function QuestionAttemptCard({ answer, item, onAnswer, onSubmit, saving, t, inde
     <article className="classroom-panel classroom-attempt-question">
       <div className="classroom-section-head">
         <div>
-          <span className="classroom-kicker">Question {index + 1}</span>
-          <h2>{item.question?.questionText || `Question #${item.questionId}`}</h2>
-          <p className="classroom-muted">Diem: {item.pointWeight ?? '-'}</p>
+          <span className="classroom-kicker">{getText(t, 'classrooms.assignments.questionKicker', 'Câu hỏi')} {index + 1}</span>
+          <h2>{item.question?.questionText || `${getText(t, 'classrooms.assignments.questionKicker', 'Câu hỏi')} #${item.questionId}`}</h2>
+          <p className="classroom-muted">{getText(t, 'classrooms.assignments.pointLabel', 'Điểm:')} {item.pointWeight ?? '-'}</p>
         </div>
       </div>
 
@@ -2805,35 +2812,36 @@ function QuestionAttemptCard({ answer, item, onAnswer, onSubmit, saving, t, inde
         </div>
       ) : (
         <label className="classroom-form">
-          <span>{getText(t, 'classrooms.assignments.selectedAnswer', 'Cau tra loi')}</span>
+          <span>{getText(t, 'classrooms.assignments.selectedAnswer', 'Câu trả lời')}</span>
           <input value={answer} onChange={(event) => onAnswer(event.target.value)} placeholder="A" />
         </label>
       )}
 
       <button className="classroom-button" type="button" onClick={onSubmit} disabled={saving || !answer}>
         <LuSave aria-hidden="true" />
-        {saving ? getText(t, 'classrooms.assignments.savingAnswer', 'Dang luu...') : getText(t, 'classrooms.assignments.submitAnswer', 'Luu cau tra loi')}
+        {saving ? getText(t, 'classrooms.assignments.savingAnswer', 'Đang lưu...') : getText(t, 'classrooms.assignments.submitAnswer', 'Lưu câu trả lời')}
       </button>
     </article>
   );
 }
 
 function AttemptAnswers({ answers, reveal }) {
+  const { t } = useLanguage();
   if (!answers.length) {
-    return <p className="classroom-muted">Chua co cau tra loi.</p>;
+    return <p className="classroom-muted">{getText(t, 'classrooms.assignments.noAnswersYet', 'Chưa có câu trả lời.')}</p>;
   }
 
   return (
     <div className="classroom-answer-review">
       {answers.map((answer) => (
         <div className="classroom-answer-review-row" key={answer.id || answer.questionId}>
-          <strong>{answer.question?.questionText || `Question #${answer.questionId}`}</strong>
-          <small>Selected: {answer.selectedAnswer || '-'}</small>
+          <strong>{answer.question?.questionText || `${getText(t, 'classrooms.assignments.questionKicker', 'Câu hỏi')} #${answer.questionId}`}</strong>
+          <small>{getText(t, 'classrooms.assignments.selectedLabel', 'Đã chọn:')} {answer.selectedAnswer || '-'}</small>
           {reveal && Object.prototype.hasOwnProperty.call(answer, 'isCorrect') && (
-            <small>{answer.isCorrect ? 'Dung' : 'Sai'} | Diem: {answer.pointEarned ?? 0}</small>
+            <small>{answer.isCorrect ? 'Đúng' : 'Sai'} | {getText(t, 'classrooms.assignments.pointLabel', 'Điểm:')} {answer.pointEarned ?? 0}</small>
           )}
           {reveal && answer.question?.correctAnswer && (
-            <small>Correct: {answer.question.correctAnswer}</small>
+            <small>{getText(t, 'classrooms.assignments.correctAnswerLabel', 'Đáp án đúng:')} {answer.question.correctAnswer}</small>
           )}
           {reveal && answer.question?.explanation && (
             <small>{answer.question.explanation}</small>
@@ -2846,7 +2854,7 @@ function AttemptAnswers({ answers, reveal }) {
 
 function JoinCodeList({ codes, disablingCodeId, onCopy, onDisable, t }) {
   if (!codes.length) {
-    return <p className="classroom-muted">{getText(t, 'classrooms.codes.empty', 'Chua co join code nao.')}</p>;
+    return <p className="classroom-muted">{getText(t, 'classrooms.codes.empty', 'Chưa có mã tham gia nào.')}</p>;
   }
 
   return (
@@ -2856,17 +2864,17 @@ function JoinCodeList({ codes, disablingCodeId, onCopy, onDisable, t }) {
           <div>
             <strong>{code.code}</strong>
             <small>
-              {code.isActive ? getText(t, 'classrooms.codes.active', 'Dang bat') : getText(t, 'classrooms.codes.disabled', 'Da tat')}
+              {code.isActive ? getText(t, 'classrooms.codes.active', 'Đang bật') : getText(t, 'classrooms.codes.disabled', 'Đã tắt')}
               {' · '}
-              {code.usedCount || 0}/{code.maxUses || getText(t, 'classrooms.codes.unlimited', 'khong gioi han')}
+              {code.usedCount || 0}/{code.maxUses || getText(t, 'classrooms.codes.unlimited', 'không giới hạn')}
             </small>
           </div>
           <div className="classroom-row-actions">
-            <button className="classroom-icon-button" type="button" onClick={() => onCopy(code.code)} title={getText(t, 'classrooms.actions.copy', 'Copy')}>
+            <button className="classroom-icon-button" type="button" onClick={() => onCopy(code.code)} title={getText(t, 'classrooms.actions.copy', 'Sao chép')}>
               <LuCopy aria-hidden="true" />
             </button>
             {code.isActive && (
-              <button className="classroom-icon-button danger" type="button" onClick={() => onDisable(code.id)} disabled={disablingCodeId === code.id} title={getText(t, 'classrooms.actions.disable', 'Tat code')}>
+              <button className="classroom-icon-button danger" type="button" onClick={() => onDisable(code.id)} disabled={disablingCodeId === code.id} title={getText(t, 'classrooms.actions.disable', 'Tắt code')}>
                 <LuBan aria-hidden="true" />
               </button>
             )}
@@ -2882,18 +2890,18 @@ function MembersPanel({ error, loading, members, onRetry, t }) {
     <section className="classroom-panel classroom-members">
       <div className="classroom-section-head">
         <div>
-          <span className="classroom-kicker">{getText(t, 'classrooms.members.kicker', 'Members')}</span>
-          <h2>{getText(t, 'classrooms.members.title', 'Danh sach thanh vien')}</h2>
+          <span className="classroom-kicker">{getText(t, 'classrooms.members.kicker', 'Thành viên')}</span>
+          <h2>{getText(t, 'classrooms.members.title', 'Danh sách thành viên')}</h2>
         </div>
         <button className="classroom-button" type="button" onClick={onRetry}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
       <MessageBar error={error} />
-      {loading && <LoadingCard label={getText(t, 'classrooms.states.loadingMembers', 'Dang tai thanh vien...')} />}
+      {loading && <LoadingCard label={getText(t, 'classrooms.states.loadingMembers', 'Đang tải thành viên...')} />}
       {!loading && !members.length && !error && (
-        <p className="classroom-muted">{getText(t, 'classrooms.members.empty', 'Chua co hoc vien nao trong lop.')}</p>
+        <p className="classroom-muted">{getText(t, 'classrooms.members.empty', 'Chưa có học viên nào trong lớp.')}</p>
       )}
       {!loading && members.length > 0 && (
         <div className="classroom-member-table">
@@ -2979,22 +2987,20 @@ export function ClassroomLeaderboardPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp học')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (error || isForbidden) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle="">
-        <ClassroomTabs />
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp học')} subtitle="">
         <MessageBar error={error} />
         {!isForbidden && (
           <button className="classroom-button" type="button" onClick={loadLeaderboard}>
             <LuRefreshCw aria-hidden="true" />
-            {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+            {getText(t, 'classrooms.actions.retry', 'Thử lại')}
           </button>
         )}
       </ClassroomShell>
@@ -3004,8 +3010,7 @@ export function ClassroomLeaderboardPage() {
   const rows = Array.isArray(data?.rows) ? data.rows : [];
 
   return (
-    <ClassroomShell title={data?.classroomName || getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
-      <ClassroomTabs />
+    <ClassroomShell title={data?.classroomName || getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp học')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
       <div className="classroom-leaderboard-header">
         <div className="classroom-leaderboard-metadata">
           <span>
@@ -3025,11 +3030,11 @@ export function ClassroomLeaderboardPage() {
       <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
         <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
           <LuSchool aria-hidden="true" />
-          {getText(t, 'classrooms.questionSets.backToClassroom', 'Ve lop hoc')}
+          {getText(t, 'classrooms.questionSets.backToClassroom', 'Về lớp học')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadLeaderboard}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
@@ -3049,7 +3054,7 @@ export function ClassroomLeaderboardPage() {
                 <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.completedAssignments', 'Số bài đã hoàn thành')}</th>
                 <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.submittedAttempts', 'Số lượt nộp')}</th>
                 <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.averageScore', 'Điểm trung bình')}</th>
-                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.totalScore', 'Tổng điểm')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.totalScore', 'Tổng điểm quy đổi')}</th>
                 <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.bestScore', 'Điểm cao nhất')}</th>
                 <th>{getText(t, 'classrooms.leaderboard.latestSubmitted', 'Nộp bài gần nhất')}</th>
               </tr>
@@ -3077,7 +3082,7 @@ export function ClassroomLeaderboardPage() {
                       {row.averagePercentScore != null ? `${Number(row.averagePercentScore).toFixed(2)}%` : '0.00%'}
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {row.totalPercentScore != null ? `${Number(row.totalPercentScore).toFixed(2)}%` : '0.00%'}
+                      {row.totalPercentScore != null ? Number(row.totalPercentScore).toFixed(2) : '0.00'}
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       {row.bestPercentScore != null ? `${Number(row.bestPercentScore).toFixed(2)}%` : '0.00%'}
@@ -3136,22 +3141,20 @@ export function ClassroomAssignmentLeaderboardPage() {
 
   if (loading) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle="">
-        <ClassroomTabs />
-        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
       </ClassroomShell>
     );
   }
 
   if (error || isForbidden) {
     return (
-      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle="">
-        <ClassroomTabs />
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')} subtitle="">
         <MessageBar error={error} />
         {!isForbidden && (
           <button className="classroom-button" type="button" onClick={loadLeaderboard}>
             <LuRefreshCw aria-hidden="true" />
-            {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+            {getText(t, 'classrooms.actions.retry', 'Thử lại')}
           </button>
         )}
       </ClassroomShell>
@@ -3161,8 +3164,7 @@ export function ClassroomAssignmentLeaderboardPage() {
   const rows = Array.isArray(data?.rows) ? data.rows : [];
 
   return (
-    <ClassroomShell title={data?.assignmentTitle || getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
-      <ClassroomTabs />
+    <ClassroomShell title={data?.assignmentTitle || getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài kiểm tra')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
       
       <div className="classroom-leaderboard-header">
         <div className="classroom-leaderboard-metadata">
@@ -3220,11 +3222,11 @@ export function ClassroomAssignmentLeaderboardPage() {
       <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
         <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
           <LuClipboard aria-hidden="true" />
-          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+          {getText(t, 'classrooms.assignments.backToList', 'Về danh sách')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadLeaderboard}>
           <LuRefreshCw aria-hidden="true" />
-          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+          {getText(t, 'classrooms.actions.refresh', 'Làm mới')}
         </button>
       </div>
 
@@ -3308,3 +3310,474 @@ export function ClassroomAssignmentLeaderboardPage() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 5C: Classroom Analytics Pages
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────── Teacher Analytics ───────────────────────────
+
+export function ClassroomAnalyticsPage() {
+  const { classroomId } = useParams();
+  const { t } = useLanguage();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await classroomService.getClassroomAnalytics(classroomId);
+      setData(result);
+    } catch (err) {
+      if (isApiForbidden(err)) {
+        setError(getText(t, 'classrooms.analytics.forbidden', 'Bạn không có quyền xem analytics này.'));
+      } else {
+        setError(getApiErrorMessage(err, getText(t, 'classrooms.analytics.notFound', 'Không tải được analytics.')));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, t]);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
+
+  if (loading) {
+    return (
+      <ClassroomShell
+        title={getText(t, 'classrooms.analytics.teacherTitle', 'Analytics lớp học')}
+        subtitle=""
+      >
+        <LoadingCard label={getText(t, 'classrooms.analytics.loading', 'Đang tải analytics...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <ClassroomShell
+        title={getText(t, 'classrooms.analytics.teacherTitle', 'Analytics lớp học')}
+        subtitle=""
+      >
+        <MessageBar error={error} />
+        <button className="classroom-button" type="button" onClick={loadAnalytics}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.retry', 'Thử lại')}
+        </button>
+      </ClassroomShell>
+    );
+  }
+
+  const overview = data?.overview || {};
+  const assignments = Array.isArray(data?.assignmentSummaries) ? data.assignmentSummaries : [];
+  const insights = data?.questionInsights || {};
+  const atRisk = Array.isArray(data?.atRiskStudents) ? data.atRiskStudents : [];
+
+  return (
+    <ClassroomShell
+      title={data?.classroomName || getText(t, 'classrooms.analytics.teacherTitle', 'Analytics lớp học')}
+      subtitle={getText(t, 'classrooms.analytics.teacherSubtitle', 'Tổng quan bài tập, học sinh và câu hỏi khó.')}
+    >
+
+      <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
+          <LuSchool aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.backToClassroom', 'Về lớp học')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadAnalytics}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.refresh', 'Làm mới')}
+        </button>
+      </div>
+
+      {data?.generatedAt && (
+        <p className="classroom-muted" style={{ marginBottom: '16px' }}>
+          {getText(t, 'classrooms.analytics.generatedAt', 'Cập nhật lúc')}: {formatDateTime(data.generatedAt)}
+        </p>
+      )}
+
+      {/* Overview cards */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.overview.title', 'Tổng quan')}</h2>
+        <div className="classroom-leaderboard-stats">
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.activeStudents', 'Học sinh đang học')}</h3>
+            <div className="card-value">{overview.activeStudentCount ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.totalAssignments', 'Tổng bài tập')}</h3>
+            <div className="card-value">{overview.assignmentCount ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.published', 'Đã công bố')}</h3>
+            <div className="card-value">{overview.publishedAssignmentCount ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.closed', 'Đã đóng')}</h3>
+            <div className="card-value">{overview.closedAssignmentCount ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.submittedAttempts', 'Lượt nộp bài')}</h3>
+            <div className="card-value">{overview.submittedAttemptCount ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.averageScore', 'Điểm trung bình')}</h3>
+            <div className="card-value">
+              {overview.averageScore != null ? `${Number(overview.averageScore).toFixed(2)}%` : '-'}
+            </div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.overview.completionRate', 'Tỷ lệ hoàn thành')}</h3>
+            <div className="card-value">
+              {overview.completionRate != null ? `${Number(overview.completionRate).toFixed(2)}%` : '-'}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Assignment summary table */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.assignments.title', 'Tóm tắt bài tập')}</h2>
+        {assignments.length === 0 ? (
+          <section className="classroom-panel classroom-empty">
+            <LuClipboard aria-hidden="true" />
+            <h2>{getText(t, 'classrooms.analytics.assignments.emptyTitle', 'Chưa có bài tập nào được công bố.')}</h2>
+          </section>
+        ) : (
+          <div className="classroom-table-wrapper">
+            <table className="classroom-stats-table">
+              <thead>
+                <tr>
+                  <th>{getText(t, 'classrooms.analytics.assignments.colTitle', 'Tiêu đề')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.assignments.colStatus', 'Trạng thái')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.assignments.colTotal', 'HS')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.assignments.colSubmitted', 'Đã nộp')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.assignments.colInProgress', 'Đang làm')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.assignments.colNotStarted', 'Chưa bắt đầu')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.assignments.colCompletion', 'Hoàn thành')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.assignments.colAvg', 'TB %')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.assignments.colBest', 'Cao nhất')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.assignments.colLowest', 'Thấp nhất')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((a) => (
+                  <tr key={a.assignmentId}>
+                    <td>
+                      <Link to={`/classrooms/${classroomId}/assignments/${a.assignmentId}`}>
+                        <strong>{a.title}</strong>
+                      </Link>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span className={`classroom-stat-badge badge-${a.status === 'Closed' ? 'success' : a.status === 'Published' ? 'warning' : 'danger'}`}>
+                        {a.status}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{a.totalStudents}</td>
+                    <td style={{ textAlign: 'center' }}>{a.submittedStudents}</td>
+                    <td style={{ textAlign: 'center' }}>{a.inProgressStudents}</td>
+                    <td style={{ textAlign: 'center' }}>{a.notStartedStudents}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(a.completionRate).toFixed(1)}%</td>
+                    <td style={{ textAlign: 'right' }}>{Number(a.averagePercentScore).toFixed(2)}%</td>
+                    <td style={{ textAlign: 'right' }}>{Number(a.bestPercentScore).toFixed(2)}%</td>
+                    <td style={{ textAlign: 'right' }}>{Number(a.lowestPercentScore).toFixed(2)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Question difficulty */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.questions.title', 'Câu hỏi khó và nghi vấn')}</h2>
+        <h3 style={{ marginBottom: '8px', fontSize: '1rem' }}>{getText(t, 'classrooms.analytics.questions.hardestTitle', 'Khó nhất (top 5)')}</h3>
+        {(insights.hardestQuestions || []).length === 0 ? (
+          <p className="classroom-muted">{getText(t, 'classrooms.analytics.questions.emptyHardest', 'Chưa có đủ dữ liệu.')}</p>
+        ) : (
+          <div className="classroom-table-wrapper" style={{ marginBottom: '16px' }}>
+            <table className="classroom-stats-table">
+              <thead>
+                <tr>
+                  <th>{getText(t, 'classrooms.analytics.questions.colAssignment', 'Bài tập')}</th>
+                  <th>{getText(t, 'classrooms.analytics.questions.colQuestion', 'Nội dung câu hỏi')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.questions.colAnswered', 'Đã trả lời')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.questions.colCorrect', 'Đúng')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.questions.colWeight', 'Trọng số')}</th>
+                  <th>{getText(t, 'classrooms.analytics.questions.colFlag', 'Cờ chất lượng')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(insights.hardestQuestions || []).map((q) => (
+                  <tr key={`${q.assignmentId}-${q.questionId}`}>
+                    <td><small>{q.assignmentTitle}</small></td>
+                    <td>{q.questionText ? q.questionText.substring(0, 80) + (q.questionText.length > 80 ? '…' : '') : `#${q.questionId}`}</td>
+                    <td style={{ textAlign: 'center' }}>{q.answeredCount}</td>
+                    <td style={{ textAlign: 'center' }}>{q.correctCount}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(q.difficultyWeight).toFixed(2)}</td>
+                    <td>{q.qualityFlag ? <span className="classroom-stat-badge badge-warning">{q.qualityFlag}</span> : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {(insights.suspiciousQuestions || []).length > 0 && (
+          <>
+            <h3 style={{ marginBottom: '8px', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <LuTriangleAlert aria-hidden="true" style={{ color: 'var(--classroom-warning, #f59e0b)' }} />
+              {getText(t, 'classrooms.analytics.questions.suspiciousTitle', 'Câu hỏi nghi vấn')}
+            </h3>
+            <div className="classroom-table-wrapper">
+              <table className="classroom-stats-table">
+                <thead>
+                  <tr>
+                    <th>{getText(t, 'classrooms.analytics.questions.colAssignment', 'Bài tập')}</th>
+                    <th>{getText(t, 'classrooms.analytics.questions.colQuestion', 'Nội dung câu hỏi')}</th>
+                    <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.questions.colWeight', 'Trọng số')}</th>
+                    <th>{getText(t, 'classrooms.analytics.questions.colFlag', 'Cờ chất lượng')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(insights.suspiciousQuestions || []).map((q) => (
+                    <tr key={`sus-${q.assignmentId}-${q.questionId}`}>
+                      <td><small>{q.assignmentTitle}</small></td>
+                      <td>{q.questionText ? q.questionText.substring(0, 80) + (q.questionText.length > 80 ? '…' : '') : `#${q.questionId}`}</td>
+                      <td style={{ textAlign: 'right' }}>{Number(q.difficultyWeight).toFixed(2)}</td>
+                      <td><span className="classroom-stat-badge badge-danger">{q.qualityFlag}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* At-risk students */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.atRisk.title', 'Học sinh cần hỗ trợ')}</h2>
+        {atRisk.length === 0 ? (
+          <section className="classroom-panel classroom-empty">
+            <LuGraduationCap aria-hidden="true" />
+            <h2>{getText(t, 'classrooms.analytics.atRisk.empty', 'Không có học sinh nào cần chú ý đặc biệt.')}</h2>
+          </section>
+        ) : (
+          <div className="classroom-table-wrapper">
+            <table className="classroom-stats-table">
+              <thead>
+                <tr>
+                  <th>{getText(t, 'classrooms.analytics.atRisk.colStudent', 'Học sinh')}</th>
+                  <th>{getText(t, 'classrooms.analytics.atRisk.colEmail', 'Email')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.atRisk.colCompleted', 'Bài hoàn thành')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.atRisk.colAvgScore', 'Điểm TB')}</th>
+                  <th>{getText(t, 'classrooms.analytics.atRisk.colLastSubmit', 'Nộp gần nhất')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {atRisk.map((s) => (
+                  <tr key={s.userId}>
+                    <td><strong>{s.displayName}</strong></td>
+                    <td>{s.email}</td>
+                    <td style={{ textAlign: 'center' }}>{s.completedAssignments}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(s.averagePercentScore).toFixed(2)}%</td>
+                    <td>{s.lastSubmittedAt ? formatDateTime(s.lastSubmittedAt) : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </ClassroomShell>
+  );
+}
+
+// ─────────────────────────────── Student Analytics ───────────────────────────
+
+export function StudentClassroomAnalyticsPage() {
+  const { classroomId } = useParams();
+  const { t } = useLanguage();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await classroomService.getStudentClassroomAnalytics(classroomId);
+      setData(result);
+    } catch (err) {
+      if (isApiForbidden(err)) {
+        setError(getText(t, 'classrooms.analytics.forbidden', 'Bạn không có quyền xem analytics này.'));
+      } else {
+        setError(getApiErrorMessage(err, getText(t, 'classrooms.analytics.notFound', 'Không tải được analytics.')));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, t]);
+
+  useEffect(() => {
+    loadAnalytics();
+  }, [loadAnalytics]);
+
+  if (loading) {
+    return (
+      <ClassroomShell
+        title={getText(t, 'classrooms.analytics.studentTitle', 'Tiến độ của tôi')}
+        subtitle=""
+      >
+        <LoadingCard label={getText(t, 'classrooms.analytics.loading', 'Đang tải analytics...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <ClassroomShell
+        title={getText(t, 'classrooms.analytics.studentTitle', 'Tiến độ của tôi')}
+        subtitle=""
+      >
+        <MessageBar error={error} />
+        <button className="classroom-button" type="button" onClick={loadAnalytics}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.retry', 'Thử lại')}
+        </button>
+      </ClassroomShell>
+    );
+  }
+
+  const summary = data?.summary || {};
+  const attempts = Array.isArray(data?.recentAttempts) ? data.recentAttempts : [];
+
+  return (
+    <ClassroomShell
+      title={data?.classroomName
+        ? `${getText(t, 'classrooms.analytics.studentTitle', 'Tiến độ của tôi')} – ${data.classroomName}`
+        : getText(t, 'classrooms.analytics.studentTitle', 'Tiến độ của tôi')}
+      subtitle={getText(t, 'classrooms.analytics.studentSubtitle', 'Xem tóm tắt cá nhân và lịch sử làm bài.')}
+    >
+
+      <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.student.backToClassroom', 'Về lớp học')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadAnalytics}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.analytics.refresh', 'Làm mới')}
+        </button>
+      </div>
+
+      {/* Hint banners */}
+      {data?.needsPractice && (
+        <div className="classroom-info-banner warning" style={{ marginBottom: '12px' }}>
+          <p>{getText(t, 'classrooms.analytics.student.needsPractice', 'Điểm trung bình của bạn dưới 50%. Hãy ôn tập thêm!')}</p>
+        </div>
+      )}
+      {data?.hasPendingAssignments && (
+        <div className="classroom-info-banner" style={{ marginBottom: '12px' }}>
+          <p>{getText(t, 'classrooms.analytics.student.hasPending', 'Bạn còn bài tập chưa hoàn thành trong lớp này.')}</p>
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <section style={{ marginBottom: '24px' }}>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.student.summaryTitle', 'Tổng quan cá nhân')}</h2>
+        <div className="classroom-leaderboard-stats">
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.student.completedAssignments', 'Bài đã hoàn thành')}</h3>
+            <div className="card-value">{summary.completedAssignments ?? 0} / {summary.totalAssignments ?? 0}</div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.student.averageScore', 'Điểm trung bình')}</h3>
+            <div className="card-value">
+              {summary.averagePercentScore != null ? `${Number(summary.averagePercentScore).toFixed(2)}%` : '-'}
+            </div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.student.bestScore', 'Điểm cao nhất')}</h3>
+            <div className="card-value">
+              {summary.bestPercentScore != null ? `${Number(summary.bestPercentScore).toFixed(2)}%` : '-'}
+            </div>
+          </div>
+          <div className="classroom-leaderboard-card">
+            <h3>{getText(t, 'classrooms.analytics.student.latestSubmit', 'Nộp gần nhất')}</h3>
+            <div className="card-value" style={{ fontSize: '0.85rem' }}>
+              {summary.latestSubmittedAt ? formatDateTime(summary.latestSubmittedAt) : '-'}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Recent attempts table */}
+      <section>
+        <h2 style={{ marginBottom: '12px' }}>{getText(t, 'classrooms.analytics.student.attemptsTitle', 'Lịch sử làm bài gần đây')}</h2>
+        {attempts.length === 0 ? (
+          <section className="classroom-panel classroom-empty">
+            <LuClipboard aria-hidden="true" />
+            <h2>{getText(t, 'classrooms.analytics.student.attemptsEmpty', 'Bạn chưa nộp bài nào.')}</h2>
+          </section>
+        ) : (
+          <div className="classroom-table-wrapper">
+            <table className="classroom-stats-table">
+              <thead>
+                <tr>
+                  <th>{getText(t, 'classrooms.analytics.student.colAssignment', 'Bài tập')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.student.colAttempt', 'Lần thử')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.student.colStatus', 'Trạng thái')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.student.colScore', 'Điểm')}</th>
+                  <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.analytics.student.colPercent', 'Phần trăm')}</th>
+                  <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.analytics.student.colFinality', 'Tính chính thức')}</th>
+                  <th>{getText(t, 'classrooms.analytics.student.colSubmitted', 'Thời gian nộp')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attempts.map((a) => {
+                  const isSubmitted = a.status === 'Submitted';
+                  return (
+                    <tr key={a.attemptId}>
+                      <td>
+                        <Link to={`/classrooms/${classroomId}/student/assignments/${a.assignmentId}`}>
+                          {a.assignmentTitle || `Assignment #${a.assignmentId}`}
+                        </Link>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>#{a.attemptNumber}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`classroom-stat-badge ${isSubmitted ? 'badge-success' : 'badge-warning'}`}>
+                          {a.status}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {isSubmitted ? Number(a.rawScore).toFixed(2) : '-'}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {isSubmitted ? `${Number(a.percentScore).toFixed(2)}%` : '-'}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {isSubmitted ? (
+                          <span className={`classroom-stat-badge ${a.scoreFinality === 'Final' ? 'badge-success' : 'badge-warning'}`}>
+                            {a.scoreFinality === 'Final'
+                              ? getText(t, 'classrooms.analytics.student.finalityFinal', 'Chính thức')
+                              : getText(t, 'classrooms.analytics.student.finalityTemporary', 'Tạm thời')}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>{a.submittedAt ? formatDateTime(a.submittedAt) : '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </ClassroomShell>
+  );
+}
