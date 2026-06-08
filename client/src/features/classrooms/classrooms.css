@@ -830,4 +830,152 @@
   border: 1px solid #fde68a;
 }
 
+/* --- Polish and Grid Redesign for Classroom Detail Page --- */
+
+.classroom-role-badge {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.classroom-role-badge.owner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+}
+.classroom-role-badge.teacher {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+}
+.classroom-role-badge.student {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.classroom-detail-metrics-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 24px;
+}
+.classroom-detail-metrics-grid .metric-card {
+  background: #ffffff;
+  border: 1px solid #dfe7ef;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+  text-align: center;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.classroom-detail-metrics-grid .metric-card:hover {
+  transform: translateY(-2px);
+  border-color: #0f766e;
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.08);
+}
+.classroom-detail-metrics-grid .metric-card .metric-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.classroom-detail-metrics-grid .metric-card .metric-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f766e;
+}
+.classroom-detail-metrics-grid .metric-card .metric-value.date-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  word-break: break-word;
+  line-height: 1.4;
+  height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.classroom-actions-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  margin-bottom: 24px;
+}
+.classroom-action-card {
+  background: #ffffff;
+  border: 1px solid #dfe7ef;
+  border-radius: 12px;
+  padding: 20px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+}
+.classroom-action-card:hover {
+  border-color: #0f766e;
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.12);
+  transform: translateY(-2px);
+}
+.classroom-action-card-icon {
+  align-items: center;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #0f766e;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+  font-size: 20px;
+}
+.classroom-action-card h3 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 15px;
+  font-weight: 800;
+}
+.classroom-action-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Adjust layout templates */
+.classroom-detail-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+}
+.classroom-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+@media (max-width: 980px) {
+  .classroom-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .classroom-detail-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .classroom-detail-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 

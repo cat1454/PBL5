@@ -236,6 +236,8 @@ const overrides = {
 overrides.vi.app.nav = {
   ...overrides.vi.app.nav,
   analytics: 'Thống kê',
+  classrooms: 'Lớp học',
+  help: 'Hướng dẫn',
 };
 
 overrides.vi.app.pageTitle = {
@@ -365,6 +367,8 @@ overrides.vi.analyticsDashboard = {
 overrides.en.app.nav = {
   ...overrides.en.app.nav,
   analytics: 'Analytics',
+  classrooms: 'Classrooms',
+  help: 'Help',
 };
 
 overrides.en.app.pageTitle = {
@@ -967,8 +971,8 @@ overrides.vi.classrooms = {
     join: 'Nhập code',
   },
   teaching: {
-    title: 'Lớp đang dạy',
-    subtitle: 'Tạo lớp, chia sẻ mã tham gia và xem thành viên.',
+    title: 'Lớp học đang giảng dạy',
+    subtitle: 'Tạo lớp, chia sẻ mã tham gia và quản lý thành viên.',
     emptyTitle: 'Chưa có lớp đang dạy',
     emptyBody: 'Tạo lớp đầu tiên để mời học viên bằng mã tham gia.',
     teacherOnlyTitle: 'Cần tài khoản giảng viên',
@@ -984,7 +988,7 @@ overrides.vi.classrooms = {
     kicker: 'Giảng viên',
     title: 'Tạo lớp mới',
     name: 'Tên lớp',
-    namePlaceholder: 'Ví dụ: JLPT N5 Reading',
+    namePlaceholder: 'Ví dụ: Luyện đọc JLPT N5',
     description: 'Mô tả',
     descriptionPlaceholder: 'Mục tiêu, lịch học hoặc ghi chú ngắn',
     submit: 'Tạo lớp',
@@ -1002,6 +1006,31 @@ overrides.vi.classrooms = {
     title: 'Chi tiết lớp',
     noDescription: 'Chưa có mô tả.',
     updated: 'Cập nhật',
+    updatedCard: 'Cập nhật lúc',
+    quickActions: 'Phím tắt nhanh',
+    roles: {
+      owner: 'Chủ lớp',
+      teacher: 'Giảng viên',
+      student: 'Học viên',
+    },
+    actions: {
+      questionSetsTitle: 'Bộ câu hỏi',
+      questionSetsDesc: 'Quản lý, tạo và biên soạn câu hỏi học tập.',
+      assignmentsTitle: 'Bài kiểm tra',
+      assignmentsDesc: 'Giao bài tập mới, theo dõi tiến độ làm bài.',
+      leaderboardTitle: 'Bảng xếp hạng lớp',
+      leaderboardDesc: 'Xem thành tích học tập và xếp hạng điểm của học viên.',
+      analyticsTitle: 'Thống kê lớp học',
+      analyticsDesc: 'Phân tích hiệu suất học tập và câu hỏi khó.',
+      membersTitle: 'Thành viên lớp',
+      membersDesc: 'Xem danh sách và quản lý thành viên đang tham gia lớp.',
+      assignedTasksTitle: 'Bài kiểm tra được giao',
+      assignedTasksDesc: 'Xem danh sách bài tập cần làm và thời hạn.',
+      myProgressTitle: 'Tiến độ của tôi',
+      myProgressDesc: 'Theo dõi điểm trung bình và thống kê cá nhân.',
+      attemptHistoryTitle: 'Lịch sử làm bài',
+      attemptHistoryDesc: 'Xem lại kết quả các bài kiểm tra đã làm.',
+    },
   },
   metrics: {
     members: 'Thành viên',
@@ -1102,6 +1131,31 @@ overrides.en.classrooms = {
     title: 'Classroom detail',
     noDescription: 'No description yet.',
     updated: 'Updated',
+    updatedCard: 'Updated at',
+    quickActions: 'Quick actions',
+    roles: {
+      owner: 'Class Owner',
+      teacher: 'Teacher',
+      student: 'Student',
+    },
+    actions: {
+      questionSetsTitle: 'Question Sets',
+      questionSetsDesc: 'Manage, create, and compile learning question sets.',
+      assignmentsTitle: 'Assignments',
+      assignmentsDesc: 'Assign new tests, track submission progress.',
+      leaderboardTitle: 'Class Leaderboard',
+      leaderboardDesc: 'View academic performance and score rankings of students.',
+      analyticsTitle: 'Classroom Analytics',
+      analyticsDesc: 'Analyze learning performance, completion rate, and difficult questions.',
+      membersTitle: 'Class Members',
+      membersDesc: 'View the list and manage members currently in the classroom.',
+      assignedTasksTitle: 'Assigned Tests',
+      assignedTasksDesc: 'View the list of tests to be taken and their deadlines.',
+      myProgressTitle: 'My Progress',
+      myProgressDesc: 'Track average score, completed assignments, and personal stats.',
+      attemptHistoryTitle: 'Attempt History',
+      attemptHistoryDesc: 'Review the results of tests taken in the past.',
+    },
   },
   metrics: {
     members: 'Members',
