@@ -32,6 +32,17 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
             ?? throw new InvalidOperationException("Question set was not found.");
         EnsureQuestionSetCanBackAssignment(questionSet, classroomWorkspaceId);
 
+        // Phase 4: validate and apply scoring config
+        var scoringMode = input.ScoringMode ?? ClassroomScoringMode.Percent;
+        var minWeight = input.MinQuestionWeight ?? 0.3m;
+        var maxWeight = input.MaxQuestionWeight ?? 2.0m;
+        var alpha = input.SmoothingAlpha ?? 1m;
+        var beta = input.SmoothingBeta ?? 1m;
+        if (scoringMode == ClassroomScoringMode.EmpiricalDifficulty)
+        {
+            ValidateScoringConfig(minWeight, maxWeight, alpha, beta);
+        }
+
         var now = DateTime.UtcNow;
         var assignment = new ClassroomAssignment
         {
@@ -48,6 +59,11 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
             ShuffleQuestions = input.ShuffleQuestions,
             ShuffleOptions = input.ShuffleOptions,
             ShowAnswerAfterSubmit = input.ShowAnswerAfterSubmit,
+            ScoringMode = scoringMode,
+            MinQuestionWeight = minWeight,
+            MaxQuestionWeight = maxWeight,
+            SmoothingAlpha = alpha,
+            SmoothingBeta = beta,
             CreatedByUserId = actorUserId,
             CreatedAt = now,
             UpdatedAt = now
@@ -118,6 +134,17 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
         var assignment = await LoadManagedAssignmentAsync(assignmentId, actorUserId, cancellationToken);
         ValidateAssignmentInput(input.Title, input.AttemptLimit, input.TimeLimitMinutes, input.StartAt, input.DueAt);
 
+        // Phase 4: apply scoring config if provided, otherwise keep existing
+        var minWeight = input.MinQuestionWeight ?? assignment.MinQuestionWeight;
+        var maxWeight = input.MaxQuestionWeight ?? assignment.MaxQuestionWeight;
+        var alpha = input.SmoothingAlpha ?? assignment.SmoothingAlpha;
+        var beta = input.SmoothingBeta ?? assignment.SmoothingBeta;
+        var scoringMode = input.ScoringMode ?? assignment.ScoringMode;
+        if (scoringMode == ClassroomScoringMode.EmpiricalDifficulty)
+        {
+            ValidateScoringConfig(minWeight, maxWeight, alpha, beta);
+        }
+
         assignment.Title = NormalizeRequired(input.Title, "Assignment title is required.");
         assignment.Description = NormalizeOptional(input.Description);
         assignment.Type = input.Type;
@@ -128,6 +155,11 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
         assignment.ShuffleQuestions = input.ShuffleQuestions;
         assignment.ShuffleOptions = input.ShuffleOptions;
         assignment.ShowAnswerAfterSubmit = input.ShowAnswerAfterSubmit;
+        assignment.ScoringMode = input.ScoringMode ?? assignment.ScoringMode;
+        assignment.MinQuestionWeight = minWeight;
+        assignment.MaxQuestionWeight = maxWeight;
+        assignment.SmoothingAlpha = alpha;
+        assignment.SmoothingBeta = beta;
         assignment.UpdatedAt = DateTime.UtcNow;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -168,6 +200,18 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
         CancellationToken cancellationToken = default)
     {
         var assignment = await LoadManagedAssignmentAsync(assignmentId, actorUserId, cancellationToken);
+
+        // Idempotency: if already closed, skip re-calculation
+        if (assignment.Status == ClassroomAssignmentStatus.Closed)
+        {
+            return assignment;
+        }
+
+        if (assignment.ScoringMode == ClassroomScoringMode.EmpiricalDifficulty)
+        {
+            await ApplyEmpiricalDifficultyScoringAsync(assignment, cancellationToken);
+        }
+
         assignment.Status = ClassroomAssignmentStatus.Closed;
         assignment.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -340,6 +384,133 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
             : null;
     }
 
+    public async Task<IReadOnlyList<ClassroomAssignmentQuestionStat>> GetAssignmentQuestionStatsAsync(
+        int assignmentId,
+        int actorUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var assignment = await LoadManagedAssignmentAsync(assignmentId, actorUserId, cancellationToken);
+        return await _dbContext.ClassroomAssignmentQuestionStats
+            .Where(stat => stat.ClassroomAssignmentId == assignment.Id)
+            .OrderBy(stat => stat.QuestionId)
+            .ToListAsync(cancellationToken);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Empirical Difficulty Scoring
+    // -----------------------------------------------------------------------
+
+    private async Task ApplyEmpiricalDifficultyScoringAsync(
+        ClassroomAssignment assignment,
+        CancellationToken cancellationToken)
+    {
+        // 1. Get all questions in the assignment's question set
+        var questionIds = assignment.QuestionSet?.Items
+            .Select(item => item.QuestionId)
+            .ToList() ?? new List<int>();
+
+        if (questionIds.Count == 0)
+        {
+            return;
+        }
+
+        // 2. Get all submitted attempts for this assignment with their answers
+        var submittedAttempts = await _dbContext.ClassroomAssignmentAttempts
+            .Include(a => a.Answers)
+            .Where(a => a.ClassroomAssignmentId == assignment.Id
+                        && a.Status == ClassroomAttemptStatus.Submitted)
+            .ToListAsync(cancellationToken);
+
+        var alpha = assignment.SmoothingAlpha;
+        var beta = assignment.SmoothingBeta;
+        var minWeight = assignment.MinQuestionWeight;
+        var maxWeight = assignment.MaxQuestionWeight;
+        var totalAttempts = submittedAttempts.Count;
+
+        // 3. Compute per-question stats
+        var statsMap = new Dictionary<int, (int answered, int correct)>();
+        foreach (var qId in questionIds)
+        {
+            statsMap[qId] = (0, 0);
+        }
+
+        foreach (var attempt in submittedAttempts)
+        {
+            foreach (var answer in attempt.Answers)
+            {
+                if (!statsMap.ContainsKey(answer.QuestionId))
+                {
+                    continue;
+                }
+
+                var (answered, correct) = statsMap[answer.QuestionId];
+                answered++;
+                if (answer.IsCorrect) correct++;
+                statsMap[answer.QuestionId] = (answered, correct);
+            }
+        }
+
+        // 4. Compute smoothed correct rate and difficulty weight for each question
+        var weightMap = new Dictionary<int, decimal>();
+        var now = DateTime.UtcNow;
+
+        foreach (var qId in questionIds)
+        {
+            var (answered, correct) = statsMap[qId];
+            var smoothedRate = (correct + alpha) / (answered + alpha + beta);
+            var diffWeight = minWeight + (1m - smoothedRate) * (maxWeight - minWeight);
+            weightMap[qId] = diffWeight;
+
+            // Quality flag / discrimination (MVP: InsufficientData if < 5 attempts)
+            string? qualityFlag = totalAttempts < 5 ? "InsufficientData" : null;
+            decimal? discriminationIndex = null;
+
+            // 5. Upsert ClassroomAssignmentQuestionStat (idempotent)
+            var existing = await _dbContext.ClassroomAssignmentQuestionStats
+                .FirstOrDefaultAsync(
+                    s => s.ClassroomAssignmentId == assignment.Id && s.QuestionId == qId,
+                    cancellationToken);
+
+            if (existing == null)
+            {
+                existing = new ClassroomAssignmentQuestionStat
+                {
+                    ClassroomAssignmentId = assignment.Id,
+                    QuestionId = qId
+                };
+                _dbContext.ClassroomAssignmentQuestionStats.Add(existing);
+            }
+
+            existing.AnsweredCount = answered;
+            existing.CorrectCount = correct;
+            existing.SmoothedCorrectRate = smoothedRate;
+            existing.DifficultyWeight = diffWeight;
+            existing.DiscriminationIndex = discriminationIndex;
+            existing.QualityFlag = qualityFlag;
+            existing.CalculatedAt = now;
+        }
+
+        // 6. Calculate totalMaxScore using the computed weights
+        var totalMaxScore = questionIds.Sum(qId => weightMap[qId]);
+
+        // 7. Recalculate RawScore and PercentScore for every submitted attempt
+        foreach (var attempt in submittedAttempts)
+        {
+            var rawScore = attempt.Answers
+                .Where(a => a.IsCorrect && weightMap.ContainsKey(a.QuestionId))
+                .Sum(a => weightMap[a.QuestionId]);
+
+            attempt.RawScore = rawScore;
+            attempt.PercentScore = totalMaxScore <= 0
+                ? 0
+                : Math.Round(rawScore / totalMaxScore * 100m, 2, MidpointRounding.AwayFromZero);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Private helpers
+    // -----------------------------------------------------------------------
+
     private async Task<ClassroomAssignment> LoadManagedAssignmentAsync(
         int assignmentId,
         int actorUserId,
@@ -486,6 +657,11 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
     {
         var assignment = attempt.Assignment ?? throw new InvalidOperationException("Assignment was not found.");
         var now = DateTime.UtcNow;
+        if (assignment.Status == ClassroomAssignmentStatus.Closed)
+        {
+            throw new InvalidOperationException("Assignment has been closed.");
+        }
+
         if (assignment.DueAt.HasValue && assignment.DueAt.Value <= now)
         {
             attempt.Status = ClassroomAttemptStatus.Expired;
@@ -531,6 +707,33 @@ public sealed class ClassroomAssignmentService : IClassroomAssignmentService
         if (startAt.HasValue && dueAt.HasValue && dueAt.Value <= startAt.Value)
         {
             throw new InvalidOperationException("Due date must be after start date.");
+        }
+    }
+
+    private static void ValidateScoringConfig(
+        decimal minWeight,
+        decimal maxWeight,
+        decimal alpha,
+        decimal beta)
+    {
+        if (minWeight <= 0)
+        {
+            throw new InvalidOperationException("MinQuestionWeight must be greater than zero.");
+        }
+
+        if (maxWeight <= minWeight)
+        {
+            throw new InvalidOperationException("MaxQuestionWeight must be greater than MinQuestionWeight.");
+        }
+
+        if (alpha < 0 || beta < 0)
+        {
+            throw new InvalidOperationException("SmoothingAlpha and SmoothingBeta must be non-negative.");
+        }
+
+        if (alpha + beta <= 0)
+        {
+            throw new InvalidOperationException("SmoothingAlpha + SmoothingBeta must be greater than zero.");
         }
     }
 
