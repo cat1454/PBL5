@@ -80,10 +80,10 @@ public class LearningHardeningTests
                 CorrectCount = 2,
                 WrongCount = 0,
                 MemoryScore = 95,
-                MasteryScore = 78,
-                Level = LearningLevel.Good,
-                LastReviewedAt = now.AddDays(-4),
-                UpdatedAt = now.AddDays(-4)
+                MasteryScore = 85,
+                Level = LearningLevel.Learning,
+                LastReviewedAt = now.AddHours(-50),
+                UpdatedAt = now.AddHours(-50)
             });
         await context.SaveChangesAsync();
         var service = new LearningProgressService(context);

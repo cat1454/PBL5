@@ -10,6 +10,7 @@ import QuizGame from '../components/QuizGame';
 import StreakGame from '../components/StreakGame';
 import StudyHub from '../components/StudyHub';
 import AdminRoute from '../components/auth/AdminRoute';
+import AuthoringRoute from '../components/auth/AuthoringRoute';
 import {
   ClassroomAssignmentAttemptPage,
   ClassroomAssignmentResultPage,
@@ -111,7 +112,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'workspaces',
     path: '/workspaces',
-    element: <FolderProjects />,
+    element: <AuthoringRoute><FolderProjects /></AuthoringRoute>,
     titleKey: 'app.pageTitle.workspaces',
     frame: 'standard',
     surface: 'workspace',
@@ -119,7 +120,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'workspaceStudio',
     path: '/workspaces/:workspaceId',
-    element: <FolderStudio />,
+    element: <AuthoringRoute><FolderStudio /></AuthoringRoute>,
     titleKey: 'app.pageTitle.workspaceStudio',
     frame: 'studio',
     surface: 'workspace',
@@ -320,7 +321,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'study',
     path: '/study/:documentId',
-    element: <StudyHub />,
+    element: <AuthoringRoute><StudyHub /></AuthoringRoute>,
     titleKey: 'app.pageTitle.studyHub',
     frame: 'studio',
     surface: 'study',
@@ -329,7 +330,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'studyMode',
     path: '/study/:documentId/:mode',
-    element: <StudyHub />,
+    element: <AuthoringRoute><StudyHub /></AuthoringRoute>,
     titleKey: 'app.pageTitle.studyHub',
     frame: 'studio',
     surface: 'study',
@@ -338,7 +339,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'questionStudio',
     path: '/question-studio/:documentId',
-    element: <QuestionStudioPage />,
+    element: <AuthoringRoute><QuestionStudioPage /></AuthoringRoute>,
     titleKey: 'app.pageTitle.questionStudio',
     frame: 'studio',
     surface: 'question-studio',
@@ -347,7 +348,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'quiz',
     path: '/quiz/:documentId',
-    element: <QuizGame />,
+    element: <AuthoringRoute><QuizGame /></AuthoringRoute>,
     titleKey: 'app.pageTitle.quiz',
     frame: 'standard',
     surface: 'study',
@@ -355,7 +356,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'flashcards',
     path: '/flashcards/:documentId',
-    element: <FlashcardGame />,
+    element: <AuthoringRoute><FlashcardGame /></AuthoringRoute>,
     titleKey: 'app.pageTitle.flashcards',
     frame: 'standard',
     surface: 'study',
@@ -363,7 +364,7 @@ export const PROTECTED_ROUTES = [
   {
     id: 'streak',
     path: '/streak/:documentId',
-    element: <StreakGame />,
+    element: <AuthoringRoute><StreakGame /></AuthoringRoute>,
     titleKey: 'app.pageTitle.streak',
     frame: 'standard',
     surface: 'study',

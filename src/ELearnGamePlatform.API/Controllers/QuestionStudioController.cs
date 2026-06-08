@@ -6,12 +6,14 @@ using ELearnGamePlatform.API.Services.QuestionStudio;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ELearnGamePlatform.API.Filters;
 
 namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/question-studio")]
 [Authorize]
+[AuthoringRouteGuard]
 public class QuestionStudioController : AuthenticatedControllerBase
 {
     private static readonly HashSet<string> AllowedModes = new(StringComparer.OrdinalIgnoreCase)

@@ -9,6 +9,7 @@ using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using ELearnGamePlatform.API.Filters;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -63,6 +64,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpPost("generate/start")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> StartGenerateSlides([FromBody] GenerateSlidesRequest request)
     {
         if (!IsValidSlideCount(request.DesiredSlideCount))
@@ -133,6 +135,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("generate/progress/{jobId}")]
+    [AuthoringRouteGuard]
     public IActionResult GetGenerateProgress(string jobId)
     {
         if (!_jobStore.TryGetJob(jobId, out var state) || state == null)
@@ -150,18 +153,22 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpPost("generate/{jobId}/pause")]
+    [AuthoringRouteGuard]
     public IActionResult PauseGenerateSlides(string jobId)
         => ChangeSlideJobState(jobId, _jobStore.PauseJob, "job_not_pausable", "Slide generation cannot be paused in its current state.");
 
     [HttpPost("generate/{jobId}/resume")]
+    [AuthoringRouteGuard]
     public IActionResult ResumeGenerateSlides(string jobId)
         => ChangeSlideJobState(jobId, _jobStore.ResumeJob, "job_not_resumable", "Slide generation cannot be resumed in its current state.");
 
     [HttpPost("generate/{jobId}/cancel")]
+    [AuthoringRouteGuard]
     public IActionResult CancelGenerateSlides(string jobId)
         => ChangeSlideJobState(jobId, _jobStore.CancelJob, "job_not_cancellable", "Slide generation cannot be cancelled in its current state.");
 
     [HttpDelete("{deckId:int}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> DeleteDeck(int deckId)
     {
         var deck = await _slideDeckRepository.GetByIdAsync(deckId);
@@ -190,6 +197,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("document/{documentId}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetDeckByDocument(int documentId)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
@@ -222,6 +230,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("document/{documentId}/html")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetDeckHtml(int documentId)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
@@ -254,6 +263,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("{deckId:int}/export/html")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> ExportDeckHtml(int deckId)
     {
         try
@@ -276,6 +286,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("{deckId:int}/export/print")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> ExportDeckPrintView(int deckId)
     {
         try
@@ -297,6 +308,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("{deckId:int}/export/pptx")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> ExportDeckPptx(int deckId)
     {
         try
@@ -321,6 +333,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpPut("{deckId}/items/{itemId}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> UpdateSlideItem(int deckId, int itemId, [FromBody] UpdateSlideItemRequest request)
     {
         var deckAccess = await EnsureDeckAccessAsync(deckId);
@@ -375,6 +388,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpPost("{deckId}/items/{itemId}/images/refresh")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> RefreshSlideItemImages(int deckId, int itemId)
     {
         var deckAccess = await EnsureDeckAccessAsync(deckId);
@@ -400,6 +414,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("folders/{folderId}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetDeckByFolder(int folderId)
     {
         var folder = await GetFolderAsync(folderId);
@@ -433,6 +448,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpGet("folders/{folderId}/html")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetFolderDeckHtml(int folderId)
     {
         var folder = await GetFolderAsync(folderId);
@@ -465,6 +481,7 @@ public class SlidesController : AuthenticatedControllerBase
     }
 
     [HttpPost("{deckId}/items/{itemId}/images/select")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> SelectSlideItemImage(int deckId, int itemId, [FromBody] SelectSlideImageRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.CandidateKey))

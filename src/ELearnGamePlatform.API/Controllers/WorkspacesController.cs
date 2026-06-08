@@ -4,12 +4,14 @@ using ELearnGamePlatform.Core.Entities;
 using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ELearnGamePlatform.API.Filters;
 
 namespace ELearnGamePlatform.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[AuthoringRouteGuard]
 public class WorkspacesController : AuthenticatedControllerBase
 {
     private readonly IFolderProjectRepository _folderProjectRepository;

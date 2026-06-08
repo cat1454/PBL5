@@ -498,6 +498,14 @@ export async function getStudentClassroomAnalytics(classroomId) {
   return response.data;
 }
 
+export async function createClassroomQuestionSetPlaySession(classroomId, questionSetId, gameType, questionCount) {
+  const response = await apiClient.post(`/classroom-workspaces/${classroomId}/question-sets/${questionSetId}/play/session`, {
+    gameType,
+    questionCount,
+  });
+  return response.data;
+}
+
 export const classroomService = {
   createClassroomWorkspace,
   getTeachingClassrooms,
@@ -537,6 +545,7 @@ export const classroomService = {
   getClassroomLeaderboard,
   getClassroomAnalytics,
   getStudentClassroomAnalytics,
+  createClassroomQuestionSetPlaySession,
 };
 
 export const questionService = {

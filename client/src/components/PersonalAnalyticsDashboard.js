@@ -200,17 +200,19 @@ function PersonalAnalyticsDashboard() {
               <h3><LuSparkles aria-hidden="true" /> {t('analyticsDashboard.insight.title')}</h3>
             </div>
           </div>
-          <div className="analytics-checklist">
-            {vm.checklist.map((item) => (
-              <article key={item.key} className={`analytics-checklist-item state-${item.state}`}>
-                <span aria-hidden="true">{getChecklistIcon(item.state)}</span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <small>{item.statusLabel}</small>
-                </div>
-              </article>
-            ))}
-          </div>
+          {vm.checklist.length > 0 && (
+            <div className="analytics-checklist">
+              {vm.checklist.map((item) => (
+                <article key={item.key} className={`analytics-checklist-item state-${item.state}`}>
+                  <span aria-hidden="true">{getChecklistIcon(item.state)}</span>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <small>{item.statusLabel}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
           <p className="analytics-coach-note">{vm.copy.insight}</p>
           <div className="analytics-action-row">
             {vm.actions.map((action) => (
@@ -241,7 +243,7 @@ function PersonalAnalyticsDashboard() {
             body={t('analyticsDashboard.activity.emptyBody')}
             action={(
               <Button onClick={() => openAction(vm.workspaceAction)}>
-                {t('analyticsDashboard.actions.openWorkspaces')}
+                {vm.workspaceAction.label}
               </Button>
             )}
           />
@@ -400,8 +402,10 @@ function buildAnalyticsViewModel(user, summary, language, t) {
   const strongestSkill = skills.reduce((strongest, skill) => (skill.value > strongest.value ? skill : strongest), skills[0]);
   const heatmap = buildHeatmapCalendar(summary?.heatmap, language, t);
   const levelProgress = Math.min(98, Math.max(8, Math.round((readiness + streak + completedCount * 8 + readyCount * 10) / 3)));
-  const workspaceAction = { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
-  const heatmapCta = getHeatmapAction(workspace, t, { sourceCount, readyCount, readyDocumentId, fallbackDocumentId });
+  const workspaceAction = role === 'LEARNER'
+    ? { to: '/classrooms/joined', label: t('analyticsDashboard.actions.joinedClassrooms') || 'Xem danh sách lớp' }
+    : { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openWorkspaces') };
+  const heatmapCta = getHeatmapAction(role, workspace, t, { sourceCount, readyCount, readyDocumentId, fallbackDocumentId });
   const actions = getRoleActions(role, workspace, primaryDocumentId, t, { hasLearningData, completedCount, readyCount, deckReady, latestSource });
   const activities = buildActivities(summary?.activity || [], sources, language, t);
   const currentStreak = heatmap.currentStreak;
@@ -495,7 +499,7 @@ function buildAnalyticsViewModel(user, summary, language, t) {
       },
     ],
     skills,
-    checklist: buildInsightChecklist({
+    checklist: role === 'LEARNER' ? [] : buildInsightChecklist({
       sourceCount,
       completedCount,
       readyCount,
@@ -509,7 +513,10 @@ function buildAnalyticsViewModel(user, summary, language, t) {
   };
 }
 
-function getHeatmapAction(workspace, t, state) {
+function getHeatmapAction(role, workspace, t, state) {
+  if (role === 'LEARNER') {
+    return { to: '/classrooms/joined', label: t('analyticsDashboard.actions.joinedClassrooms') || 'Xem danh sách lớp' };
+  }
   const workspacePath = workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces';
 
   if (state.readyCount > 0 && state.readyDocumentId) {
@@ -535,6 +542,10 @@ function getPrimaryAction(role, workspace, latestSource, t) {
     return { to: workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces', label: t('analyticsDashboard.actions.openStudio') };
   }
 
+  if (role === 'LEARNER') {
+    return { to: '/classrooms/joined', label: t('analyticsDashboard.actions.joinedClassrooms') || 'Xem danh sách lớp' };
+  }
+
   const documentId = latestSource?.documentId ?? latestSource?.DocumentId ?? latestSource?.id;
   if (isStudyReadySource(latestSource) && documentId) {
     return { to: `/quiz/${documentId}`, label: t('analyticsDashboard.actions.continueLearning') };
@@ -546,6 +557,12 @@ function getPrimaryAction(role, workspace, latestSource, t) {
 function getRoleActions(role, workspace, documentId, t, state = {}) {
   const studioPath = workspace?.id ? `/workspaces/${workspace.id}` : '/workspaces';
   const actions = [];
+
+  if (role === 'LEARNER') {
+    actions.push({ to: '/classrooms/joined', label: t('analyticsDashboard.actions.joinedClassrooms') || 'Xem danh sách lớp' });
+    actions.push({ to: '/classroom-attempts/history', label: t('analyticsDashboard.actions.attemptHistory') || 'Lịch sử làm bài', secondary: true });
+    return actions.slice(0, 3);
+  }
 
   if (!state.hasLearningData) {
     actions.push({ to: studioPath, label: t('analyticsDashboard.actions.openWorkspaces') });

@@ -65,6 +65,7 @@ public class DashboardHomePayloadTests
         });
         var source = CreateDocument(20, DocumentStatus.Completed);
         source.UpdatedAt = now.AddMinutes(-10);
+        workspace.Documents.Add(source);
 
         var payload = await service.BuildDashboardHomePayloadAsync(workspace, new[] { source });
 

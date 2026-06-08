@@ -142,9 +142,12 @@ public class LearningProgressService : ILearningProgressService
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var sessionLockKey = $"learning-test:{userId}:{testSessionId}";
-        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtext({sessionLockKey})::bigint);",
-            cancellationToken);
+        if (_dbContext.Database.IsRelational())
+        {
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({sessionLockKey})::bigint);",
+                cancellationToken);
+        }
 
         var testResult = await _dbContext.LearningTestResults
             .FirstOrDefaultAsync(
@@ -523,9 +526,12 @@ public class LearningProgressService : ILearningProgressService
         CancellationToken cancellationToken)
     {
         var lockKey = $"{userId}:{documentId}:{questionId}";
-        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtext({lockKey})::bigint);",
-            cancellationToken);
+        if (_dbContext.Database.IsRelational())
+        {
+            await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({lockKey})::bigint);",
+                cancellationToken);
+        }
 
         var progress = await _dbContext.LearningProgresses
             .FirstOrDefaultAsync(
