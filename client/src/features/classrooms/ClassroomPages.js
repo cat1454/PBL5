@@ -28,7 +28,22 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import './classrooms.css';
 
-const ROLE_TEACHER = 'Giảng viên';
+const normalizeRole = (value) => String(value || "").trim().toLowerCase();
+
+const isClassroomTeacherRole = (role) => {
+  const normalized = normalizeRole(role);
+  return normalized === "teacher" || normalized === "owner";
+};
+
+const isSystemAdmin = (user) => {
+  const role = normalizeRole(user?.role);
+  return role === "admin" || role === "administrator";
+};
+
+const sameId = (a, b) => {
+  if (a === null || a === undefined || b === null || b === undefined) return false;
+  return String(a) === String(b);
+};
 
 function getClassroomId(classroom) {
   return classroom?.id || classroom?.classroomWorkspaceId;
@@ -401,6 +416,7 @@ export function JoinClassroomPage() {
 export function ClassroomDetailPage({ membersOnly = false }) {
   const { classroomId } = useParams();
   const { t } = useLanguage();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -411,7 +427,9 @@ export function ClassroomDetailPage({ membersOnly = false }) {
   const [creatingCode, setCreatingCode] = useState(false);
   const [disablingCodeId, setDisablingCodeId] = useState(null);
 
-  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -499,6 +517,28 @@ export function ClassroomDetailPage({ membersOnly = false }) {
     }
   };
 
+  const getRoleBadge = () => {
+    if (sameId(classroom?.ownerUserId, currentUser?.id)) {
+      return (
+        <span className="classroom-role-badge owner">
+          {getText(t, 'classrooms.detail.roles.owner', 'Chủ lớp')}
+        </span>
+      );
+    }
+    if (isClassroomTeacherRole(classroom?.currentUserRole)) {
+      return (
+        <span className="classroom-role-badge teacher">
+          {getText(t, 'classrooms.detail.roles.teacher', 'Giảng viên')}
+        </span>
+      );
+    }
+    return (
+      <span className="classroom-role-badge student">
+        {getText(t, 'classrooms.detail.roles.student', 'Học viên')}
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <ClassroomShell title={getText(t, 'classrooms.detail.title', 'Chi tiết lớp')} subtitle="">
@@ -520,70 +560,129 @@ export function ClassroomDetailPage({ membersOnly = false }) {
   }
 
   return (
-    <ClassroomShell title={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiết lớp')} subtitle={classroom?.description || getText(t, 'classrooms.detail.noDescription', 'Chưa có mô tả.')}>
+    <ClassroomShell
+      title={classroom?.name || getText(t, 'classrooms.detail.title', 'Chi tiết lớp')}
+      subtitle={classroom?.description || getText(t, 'classrooms.detail.noDescription', 'Chưa có mô tả.')}
+      roleBadge={classroom ? getRoleBadge() : null}
+    >
       <MessageBar error={error} success={success} />
 
       <section className="classroom-detail-grid">
-        <article className="classroom-panel classroom-summary">
-          <span className="classroom-kicker">{classroom?.currentUserRole || '-'}</span>
-          <h2>{classroom?.name}</h2>
-          <div className="classroom-metrics">
-            <Metric label={getText(t, 'classrooms.metrics.members', 'Thành viên')} value={classroom?.memberCount || 0} />
-            <Metric label={getText(t, 'classrooms.metrics.teachers', 'Giảng viên')} value={classroom?.teacherCount || 0} />
-            <Metric label={getText(t, 'classrooms.metrics.students', 'Học viên')} value={classroom?.studentCount || 0} />
-          </div>
-          <p className="classroom-muted">
-            {getText(t, 'classrooms.detail.updated', 'Cập nhật')}: {formatDateTime(classroom?.updatedAt)}
-          </p>
-          <Link className="classroom-button primary classroom-inline-action" to={`/classrooms/${classroomId}/question-sets`}>
-            <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.questionSets.open', 'Bộ câu hỏi')}
-          </Link>
-          <Link className="classroom-button classroom-inline-action" to={isTeacher ? `/classrooms/${classroomId}/assignments` : `/classrooms/${classroomId}/student/assignments`}>
-            <LuClipboard aria-hidden="true" />
-            {getText(t, 'classrooms.assignments.open', 'Bài kiểm tra')}
-          </Link>
-          <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/leaderboard`}>
-            <LuListChecks aria-hidden="true" />
-            {getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp học')}
-          </Link>
-          {isTeacher ? (
-            <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/analytics`}>
-              <LuChartBar aria-hidden="true" />
-              {getText(t, 'classrooms.analytics.openAnalytics', 'Analytics')}
-            </Link>
-          ) : (
-            <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/student/analytics`}>
-              <LuChartBar aria-hidden="true" />
-              {getText(t, 'classrooms.analytics.openMyProgress', 'Tiến độ của tôi')}
-            </Link>
-          )}
-        </article>
-
-        {isTeacher && (
-          <article className="classroom-panel classroom-code-panel">
-            <div className="classroom-section-head">
-              <div>
-                <span className="classroom-kicker">{getText(t, 'classrooms.codes.kicker', 'Join code')}</span>
-                <h2>{getText(t, 'classrooms.codes.title', 'Mời học viên')}</h2>
-              </div>
-              <button className="classroom-button primary" type="button" onClick={handleCreateCode} disabled={creatingCode}>
-                <LuPlus aria-hidden="true" />
-                {creatingCode ? getText(t, 'classrooms.codes.creating', 'Đang tạo...') : getText(t, 'classrooms.codes.create', 'Tao code')}
-              </button>
+        <div className="classroom-detail-main">
+          {/* Metrics grid */}
+          <div className="classroom-detail-metrics-grid">
+            <div className="metric-card">
+              <div className="metric-label">{getText(t, 'classrooms.metrics.members', 'Tổng thành viên')}</div>
+              <div className="metric-value">{classroom?.memberCount || 0}</div>
             </div>
-            <JoinCodeList
-              codes={Array.isArray(classroom?.joinCodes) ? classroom.joinCodes : []}
-              disablingCodeId={disablingCodeId}
-              onCopy={handleCopyCode}
-              onDisable={handleDisableCode}
-              t={t}
-            />
-          </article>
-        )}
+            <div className="metric-card">
+              <div className="metric-label">{getText(t, 'classrooms.metrics.teachers', 'Giảng viên')}</div>
+              <div className="metric-value">{classroom?.teacherCount || 0}</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-label">{getText(t, 'classrooms.metrics.students', 'Học viên')}</div>
+              <div className="metric-value">{classroom?.studentCount || 0}</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-label">{getText(t, 'classrooms.detail.updatedCard', 'Cập nhật lúc')}</div>
+              <div className="metric-value date-value">{formatDateTime(classroom?.updatedAt)}</div>
+            </div>
+          </div>
+
+          {/* Quick Actions Grid */}
+          <h2 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: 800 }}>
+            {getText(t, 'classrooms.detail.quickActions', 'Phím tắt nhanh')}
+          </h2>
+          <div className="classroom-actions-grid">
+            {isTeacher ? (
+              <>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/question-sets`}>
+                  <div className="classroom-action-card-icon"><LuListChecks aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.questionSetsTitle', 'Bộ câu hỏi')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.questionSetsDesc', 'Quản lý, tạo và biên soạn câu hỏi học tập.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/assignments`}>
+                  <div className="classroom-action-card-icon"><LuClipboard aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.assignmentsTitle', 'Bài kiểm tra')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.assignmentsDesc', 'Giao bài tập mới, theo dõi tiến độ làm bài.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/leaderboard`}>
+                  <div className="classroom-action-card-icon"><LuArrowUp aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.leaderboardTitle', 'Bảng xếp hạng lớp')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.leaderboardDesc', 'Xem thành tích học tập và xếp hạng điểm của học viên.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/analytics`}>
+                  <div className="classroom-action-card-icon"><LuChartBar aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.analyticsTitle', 'Thống kê lớp học')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.analyticsDesc', 'Phân tích hiệu suất học tập và câu hỏi khó.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/members`}>
+                  <div className="classroom-action-card-icon"><LuGraduationCap aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.membersTitle', 'Thành viên lớp')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.membersDesc', 'Xem danh sách và quản lý thành viên đang tham gia lớp.')}</p>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/student/assignments`}>
+                  <div className="classroom-action-card-icon"><LuClipboard aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.assignedTasksTitle', 'Bài kiểm tra được giao')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.assignedTasksDesc', 'Xem danh sách bài tập cần làm và thời hạn.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/leaderboard`}>
+                  <div className="classroom-action-card-icon"><LuArrowUp aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.leaderboardTitle', 'Bảng xếp hạng lớp')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.leaderboardDesc', 'Xem thành tích học tập và xếp hạng điểm của bạn.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to={`/classrooms/${classroomId}/student/analytics`}>
+                  <div className="classroom-action-card-icon"><LuChartBar aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.myProgressTitle', 'Tiến độ của tôi')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.myProgressDesc', 'Theo dõi điểm trung bình và thống kê cá nhân.')}</p>
+                </Link>
+                <Link className="classroom-action-card" to="/classroom-attempts/history">
+                  <div className="classroom-action-card-icon"><LuListChecks aria-hidden="true" /></div>
+                  <h3>{getText(t, 'classrooms.detail.actions.attemptHistoryTitle', 'Lịch sử làm bài')}</h3>
+                  <p>{getText(t, 'classrooms.detail.actions.attemptHistoryDesc', 'Xem lại kết quả các bài kiểm tra đã làm.')}</p>
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="classroom-detail-sidebar">
+          {isTeacher ? (
+            <article className="classroom-panel classroom-code-panel">
+              <div className="classroom-section-head">
+                <div>
+                  <span className="classroom-kicker">{getText(t, 'classrooms.codes.kicker', 'Join code')}</span>
+                  <h2>{getText(t, 'classrooms.codes.title', 'Mời học viên')}</h2>
+                </div>
+                <button className="classroom-button primary" type="button" onClick={handleCreateCode} disabled={creatingCode}>
+                  <LuPlus aria-hidden="true" />
+                  {creatingCode ? getText(t, 'classrooms.codes.creating', 'Đang tạo...') : getText(t, 'classrooms.codes.create', 'Tạo code')}
+                </button>
+              </div>
+              <JoinCodeList
+                codes={Array.isArray(classroom?.joinCodes) ? classroom.joinCodes : []}
+                disablingCodeId={disablingCodeId}
+                onCopy={handleCopyCode}
+                onDisable={handleDisableCode}
+                t={t}
+              />
+            </article>
+          ) : (
+            <section className="classroom-panel classroom-student-note">
+              <LuGraduationCap aria-hidden="true" style={{ fontSize: '24px', flexShrink: 0, color: '#0f766e' }} />
+              <div>
+                <h2>{getText(t, 'classrooms.student.title', 'Bạn đang là học viên')}</h2>
+                <p>{getText(t, 'classrooms.student.body', 'Trang lớp học của học viên chỉ hiển thị thông tin lớp. Các luồng xử lý tài liệu vẫn nằm trong không gian làm việc cá nhân riêng của bạn.')}</p>
+              </div>
+            </section>
+          )}
+        </div>
       </section>
 
-      {isTeacher || membersOnly ? (
+      {(isTeacher || membersOnly) && (
         <MembersPanel
           error={membersError}
           loading={membersLoading}
@@ -591,14 +690,6 @@ export function ClassroomDetailPage({ membersOnly = false }) {
           onRetry={loadMembers}
           t={t}
         />
-      ) : (
-        <section className="classroom-panel classroom-student-note">
-          <LuGraduationCap aria-hidden="true" />
-          <div>
-            <h2>{getText(t, 'classrooms.student.title', 'Bạn đang là học viên')}</h2>
-            <p>{getText(t, 'classrooms.student.body', 'Trang lớp học của học viên chỉ hiển thị thông tin lớp. Các luồng xử lý tài liệu vẫn nằm trong không gian làm việc cá nhân riêng của bạn.')}</p>
-          </div>
-        </section>
       )}
     </ClassroomShell>
   );
@@ -607,6 +698,7 @@ export function ClassroomDetailPage({ membersOnly = false }) {
 export function ClassroomQuestionSetsPage() {
   const { classroomId } = useParams();
   const { t } = useLanguage();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [questionSets, setQuestionSets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -614,7 +706,9 @@ export function ClassroomQuestionSetsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState({ title: '', description: '', documentId: '' });
-  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const loadPage = useCallback(async () => {
     setLoading(true);
@@ -730,6 +824,7 @@ export function ClassroomQuestionSetDetailPage() {
   const { classroomId, questionSetId } = useParams();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [questionSet, setQuestionSet] = useState(null);
   const [availableQuestions, setAvailableQuestions] = useState([]);
@@ -741,7 +836,9 @@ export function ClassroomQuestionSetDetailPage() {
   const [editForm, setEditForm] = useState({ title: '', description: '', documentId: '' });
   const [sourceDocumentId, setSourceDocumentId] = useState('');
   const [itemForm, setItemForm] = useState({ questionId: '', pointWeight: '1', sectionCode: '' });
-  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const syncEditForm = (data) => {
     setEditForm({
@@ -761,7 +858,10 @@ export function ClassroomQuestionSetDetailPage() {
       setClassroom(classroomData);
 
       let questionSetData;
-      if (classroomData?.currentUserRole === ROLE_TEACHER) {
+      const isTeacherRole = isClassroomTeacherRole(classroomData?.currentUserRole) ||
+                            sameId(classroomData?.ownerUserId, currentUser?.id) ||
+                            isSystemAdmin(currentUser);
+      if (isTeacherRole) {
         questionSetData = await classroomService.getClassroomQuestionSetDetail(questionSetId);
       } else {
         const visibleQuestionSets = await classroomService.getClassroomQuestionSets(classroomId);
@@ -786,7 +886,7 @@ export function ClassroomQuestionSetDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [classroomId, questionSetId, t]);
+  }, [classroomId, questionSetId, t, currentUser]);
 
   useEffect(() => {
     loadDetail();
@@ -1105,6 +1205,7 @@ export function ClassroomQuestionSetDetailPage() {
 export function ClassroomAssignmentsPage() {
   const { classroomId } = useParams();
   const { t } = useLanguage();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [questionSets, setQuestionSets] = useState([]);
@@ -1114,7 +1215,9 @@ export function ClassroomAssignmentsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const loadPage = useCallback(async () => {
     setLoading(true);
@@ -1123,7 +1226,10 @@ export function ClassroomAssignmentsPage() {
     try {
       const classroomData = await classroomService.getClassroomDetail(classroomId);
       setClassroom(classroomData);
-      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+      const isTeacherRole = isClassroomTeacherRole(classroomData?.currentUserRole) ||
+                            sameId(classroomData?.ownerUserId, currentUser?.id) ||
+                            isSystemAdmin(currentUser);
+      if (!isTeacherRole) {
         setAssignments([]);
         setQuestionSets([]);
         return;
@@ -1140,7 +1246,7 @@ export function ClassroomAssignmentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [classroomId, t]);
+  }, [classroomId, t, currentUser]);
 
   useEffect(() => {
     loadPage();
@@ -1231,6 +1337,7 @@ export function ClassroomAssignmentDetailPage() {
   const { classroomId, assignmentId } = useParams();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [assignment, setAssignment] = useState(null);
   const [questionSets, setQuestionSets] = useState([]);
@@ -1241,7 +1348,9 @@ export function ClassroomAssignmentDetailPage() {
   const [success, setSuccess] = useState('');
   const [questionStats, setQuestionStats] = useState([]);
 
-  const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const syncForm = (data) => {
     setForm({
@@ -1271,7 +1380,10 @@ export function ClassroomAssignmentDetailPage() {
     try {
       const classroomData = await classroomService.getClassroomDetail(classroomId);
       setClassroom(classroomData);
-      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+      const isTeacherRole = isClassroomTeacherRole(classroomData?.currentUserRole) ||
+                            sameId(classroomData?.ownerUserId, currentUser?.id) ||
+                            isSystemAdmin(currentUser);
+      if (!isTeacherRole) {
         setAssignment(null);
         return;
       }
@@ -1299,7 +1411,7 @@ export function ClassroomAssignmentDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [assignmentId, classroomId, t]);
+  }, [assignmentId, classroomId, t, currentUser]);
 
   useEffect(() => {
     loadDetail();
@@ -1582,11 +1694,16 @@ export function ClassroomAssignmentDetailPage() {
 export function ClassroomAssignmentTeacherAttemptsPage() {
   const { classroomId, assignmentId } = useParams();
   const { t } = useLanguage();
+  const { currentUser } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [assignment, setAssignment] = useState(null);
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole) ||
+                    sameId(classroom?.ownerUserId, currentUser?.id) ||
+                    isSystemAdmin(currentUser);
 
   const loadPage = useCallback(async () => {
     setLoading(true);
@@ -1595,7 +1712,10 @@ export function ClassroomAssignmentTeacherAttemptsPage() {
     try {
       const classroomData = await classroomService.getClassroomDetail(classroomId);
       setClassroom(classroomData);
-      if (classroomData?.currentUserRole !== ROLE_TEACHER) {
+      const isTeacherRole = isClassroomTeacherRole(classroomData?.currentUserRole) ||
+                            sameId(classroomData?.ownerUserId, currentUser?.id) ||
+                            isSystemAdmin(currentUser);
+      if (!isTeacherRole) {
         setAttempts([]);
         return;
       }
@@ -1611,7 +1731,7 @@ export function ClassroomAssignmentTeacherAttemptsPage() {
     } finally {
       setLoading(false);
     }
-  }, [assignmentId, classroomId, t]);
+  }, [assignmentId, classroomId, t, currentUser]);
 
   useEffect(() => {
     loadPage();
@@ -1625,7 +1745,7 @@ export function ClassroomAssignmentTeacherAttemptsPage() {
     );
   }
 
-  if (classroom?.currentUserRole !== ROLE_TEACHER) {
+  if (!isTeacher) {
     return (
       <ClassroomShell title={getText(t, 'classrooms.assignments.attemptsTitle', 'Lượt làm')} subtitle={classroom?.name || ''}>
         <MessageBar error={getText(t, 'classrooms.assignments.errors.teacherOnly', 'Chỉ giảng viên của lớp mới xem lượt làm bài.')} />
@@ -2213,15 +2333,20 @@ export function ClassroomAssignmentHistoryPage() {
   );
 }
 
-function ClassroomShell({ children, subtitle, title }) {
+function ClassroomShell({ children, subtitle, title, roleBadge }) {
   const { t } = useLanguage();
   return (
     <main className="classroom-page">
       <header className="classroom-hero">
-        <div>
-          <span className="classroom-kicker">{getText(t, 'classrooms.detail.kicker', 'Lớp học')}</span>
-          <h1>{title}</h1>
-          {subtitle && <p>{subtitle}</p>}
+        <div className="classroom-hero-content">
+          <div className="classroom-hero-main">
+            <span className="classroom-kicker">{getText(t, 'classrooms.detail.kicker', 'Lớp học')}</span>
+            <div className="classroom-title-row" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <h1 style={{ margin: 0 }}>{title}</h1>
+              {roleBadge && <div className="classroom-role-badge-wrapper">{roleBadge}</div>}
+            </div>
+            {subtitle && <p style={{ margin: '8px 0 0' }}>{subtitle}</p>}
+          </div>
         </div>
       </header>
       {children}
@@ -3665,8 +3790,8 @@ export function StudentClassroomAnalyticsPage() {
     >
 
       <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
-        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
-          <LuClipboard aria-hidden="true" />
+        <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
+          <LuSchool aria-hidden="true" />
           {getText(t, 'classrooms.analytics.student.backToClassroom', 'Về lớp học')}
         </Link>
         <button className="classroom-button" type="button" onClick={loadAnalytics}>
