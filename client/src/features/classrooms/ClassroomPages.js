@@ -99,7 +99,41 @@ function buildAssignmentPayload(form) {
     shuffleQuestions: Boolean(form.shuffleQuestions),
     shuffleOptions: Boolean(form.shuffleOptions),
     showAnswerAfterSubmit: Boolean(form.showAnswerAfterSubmit),
+    scoringMode: form.scoringMode || 'Percent',
+    minQuestionWeight: form.minQuestionWeight ? Number(form.minQuestionWeight) : 0.3,
+    maxQuestionWeight: form.maxQuestionWeight ? Number(form.maxQuestionWeight) : 2.0,
+    smoothingAlpha: form.smoothingAlpha ? Number(form.smoothingAlpha) : 1.0,
+    smoothingBeta: form.smoothingBeta ? Number(form.smoothingBeta) : 1.0,
   };
+}
+
+function validateScoringForm(form, t) {
+  if (form.scoringMode !== 'EmpiricalDifficulty') {
+    return null;
+  }
+
+  const minWeight = Number(form.minQuestionWeight);
+  const maxWeight = Number(form.maxQuestionWeight);
+  const alpha = Number(form.smoothingAlpha);
+  const beta = Number(form.smoothingBeta);
+
+  if (isNaN(minWeight) || minWeight <= 0) {
+    return getText(t, 'classrooms.assignments.errors.minWeightPositive', 'Trọng số tối thiểu phải lớn hơn 0.');
+  }
+
+  if (isNaN(maxWeight) || maxWeight <= minWeight) {
+    return getText(t, 'classrooms.assignments.errors.maxWeightGreater', 'Trọng số tối đa phải lớn hơn trọng số tối thiểu.');
+  }
+
+  if (isNaN(alpha) || alpha < 0 || isNaN(beta) || beta < 0) {
+    return getText(t, 'classrooms.assignments.errors.smoothingNonNegative', 'Hệ số alpha và beta phải không âm.');
+  }
+
+  if (alpha + beta <= 0) {
+    return getText(t, 'classrooms.assignments.errors.smoothingSumPositive', 'Tổng alpha và beta phải lớn hơn 0.');
+  }
+
+  return null;
 }
 
 const emptyAssignmentForm = {
@@ -114,6 +148,11 @@ const emptyAssignmentForm = {
   shuffleQuestions: false,
   shuffleOptions: false,
   showAnswerAfterSubmit: true,
+  scoringMode: 'Percent',
+  minQuestionWeight: '0.3',
+  maxQuestionWeight: '2.0',
+  smoothingAlpha: '1',
+  smoothingBeta: '1',
 };
 
 export function TeachingClassroomsPage() {
@@ -1087,6 +1126,12 @@ export function ClassroomAssignmentsPage() {
       return;
     }
 
+    const validationError = validateScoringForm(form, t);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setSaving(true);
     setError('');
     setSuccess('');
@@ -1170,6 +1215,7 @@ export function ClassroomAssignmentDetailPage() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [questionStats, setQuestionStats] = useState([]);
 
   const isTeacher = classroom?.currentUserRole === ROLE_TEACHER;
 
@@ -1186,6 +1232,11 @@ export function ClassroomAssignmentDetailPage() {
       shuffleQuestions: Boolean(data?.shuffleQuestions),
       shuffleOptions: Boolean(data?.shuffleOptions),
       showAnswerAfterSubmit: Boolean(data?.showAnswerAfterSubmit),
+      scoringMode: data?.scoringMode || 'Percent',
+      minQuestionWeight: data?.minQuestionWeight != null ? String(data.minQuestionWeight) : '0.3',
+      maxQuestionWeight: data?.maxQuestionWeight != null ? String(data.maxQuestionWeight) : '2.0',
+      smoothingAlpha: data?.smoothingAlpha != null ? String(data.smoothingAlpha) : '1',
+      smoothingBeta: data?.smoothingBeta != null ? String(data.smoothingBeta) : '1',
     });
   };
 
@@ -1208,6 +1259,17 @@ export function ClassroomAssignmentDetailPage() {
       setAssignment(assignmentData);
       setQuestionSets((Array.isArray(questionSetData) ? questionSetData : []).filter((set) => set.visibility === 'Published'));
       syncForm(assignmentData);
+
+      if (assignmentData?.status === 'Closed' && assignmentData?.scoringMode === 'EmpiricalDifficulty') {
+        try {
+          const stats = await classroomService.getClassroomAssignmentQuestionStats(assignmentId);
+          setQuestionStats(stats || []);
+        } catch (err) {
+          console.error('Failed to load assignment question stats:', err);
+        }
+      } else {
+        setQuestionStats([]);
+      }
     } catch (err) {
       setError(getApiErrorMessage(err, getText(t, 'classrooms.assignments.errors.detail', 'Khong tai duoc assignment.')));
     } finally {
@@ -1229,6 +1291,16 @@ export function ClassroomAssignmentDetailPage() {
       if (updated) {
         setAssignment(updated);
         syncForm(updated);
+        if (updated.status === 'Closed' && updated.scoringMode === 'EmpiricalDifficulty') {
+          try {
+            const stats = await classroomService.getClassroomAssignmentQuestionStats(assignmentId);
+            setQuestionStats(stats || []);
+          } catch (err) {
+            console.error('Failed to load assignment question stats after action:', err);
+          }
+        } else {
+          setQuestionStats([]);
+        }
       } else {
         await loadDetail();
       }
@@ -1244,6 +1316,12 @@ export function ClassroomAssignmentDetailPage() {
     event.preventDefault();
     if (!form.title.trim()) {
       setError(getText(t, 'classrooms.assignments.errors.titleRequired', 'Nhap tieu de assignment.'));
+      return;
+    }
+
+    const validationError = validateScoringForm(form, t);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -1339,6 +1417,30 @@ export function ClassroomAssignmentDetailPage() {
           <small className="classroom-muted">
             {assignment?.type} | Due: {formatDateTime(assignment?.dueAt)}
           </small>
+
+          <div className="classroom-scoring-summary">
+            <h3>{getText(t, 'classrooms.assignments.fields.scoringMode', 'Cách chấm điểm')}</h3>
+            {assignment?.scoringMode === 'EmpiricalDifficulty' ? (
+              <div className="empirical-summary-box">
+                <p className="scoring-mode-name text-primary">
+                  {getText(t, 'classrooms.assignments.empiricalScoring', 'Chấm theo độ khó thực nghiệm')}
+                </p>
+                <div className="classroom-scoring-params">
+                  <div><strong>{getText(t, 'classrooms.assignments.minQuestionWeight', 'Trọng số tối thiểu')}:</strong> {assignment?.minQuestionWeight}</div>
+                  <div><strong>{getText(t, 'classrooms.assignments.maxQuestionWeight', 'Trọng số tối đa')}:</strong> {assignment?.maxQuestionWeight}</div>
+                  <div><strong>Smoothing alpha:</strong> {assignment?.smoothingAlpha}</div>
+                  <div><strong>Smoothing beta:</strong> {assignment?.smoothingBeta}</div>
+                </div>
+                <p className="classroom-help-text text-muted">
+                  {getText(t, 'classrooms.assignments.empiricalDetailHelp', 'Điểm chính thức được tính khi giảng viên đóng assignment. Hệ thống dùng tỷ lệ trả lời đúng của cả lớp để tính trọng số từng câu.')}
+                </p>
+              </div>
+            ) : (
+              <p className="scoring-mode-name text-muted">
+                {getText(t, 'classrooms.assignments.percentScoring', 'Chấm theo phần trăm')}
+              </p>
+            )}
+          </div>
         </article>
 
         <form className="classroom-panel classroom-form" onSubmit={handleUpdate}>
@@ -1380,6 +1482,65 @@ export function ClassroomAssignmentDetailPage() {
           </button>
         </form>
       </section>
+
+      {assignment?.status === 'Closed' && assignment?.scoringMode === 'EmpiricalDifficulty' && (
+        <section className="classroom-panel classroom-question-stats">
+          <div className="classroom-section-head">
+            <div>
+              <span className="classroom-kicker">{getText(t, 'classrooms.assignments.empiricalScoring', 'Chấm theo độ khó thực nghiệm')}</span>
+              <h2>{getText(t, 'classrooms.assignments.questionStatsTitle', 'Thống kê độ khó câu hỏi')}</h2>
+            </div>
+          </div>
+          {questionStats && questionStats.length > 0 ? (
+            <div className="classroom-table-wrapper">
+              <table className="classroom-stats-table">
+                <thead>
+                  <tr>
+                    <th>{getText(t, 'classrooms.assignments.stats.questionId', 'Question ID')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.answeredCount', 'Lượt làm')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.correctCount', 'Lượt đúng')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.smoothedCorrectRate', 'Tỷ lệ đúng đã làm mượt')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.difficultyWeight', 'Trọng số độ khó')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.qualityFlag', 'Trạng thái chất lượng')}</th>
+                    <th>{getText(t, 'classrooms.assignments.stats.calculatedAt', 'Thời gian tính')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {questionStats.map((stat) => {
+                    let qualityText = getText(t, 'classrooms.assignments.stable', 'Ổn');
+                    let qualityClass = 'badge-success';
+                    if (stat.qualityFlag === 'InsufficientData') {
+                      qualityText = getText(t, 'classrooms.assignments.insufficientData', 'Chưa đủ dữ liệu');
+                      qualityClass = 'badge-warning';
+                    } else if (stat.qualityFlag === 'LowDiscrimination') {
+                      qualityText = getText(t, 'classrooms.assignments.lowDiscrimination', 'Khả năng phân loại thấp');
+                      qualityClass = 'badge-warning';
+                    } else if (stat.qualityFlag === 'SuspiciousItem') {
+                      qualityText = getText(t, 'classrooms.assignments.suspiciousItem', 'Câu hỏi cần xem lại');
+                      qualityClass = 'badge-danger';
+                    }
+                    return (
+                      <tr key={stat.id}>
+                        <td>#{stat.questionId}</td>
+                        <td>{stat.answeredCount}</td>
+                        <td>{stat.correctCount}</td>
+                        <td>{(stat.smoothedCorrectRate * 100).toFixed(1)}%</td>
+                        <td>{Number(stat.difficultyWeight).toFixed(3)}</td>
+                        <td>
+                          <span className={`classroom-stat-badge ${qualityClass}`}>{qualityText}</span>
+                        </td>
+                        <td>{formatDateTime(stat.calculatedAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="classroom-muted">{getText(t, 'classrooms.assignments.stats.noData', 'Chưa có dữ liệu thống kê câu hỏi.')}</p>
+          )}
+        </section>
+      )}
 
       <section className="classroom-panel classroom-question-set-items">
         <div className="classroom-section-head">
@@ -1685,7 +1846,23 @@ export function StudentClassroomAssignmentDetailPage() {
               <Metric label={getText(t, 'classrooms.assignments.totalPoints', 'Diem')} value={assignment.totalPoints || 0} />
               <Metric label={getText(t, 'classrooms.assignments.attemptLimit', 'Lan lam')} value={assignment.attemptLimit || 1} />
             </div>
+            {assignment.scoringMode === 'EmpiricalDifficulty' && (
+              <div className="classroom-scoring-mode-notice text-primary" style={{ marginTop: '1rem', fontWeight: 500 }}>
+                {getText(t, 'classrooms.assignments.empiricalScoringNote', 'Điểm được tính theo độ khó thực nghiệm của câu hỏi.')}
+              </div>
+            )}
           </section>
+
+          {assignment.scoringMode === 'EmpiricalDifficulty' && (
+            <div className="classroom-info-banner warning" style={{ marginBottom: '1rem' }}>
+              <p>
+                {assignment.status === 'Closed'
+                  ? getText(t, 'classrooms.assignments.empiricalScoringFinalizedNote', 'Assignment dùng cơ chế chấm theo độ khó thực nghiệm. Giảng viên đã đóng bài thi, điểm số này đã được tính toán chính thức.')
+                  : getText(t, 'classrooms.assignments.empiricalScoringAttemptNote', 'Assignment dùng cơ chế chấm theo độ khó thực nghiệm. Điểm chính thức được xác định khi giảng viên đóng assignment.')}
+              </p>
+            </div>
+          )}
+
           <section className="classroom-panel classroom-question-set-items">
             <AssignmentQuestions items={items} />
           </section>
@@ -1873,10 +2050,25 @@ export function ClassroomAssignmentResultPage() {
               <Metric label={getText(t, 'classrooms.assignments.percentScore', 'Phan tram')} value={attempt.percentScore != null ? `${attempt.percentScore}%` : '-'} />
               <Metric label={getText(t, 'classrooms.assignments.answeredCount', 'Da tra loi')} value={answers.length} />
             </div>
+            {attempt.assignment?.scoringMode === 'EmpiricalDifficulty' && (
+              <div className="classroom-scoring-mode-notice text-primary" style={{ marginTop: '1rem', fontWeight: 500 }}>
+                {getText(t, 'classrooms.assignments.empiricalScoringNote', 'Điểm được tính theo độ khó thực nghiệm của câu hỏi.')}
+              </div>
+            )}
             {!attempt.assignment?.showAnswerAfterSubmit && (
-              <p className="classroom-muted">{getText(t, 'classrooms.assignments.hiddenAnswers', 'Giao vien dang an dap an dung; trang nay chi hien tong diem.')}</p>
+              <p className="classroom-muted" style={{ marginTop: '0.5rem' }}>{getText(t, 'classrooms.assignments.hiddenAnswers', 'Giao vien dang an dap an dung; trang nay chi hien tong diem.')}</p>
             )}
           </section>
+
+          {attempt.assignment?.scoringMode === 'EmpiricalDifficulty' && (
+            <div className="classroom-info-banner warning" style={{ marginBottom: '1rem' }}>
+              <p>
+                {attempt.assignment?.status === 'Closed'
+                  ? getText(t, 'classrooms.assignments.empiricalScoringFinalizedNote', 'Assignment dùng cơ chế chấm theo độ khó thực nghiệm. Giảng viên đã đóng bài thi, điểm số này đã được tính toán chính thức.')
+                  : getText(t, 'classrooms.assignments.empiricalScoringAttemptNote', 'Assignment dùng cơ chế chấm theo độ khó thực nghiệm. Điểm chính thức được xác định khi giảng viên đóng assignment.')}
+              </p>
+            </div>
+          )}
 
           {reveal && (
             <section className="classroom-panel classroom-question-set-items">
@@ -1965,12 +2157,19 @@ export function ClassroomAssignmentHistoryPage() {
                     <span className={`classroom-badge ${attempt.status === 'Submitted' ? '' : 'muted'}`}>{attempt.status}</span>
                   </div>
                   <p>{classroom?.name || `Classroom #${attempt.assignment?.classroomWorkspaceId || '-'}`}</p>
-                  <small>
+                  <small style={{ display: 'block', marginBottom: '0.5rem' }}>
                     Attempt #{attempt.attemptNumber || '-'} | Started: {formatDateTime(attempt.startedAt)}
                     {' | '}
                     Submitted: {formatDateTime(attempt.submittedAt)}
                     {' | '}
                     Score: {attempt.rawScore ?? '-'} / {attempt.percentScore != null ? `${attempt.percentScore}%` : '-'}
+                    {attempt.assignment?.scoringMode === 'EmpiricalDifficulty' && (
+                      <span className="scoring-badge-pill" style={{ marginLeft: '0.5rem', color: 'var(--color-primary)', fontWeight: 500 }}>
+                        {attempt.assignment?.status === 'Closed'
+                          ? `(${getText(t, 'classrooms.assignments.final', 'Chính thức')})`
+                          : `(${getText(t, 'classrooms.assignments.tempScore', 'Điểm tạm thời')})`}
+                      </span>
+                    )}
                   </small>
                   <div className="classroom-row-actions classroom-card-actions">
                     {attempt.status === 'InProgress' ? (
@@ -2326,6 +2525,66 @@ function AssignmentFields({ form, onChange, questionSets, t }) {
           <input type="datetime-local" value={form.dueAt} onChange={(event) => update({ dueAt: event.target.value })} />
         </label>
       </div>
+
+      <label>
+        <span>{getText(t, 'classrooms.assignments.fields.scoringMode', 'Cách chấm điểm')}</span>
+        <select value={form.scoringMode} onChange={(event) => update({ scoringMode: event.target.value })}>
+          <option value="Percent">{getText(t, 'classrooms.assignments.percentScoring', 'Chấm theo phần trăm')}</option>
+          <option value="EmpiricalDifficulty">{getText(t, 'classrooms.assignments.empiricalScoring', 'Chấm theo độ khó thực nghiệm')}</option>
+        </select>
+      </label>
+
+      {form.scoringMode === 'EmpiricalDifficulty' && (
+        <div className="classroom-empirical-config">
+          <p className="classroom-config-help-text text-muted">
+            {getText(t, 'classrooms.assignments.empiricalHelp', 'Câu càng nhiều người trả lời đúng thì trọng số càng thấp. Câu càng ít người trả lời đúng thì trọng số càng cao.')}
+          </p>
+          <div className="classroom-form-grid">
+            <label>
+              <span>{getText(t, 'classrooms.assignments.minQuestionWeight', 'Trọng số tối thiểu')}</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0.0001"
+                value={form.minQuestionWeight}
+                onChange={(event) => update({ minQuestionWeight: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>{getText(t, 'classrooms.assignments.maxQuestionWeight', 'Trọng số tối đa')}</span>
+              <input
+                type="number"
+                step="0.1"
+                value={form.maxQuestionWeight}
+                onChange={(event) => update({ maxQuestionWeight: event.target.value })}
+              />
+            </label>
+          </div>
+          <div className="classroom-form-grid">
+            <label>
+              <span>{getText(t, 'classrooms.assignments.smoothingAlpha', 'Smoothing alpha')}</span>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={form.smoothingAlpha}
+                onChange={(event) => update({ smoothingAlpha: event.target.value })}
+              />
+            </label>
+            <label>
+              <span>{getText(t, 'classrooms.assignments.smoothingBeta', 'Smoothing beta')}</span>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={form.smoothingBeta}
+                onChange={(event) => update({ smoothingBeta: event.target.value })}
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
       <label className="classroom-checkbox">
         <input type="checkbox" checked={form.shuffleQuestions} onChange={(event) => update({ shuffleQuestions: event.target.checked })} />
         <span>{getText(t, 'classrooms.assignments.fields.shuffleQuestions', 'Shuffle questions')}</span>

@@ -573,3 +573,147 @@
     flex-direction: column;
   }
 }
+
+/* --- Phase 4B: Empirical Difficulty Weighted Scoring Styles --- */
+.classroom-empirical-config {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.classroom-config-help-text {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.classroom-scoring-summary {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.classroom-scoring-summary h3 {
+  font-size: 14px;
+  font-weight: 800;
+  color: #334155;
+  margin: 0 0 8px;
+}
+
+.empirical-summary-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scoring-mode-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.text-primary {
+  color: #0f766e;
+}
+
+.classroom-scoring-params {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 13px;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #f1f5f9;
+}
+
+.classroom-help-text {
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 4px 0 0;
+}
+
+.classroom-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  margin-top: 12px;
+}
+
+.classroom-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+
+.classroom-stats-table th,
+.classroom-stats-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.classroom-stats-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.classroom-stats-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.classroom-stats-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.classroom-stats-table tbody tr:hover {
+  background: #f1f5f9;
+}
+
+.classroom-stat-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.classroom-stat-badge.badge-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.classroom-stat-badge.badge-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.classroom-stat-badge.badge-danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.classroom-info-banner {
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.classroom-info-banner.warning {
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  color: #b45309;
+}
+
