@@ -11,6 +11,9 @@ import {
   LuRefreshCw,
   LuSparkles,
   LuTriangleAlert,
+  LuPlus,
+  LuHistory,
+  LuTrendingUp,
 } from 'react-icons/lu';
 import DocumentUpload from '../../components/DocumentUpload';
 import Button from '../../ui/Button';
@@ -18,6 +21,7 @@ import EmptyState from '../../ui/EmptyState';
 import Panel from '../../ui/Panel';
 import StatusBadge from '../../ui/StatusBadge';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth, isLearner } from '../../context/AuthContext';
 import { dashboardService, getApiErrorMessage } from '../../services/api';
 import { trackEvent } from '../../services/analytics';
 import { getNextBestAction } from '../../services/dashboardActions';
@@ -31,12 +35,18 @@ import {
 function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentUser } = useAuth();
   const { language, t } = useLanguage();
   const [home, setHome] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadDashboard = useCallback(async () => {
+    if (currentUser && isLearner(currentUser)) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -48,7 +58,7 @@ function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, currentUser]);
 
   useEffect(() => {
     loadDashboard();
@@ -109,6 +119,10 @@ function DashboardPage() {
   const handleUploadSuccess = useCallback(async () => {
     await loadDashboard();
   }, [loadDashboard]);
+
+  if (currentUser && isLearner(currentUser)) {
+    return <LearnerDashboard t={t} navigate={navigate} currentUser={currentUser} />;
+  }
 
   return (
     <div className="v2-dashboard">
@@ -412,6 +426,78 @@ function formatRelativeTime(value, t, language) {
   }
 
   return new Date(value).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US');
+}
+
+function LearnerDashboard({ t, navigate, currentUser }) {
+  const cards = [
+    {
+      id: 'joined',
+      title: t('app.dashboard.learner.joinedTitle') || 'Lớp đã tham gia',
+      description: t('app.dashboard.learner.joinedDesc') || 'Xem danh sách các lớp học bạn đã tham gia và học liệu bên trong.',
+      to: '/classrooms/joined',
+      icon: <LuBookOpen />,
+      buttonText: t('app.dashboard.learner.joinedBtn') || 'Xem danh sách lớp'
+    },
+    {
+      id: 'join',
+      title: t('app.dashboard.learner.joinTitle') || 'Nhập mã lớp',
+      description: t('app.dashboard.learner.joinDesc') || 'Nhập mã code từ giảng viên cung cấp để tham gia lớp học mới.',
+      to: '/classrooms/join',
+      icon: <LuPlus />,
+      buttonText: t('app.dashboard.learner.joinBtn') || 'Tham gia lớp'
+    },
+    {
+      id: 'assignments',
+      title: t('app.dashboard.learner.assignmentsTitle') || 'Bài kiểm tra được giao',
+      description: t('app.dashboard.learner.assignmentsDesc') || 'Xem các bài kiểm tra được giao cần làm hoặc đã làm.',
+      to: '/classrooms/joined',
+      icon: <LuBrain />,
+      buttonText: t('app.dashboard.learner.assignmentsBtn') || 'Làm bài ngay'
+    },
+    {
+      id: 'history',
+      title: t('app.dashboard.learner.historyTitle') || 'Lịch sử làm bài',
+      description: t('app.dashboard.learner.historyDesc') || 'Xem lại toàn bộ lịch sử các lần làm bài, kết quả và bài giải chi tiết.',
+      to: '/classroom-attempts/history',
+      icon: <LuHistory />,
+      buttonText: t('app.dashboard.learner.historyBtn') || 'Xem lịch sử'
+    },
+    {
+      id: 'analytics',
+      title: t('app.dashboard.learner.analyticsTitle') || 'Tiến độ của tôi',
+      description: t('app.dashboard.learner.analyticsDesc') || 'Xem thống kê năng lực học tập, biểu đồ radar kỹ năng và heatmap.',
+      to: '/analytics',
+      icon: <LuTrendingUp />,
+      buttonText: t('app.dashboard.learner.analyticsBtn') || 'Xem tiến độ'
+    }
+  ];
+
+  return (
+    <div className="v2-dashboard learner-dashboard">
+      <section className="v2-console-header">
+        <div className="v2-console-title">
+          <span className="v2-kicker">{t('app.dashboard.learner.kicker') || 'Học viên'}</span>
+          <h1>{t('app.dashboard.learner.title') || 'Trang học tập của tôi'}</h1>
+          <p>{t('app.dashboard.learner.welcome') || `Chào mừng bạn trở lại! Bắt đầu học ngay.`}</p>
+        </div>
+      </section>
+
+      <div className="learner-dashboard-grid">
+        {cards.map(card => (
+          <Panel key={card.id} className="learner-dashboard-card">
+            <div className="learner-card-icon">{card.icon}</div>
+            <div className="learner-card-content">
+              <h3>{card.title}</h3>
+              <p>{card.description}</p>
+              <Button onClick={() => navigate(card.to)}>
+                {card.buttonText}
+              </Button>
+            </div>
+          </Panel>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default DashboardPage;

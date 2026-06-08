@@ -23,6 +23,18 @@ function getStoredToken() {
   return window.localStorage.getItem(TOKEN_STORAGE_KEY) || '';
 }
 
+export const normalizeAppRole = (value) => String(value || '').trim().toUpperCase();
+
+export const isAdmin = (user) => normalizeAppRole(user?.role) === 'ADMIN';
+
+export const isInstructor = (user) => normalizeAppRole(user?.role) === 'INSTRUCTOR';
+
+export const isLearner = (user) => normalizeAppRole(user?.role) === 'LEARNER';
+
+export const canAuthorLearningMaterial = (user) => isAdmin(user) || isInstructor(user);
+
+export const canAdministerSystem = (user) => isAdmin(user);
+
 export function normalizeRole(role) {
   if (typeof role !== 'string') {
     return DEFAULT_ROLE;

@@ -6,6 +6,7 @@ using ELearnGamePlatform.Core.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ELearnGamePlatform.API.Services;
+using ELearnGamePlatform.API.Filters;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -14,6 +15,7 @@ namespace ELearnGamePlatform.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[AuthoringRouteGuard]
 public class DocumentsController : AuthenticatedControllerBase
 {
     private readonly IDocumentRepository _documentRepository;

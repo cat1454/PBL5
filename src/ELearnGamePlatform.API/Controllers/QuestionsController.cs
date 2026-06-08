@@ -5,6 +5,7 @@ using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ELearnGamePlatform.API.Filters;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -43,6 +44,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpPost("generate/start")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> StartGenerateQuestions([FromBody] GenerateQuestionsRequest request)
     {
         if (request.Count < 1 || request.Count > 50)
@@ -85,6 +87,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpGet("generate/progress/{jobId}")]
+    [AuthoringRouteGuard]
     public IActionResult GetGenerateProgress(string jobId)
     {
         if (!_jobStore.TryGetJob(jobId, out var state) || state == null)
@@ -102,6 +105,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpPost("generate")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GenerateQuestions([FromBody] GenerateQuestionsRequest request)
     {
         try
@@ -428,6 +432,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpGet("document/{documentId}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetQuestionsByDocument(int documentId)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
@@ -447,6 +452,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpGet("document/{documentId}/metrics")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetQuestionMetricsByDocument(int documentId, CancellationToken cancellationToken)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
@@ -466,6 +472,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpDelete("document/{documentId}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> DeleteQuestionBank(int documentId)
     {
         var document = await _documentRepository.GetByIdAsync(documentId);
@@ -485,6 +492,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpGet("{id}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> GetQuestion(int id)
     {
         var question = await _questionRepository.GetByIdAsync(id);
@@ -503,6 +511,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpPut("{id}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> UpdateQuestion(int id, [FromBody] Question question)
     {
         var existing = await _questionRepository.GetByIdAsync(id);
@@ -530,6 +539,7 @@ public class QuestionsController : AuthenticatedControllerBase
     }
 
     [HttpDelete("{id}")]
+    [AuthoringRouteGuard]
     public async Task<IActionResult> DeleteQuestion(int id)
     {
         var question = await _questionRepository.GetByIdAsync(id);

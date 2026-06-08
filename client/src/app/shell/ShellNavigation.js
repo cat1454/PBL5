@@ -2,9 +2,14 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { HELP_NAV_ITEM, NAV_ITEMS } from '../routes';
 import { ShellIcon } from './icons';
+import { canAuthorLearningMaterial } from '../../context/AuthContext';
 
 function ShellNavigation({ currentUser, onHelp, t, variant = 'topbar' }) {
-  const items = NAV_ITEMS.filter((item) => !item.role || currentUser?.role === item.role);
+  const items = NAV_ITEMS.filter((item) => {
+    if (item.role === 'ADMIN' && currentUser?.role !== 'ADMIN') return false;
+    if (item.id === 'workspaces' && !canAuthorLearningMaterial(currentUser)) return false;
+    return true;
+  });
   const isDrawer = variant === 'drawer';
   const navClassName = isDrawer ? 'app-menu-nav app-shell-drawer-nav' : 'app-topbar-nav v2-nav app-shell-topnav';
   const ariaLabel = t('app.menu.navigation');
