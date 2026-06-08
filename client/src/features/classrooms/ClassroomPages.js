@@ -526,6 +526,10 @@ export function ClassroomDetailPage({ membersOnly = false }) {
             <LuClipboard aria-hidden="true" />
             {getText(t, 'classrooms.assignments.open', 'Assignments')}
           </Link>
+          <Link className="classroom-button classroom-inline-action" to={`/classrooms/${classroomId}/leaderboard`}>
+            <LuListChecks aria-hidden="true" />
+            {getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')}
+          </Link>
         </article>
 
         {isTeacher && (
@@ -1398,6 +1402,10 @@ export function ClassroomAssignmentDetailPage() {
           <LuListChecks aria-hidden="true" />
           {getText(t, 'classrooms.assignments.viewAttempts', 'Attempts')}
         </Link>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/leaderboard`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+        </Link>
         <button className="classroom-button" type="button" onClick={loadDetail}>
           <LuRefreshCw aria-hidden="true" />
           {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
@@ -1822,6 +1830,10 @@ export function StudentClassroomAssignmentDetailPage() {
           <LuClipboard aria-hidden="true" />
           {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
         </Link>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/assignments/${assignmentId}/leaderboard`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+        </Link>
         {attempt?.status === 'InProgress' ? (
           <Link className="classroom-button primary" to={`/classroom-attempts/${attempt.id}`}>
             <LuCheck aria-hidden="true" />
@@ -2040,6 +2052,12 @@ export function ClassroomAssignmentResultPage() {
           <LuClipboard aria-hidden="true" />
           {getText(t, 'classrooms.assignments.history', 'Lich su lam bai')}
         </Link>
+        {attempt?.assignment?.classroomWorkspaceId && (
+          <Link className="classroom-button" to={`/classrooms/${attempt.assignment.classroomWorkspaceId}/assignments/${attempt.classroomAssignmentId || attempt.assignment.id}/leaderboard`}>
+            <LuListChecks aria-hidden="true" />
+            {getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')}
+          </Link>
+        )}
       </div>
       {attempt && (
         <>
@@ -2925,3 +2943,368 @@ function Metric({ label, value }) {
     </div>
   );
 }
+
+export function ClassroomLeaderboardPage() {
+  const { classroomId } = useParams();
+  const { t } = useLanguage();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isForbidden, setIsForbidden] = useState(false);
+
+  const loadLeaderboard = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    setIsForbidden(false);
+    try {
+      const response = await classroomService.getClassroomLeaderboard(classroomId);
+      setData(response);
+    } catch (err) {
+      if (isApiForbidden(err)) {
+        setIsForbidden(true);
+        setError(getText(t, 'classrooms.leaderboard.forbidden', 'Bạn không có quyền xem bảng xếp hạng này.'));
+      } else if (err?.response?.status === 404) {
+        setError(getText(t, 'classrooms.leaderboard.notFound', 'Không tìm thấy bảng xếp hạng.'));
+      } else {
+        setError(getApiErrorMessage(err, getText(t, 'classrooms.leaderboard.errors.load', 'Không tải được bảng xếp hạng.')));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, t]);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [loadLeaderboard]);
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (error || isForbidden) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle="">
+        <ClassroomTabs />
+        <MessageBar error={error} />
+        {!isForbidden && (
+          <button className="classroom-button" type="button" onClick={loadLeaderboard}>
+            <LuRefreshCw aria-hidden="true" />
+            {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+          </button>
+        )}
+      </ClassroomShell>
+    );
+  }
+
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+
+  return (
+    <ClassroomShell title={data?.classroomName || getText(t, 'classrooms.leaderboard.classroomTitle', 'Bảng xếp hạng lớp')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
+      <ClassroomTabs />
+      <div className="classroom-leaderboard-header">
+        <div className="classroom-leaderboard-metadata">
+          <span>
+            {getText(t, 'classrooms.leaderboard.assignmentsCount', 'Số bài kiểm tra')}: <strong>{data?.assignmentCount ?? 0}</strong>
+          </span>
+          <span>
+            {getText(t, 'classrooms.leaderboard.activeStudents', 'Học sinh hoạt động')}: <strong>{data?.activeStudentCount ?? 0}</strong>
+          </span>
+          {data?.generatedAt && (
+            <span>
+              {getText(t, 'classrooms.leaderboard.generatedAt', 'Cập nhật lúc')}: <strong>{formatDateTime(data.generatedAt)}</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}`}>
+          <LuSchool aria-hidden="true" />
+          {getText(t, 'classrooms.questionSets.backToClassroom', 'Ve lop hoc')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadLeaderboard}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </div>
+
+      {rows.length === 0 ? (
+        <section className="classroom-panel classroom-empty">
+          <LuClipboard aria-hidden="true" />
+          <h2>{getText(t, 'classrooms.leaderboard.empty', 'Chưa có dữ liệu xếp hạng.')}</h2>
+        </section>
+      ) : (
+        <div className="classroom-table-wrapper">
+          <table className="classroom-stats-table">
+            <thead>
+              <tr>
+                <th>{getText(t, 'classrooms.leaderboard.rank', 'Hạng')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.student', 'Học sinh')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.email', 'Email')}</th>
+                <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.completedAssignments', 'Số bài đã hoàn thành')}</th>
+                <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.submittedAttempts', 'Số lượt nộp')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.averageScore', 'Điểm trung bình')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.totalScore', 'Tổng điểm')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.bestScore', 'Điểm cao nhất')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.latestSubmitted', 'Nộp bài gần nhất')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => {
+                const rankVal = row.rank ?? (idx + 1);
+                let rankBadgeClass = 'rank-other';
+                if (rankVal === 1) rankBadgeClass = 'rank-1';
+                else if (rankVal === 2) rankBadgeClass = 'rank-2';
+                else if (rankVal === 3) rankBadgeClass = 'rank-3';
+
+                return (
+                  <tr key={row.userId}>
+                    <td>
+                      <span className={`rank-badge ${rankBadgeClass}`}>{rankVal}</span>
+                    </td>
+                    <td>
+                      <strong>{row.displayName || '-'}</strong>
+                    </td>
+                    <td>{row.email || '-'}</td>
+                    <td style={{ textAlign: 'center' }}>{row.completedAssignments}</td>
+                    <td style={{ textAlign: 'center' }}>{row.submittedAttempts}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.averagePercentScore != null ? `${Number(row.averagePercentScore).toFixed(2)}%` : '0.00%'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.totalPercentScore != null ? `${Number(row.totalPercentScore).toFixed(2)}%` : '0.00%'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.bestPercentScore != null ? `${Number(row.bestPercentScore).toFixed(2)}%` : '0.00%'}
+                    </td>
+                    <td>{row.latestSubmittedAt ? formatDateTime(row.latestSubmittedAt) : '-'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomAssignmentLeaderboardPage() {
+  const { classroomId, assignmentId } = useParams();
+  const { t } = useLanguage();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [isForbidden, setIsForbidden] = useState(false);
+
+  const loadLeaderboard = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    setIsForbidden(false);
+    try {
+      const response = await classroomService.getClassroomAssignmentLeaderboard(assignmentId);
+      setData(response);
+    } catch (err) {
+      if (isApiForbidden(err)) {
+        setIsForbidden(true);
+        setError(getText(t, 'classrooms.leaderboard.forbidden', 'Bạn không có quyền xem bảng xếp hạng này.'));
+      } else if (err?.response?.status === 404) {
+        setError(getText(t, 'classrooms.leaderboard.notFound', 'Không tìm thấy bảng xếp hạng.'));
+      } else {
+        setError(getApiErrorMessage(err, getText(t, 'classrooms.leaderboard.errors.load', 'Không tải được bảng xếp hạng.')));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId, t]);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [loadLeaderboard]);
+
+  const formatDuration = (seconds) => {
+    if (seconds == null) return '-';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle="">
+        <ClassroomTabs />
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Dang tai...')} />
+      </ClassroomShell>
+    );
+  }
+
+  if (error || isForbidden) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle="">
+        <ClassroomTabs />
+        <MessageBar error={error} />
+        {!isForbidden && (
+          <button className="classroom-button" type="button" onClick={loadLeaderboard}>
+            <LuRefreshCw aria-hidden="true" />
+            {getText(t, 'classrooms.actions.retry', 'Thu lai')}
+          </button>
+        )}
+      </ClassroomShell>
+    );
+  }
+
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+
+  return (
+    <ClassroomShell title={data?.assignmentTitle || getText(t, 'classrooms.leaderboard.assignmentTitle', 'Bảng xếp hạng bài')} subtitle={getText(t, 'classrooms.leaderboard.title', 'Bảng xếp hạng')}>
+      <ClassroomTabs />
+      
+      <div className="classroom-leaderboard-header">
+        <div className="classroom-leaderboard-metadata">
+          <span>
+            {getText(t, 'classrooms.leaderboard.scoringMode', 'Chế độ tính điểm')}:{' '}
+            <strong>
+              {data?.scoringMode === 'EmpiricalDifficulty'
+                ? getText(t, 'classrooms.assignments.empiricalScoring', 'Chấm theo độ khó thực nghiệm')
+                : getText(t, 'classrooms.assignments.percentScoring', 'Chấm theo phần trăm')}
+            </strong>
+          </span>
+          {data?.scoreFinality && (
+            <span>
+              {getText(t, 'classrooms.leaderboard.finality', 'Trạng thái điểm')}:{' '}
+              <span className={`scoring-badge-pill ${data.scoreFinality === 'Final' ? 'final' : 'temporary'}`}>
+                {data.scoreFinality === 'Final'
+                  ? getText(t, 'classrooms.leaderboard.finalScore', 'Điểm chính thức')
+                  : getText(t, 'classrooms.leaderboard.temporaryScore', 'Điểm tạm thời')}
+              </span>
+            </span>
+          )}
+          {data?.generatedAt && (
+            <span>
+              {getText(t, 'classrooms.leaderboard.generatedAt', 'Cập nhật lúc')}: <strong>{formatDateTime(data.generatedAt)}</strong>
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="classroom-leaderboard-cards">
+        <div className="classroom-leaderboard-card">
+          <h3>{getText(t, 'classrooms.leaderboard.totalStudents', 'Tổng số học sinh')}</h3>
+          <div className="card-value">{data?.totalStudents ?? 0}</div>
+        </div>
+        <div className="classroom-leaderboard-card">
+          <h3>{getText(t, 'classrooms.leaderboard.submittedStudents', 'Học sinh đã nộp')}</h3>
+          <div className="card-value">{data?.submittedStudents ?? 0}</div>
+        </div>
+        <div className="classroom-leaderboard-card">
+          <h3>{getText(t, 'classrooms.leaderboard.inProgressStudents', 'Học sinh đang làm')}</h3>
+          <div className="card-value">{data?.inProgressStudents ?? 0}</div>
+        </div>
+        <div className="classroom-leaderboard-card">
+          <h3>{getText(t, 'classrooms.leaderboard.notStartedStudents', 'Học sinh chưa bắt đầu')}</h3>
+          <div className="card-value">{data?.notStartedStudents ?? 0}</div>
+        </div>
+      </div>
+
+      {data?.scoringMode === 'EmpiricalDifficulty' && data?.scoreFinality === 'Temporary' && (
+        <div className="classroom-info-banner warning" style={{ marginBottom: '16px' }}>
+          <p>{getText(t, 'classrooms.leaderboard.empiricalNotice', 'Điểm có thể thay đổi sau khi giảng viên đóng assignment.')}</p>
+        </div>
+      )}
+
+      <div className="classroom-page-actions" style={{ marginBottom: '16px' }}>
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/student/assignments`}>
+          <LuClipboard aria-hidden="true" />
+          {getText(t, 'classrooms.assignments.backToList', 'Ve danh sach')}
+        </Link>
+        <button className="classroom-button" type="button" onClick={loadLeaderboard}>
+          <LuRefreshCw aria-hidden="true" />
+          {getText(t, 'classrooms.actions.refresh', 'Lam moi')}
+        </button>
+      </div>
+
+      {rows.length === 0 ? (
+        <section className="classroom-panel classroom-empty">
+          <LuClipboard aria-hidden="true" />
+          <h2>{getText(t, 'classrooms.leaderboard.empty', 'Chưa có dữ liệu xếp hạng.')}</h2>
+        </section>
+      ) : (
+        <div className="classroom-table-wrapper">
+          <table className="classroom-stats-table">
+            <thead>
+              <tr>
+                <th>{getText(t, 'classrooms.leaderboard.rank', 'Hạng')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.student', 'Học sinh')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.email', 'Email')}</th>
+                <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.attempts', 'Lượt làm')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.rawScore', 'Điểm số')}</th>
+                <th style={{ textAlign: 'right' }}>{getText(t, 'classrooms.leaderboard.averageScore', 'Phần trăm')}</th>
+                <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.duration', 'Thời gian')}</th>
+                <th>{getText(t, 'classrooms.leaderboard.submittedAt', 'Thời gian nộp')}</th>
+                <th style={{ textAlign: 'center' }}>{getText(t, 'classrooms.leaderboard.status', 'Trạng thái')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => {
+                const isSubmitted = row.statusLabel === 'Submitted';
+                const rankVal = isSubmitted ? (row.rank ?? (idx + 1)) : '-';
+                
+                let rankBadgeClass = 'rank-other';
+                if (rankVal === 1) rankBadgeClass = 'rank-1';
+                else if (rankVal === 2) rankBadgeClass = 'rank-2';
+                else if (rankVal === 3) rankBadgeClass = 'rank-3';
+
+                let statusBadgeClass = 'badge-warning'; // InProgress
+                let statusText = getText(t, 'classrooms.leaderboard.inProgress', 'Đang làm');
+                if (row.statusLabel === 'Submitted') {
+                  statusBadgeClass = 'badge-success';
+                  statusText = getText(t, 'classrooms.leaderboard.submitted', 'Đã nộp');
+                } else if (row.statusLabel === 'NotStarted') {
+                  statusBadgeClass = 'badge-danger';
+                  statusText = getText(t, 'classrooms.leaderboard.notStarted', 'Chưa bắt đầu');
+                }
+
+                return (
+                  <tr key={row.userId}>
+                    <td>
+                      {isSubmitted ? (
+                        <span className={`rank-badge ${rankBadgeClass}`}>{rankVal}</span>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td>
+                      <strong>{row.displayName || '-'}</strong>
+                    </td>
+                    <td>{row.email || '-'}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {row.attemptNumber != null ? `#${row.attemptNumber}` : '-'}
+                      {row.attemptCount > 1 ? ` (${row.attemptCount} ${getText(t, 'classrooms.leaderboard.attempts', 'lượt')})` : ''}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.rawScore != null ? Number(row.rawScore).toFixed(2) : '-'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.percentScore != null ? `${Number(row.percentScore).toFixed(2)}%` : '-'}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{formatDuration(row.durationSeconds)}</td>
+                    <td>{row.submittedAt ? formatDateTime(row.submittedAt) : '-'}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span className={`classroom-stat-badge ${statusBadgeClass}`}>{statusText}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ClassroomShell>
+  );
+}
+
