@@ -434,10 +434,22 @@ public static class EntityExtensions
 
     private static List<SlideElementState> BuildStatElements(SlideItem item, SlideEditorState state)
     {
+        var bodyText = state.Body.Text ?? string.Empty;
+        int lineCount = bodyText.Split('\n').Length;
+        int fontSize = 66;
+        if (lineCount > 3 || bodyText.Length > 60)
+        {
+            fontSize = 28;
+        }
+        else if (lineCount > 1 || bodyText.Length > 30)
+        {
+            fontSize = 42;
+        }
+
         return new List<SlideElementState>
         {
             TextElement("title", 96, 78, 950, 96, 10, state.Title.Text, 42, true, "#EAF7FF", "left"),
-            TextElement("body", 118, 244, 560, 250, 20, state.Body.Text, 66, true, "#FFFFFF", "left"),
+            TextElement("body", 118, 244, 560, 250, 20, bodyText, fontSize, true, "#FFFFFF", "left"),
             TextElement("goal", 118, 555, 760, 90, 30, state.Goal.Text, 26, true, "#BAE6FD", "left"),
             ImageElement("image", 980, 190, 460, 420, 15)
         };
@@ -445,12 +457,24 @@ public static class EntityExtensions
 
     private static List<SlideElementState> BuildStandardElements(SlideItem item, SlideEditorState state)
     {
+        var bodyText = state.Body.Text ?? string.Empty;
+        int lineCount = bodyText.Split('\n').Length;
+        int fontSize = 28;
+        if (lineCount > 4 || bodyText.Length > 200)
+        {
+            fontSize = 20;
+        }
+        else if (lineCount > 2 || bodyText.Length > 120)
+        {
+            fontSize = 24;
+        }
+
         var elements = new List<SlideElementState>
         {
             TextElement("title", 96, 72, 920, 96, 10, state.Title.Text, 42, true, "#EAF7FF", "left"),
             TextElement("subtitle", 98, 166, 780, 64, 15, state.Subtitle.Text, 24, false, "#C8D7EA", "left"),
             TextElement("goal", 96, 642, 780, 80, 30, state.Goal.Text, 22, true, "#A7F3D0", "left"),
-            TextElement("body", 96, 244, 760, 360, 20, state.Body.Text, 28, false, "#DCEBFF", "left")
+            TextElement("body", 96, 244, 760, 360, 20, bodyText, fontSize, false, "#DCEBFF", "left")
         };
 
         if (item.SlideType != SlideItemType.Quote)

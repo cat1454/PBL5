@@ -50,4 +50,31 @@ public class DocumentProcessingMetadataTests
             FilePath = "uploads/document.pdf",
             UploadedBy = "test-user"
         };
+
+    [Fact]
+    public void TempQueryDb()
+    {
+        var connString = "Host=localhost;Port=5432;Database=ELearnGameDB;Username=postgres;Password=123qwe!@#;SslMode=disable";
+        using var conn = new Npgsql.NpgsqlConnection(connString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT d.""Id"", d.""FileName"", d.""Status"", d.""FolderProjectId"", d.""ExtractedText"", d.""processed_metadata"" 
+            FROM ""Documents"" d 
+            ORDER BY d.""Id"" DESC LIMIT 30";
+        using var reader = cmd.ExecuteReader();
+        var sb = new System.Text.StringBuilder();
+        while (reader.Read())
+        {
+            var id = reader.GetInt32(0);
+            var name = reader.GetString(1);
+            var status = reader.GetInt32(2);
+            var folderId = reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3);
+            var textLength = reader.IsDBNull(4) ? 0 : reader.GetString(4).Length;
+            var metadata = reader.IsDBNull(5) ? "" : reader.GetString(5);
+            sb.AppendLine($"ID: {id}, Name: {name}, Status: {status}, FolderId: {folderId}, TextLength: {textLength}, Metadata: {metadata}");
+        }
+        throw new System.Exception(sb.ToString());
+    }
 }
+

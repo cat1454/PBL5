@@ -12,6 +12,7 @@ import {
   LuDownload,
   LuFileDown,
   LuFilePlus2,
+  LuFileText,
   LuGamepad2,
   LuHighlighter,
   LuIndentDecrease,
@@ -964,6 +965,8 @@ function FolderStudioRuntime() {
   const [isPresenting, setIsPresenting] = useState(false);
   const [presentSlideIndex, setPresentSlideIndex] = useState(0);
   const [presentationViewport, setPresentationViewport] = useState({ width: 1280, height: 720 });
+  const [showEditorNotesPanel, setShowEditorNotesPanel] = useState(false);
+  const [showPresentationNotes, setShowPresentationNotes] = useState(false);
   const [remoteSelections, setRemoteSelections] = useState({});
   const [, setAnimatingSlides] = useState({});
   const progressRef = useRef(null);
@@ -3152,6 +3155,7 @@ function FolderStudioRuntime() {
 
   const closePresentation = useCallback(() => {
     setIsPresenting(false);
+    setShowPresentationNotes(false);
     if (
       presentationRequestedFullscreenRef.current
       && document.fullscreenElement
@@ -3673,6 +3677,24 @@ function FolderStudioRuntime() {
             <button type="button" className="folder-studio-mode-chip" disabled={!deckReady} onClick={() => setActiveTool('actions')}>
               <LuDownload aria-hidden="true" />
               <span>{language === 'vi' ? 'Export' : 'Export'}</span>
+            </button>
+            <button
+              type="button"
+              className="folder-studio-mode-chip"
+              disabled={!deckReady}
+              onClick={handleOpenPresentation}
+            >
+              <LuPresentation aria-hidden="true" />
+              <span>{language === 'vi' ? 'Thuyết trình' : 'Present'}</span>
+            </button>
+            <button
+              type="button"
+              className={`folder-studio-mode-chip${showEditorNotesPanel ? ' active' : ''}`}
+              disabled={!selectedSlide}
+              onClick={() => setShowEditorNotesPanel(!showEditorNotesPanel)}
+            >
+              <LuFileText aria-hidden="true" />
+              <span>{language === 'vi' ? 'Ghi chú' : 'Notes'}</span>
             </button>
             <span className={`workspace-canvas-status tone-${canvasAutosaveStatus}`}>{canvasStatusLabel}</span>
           </div>
@@ -4474,6 +4496,17 @@ function FolderStudioRuntime() {
                       </button>
                       <button
                         type="button"
+                        className={`workspace-canvas-mode-button${showEditorNotesPanel ? ' active' : ''}`}
+                        aria-label={language === 'vi' ? 'Xem ghi chú' : 'View notes'}
+                        title={language === 'vi' ? 'Xem ghi chú' : 'View notes'}
+                        disabled={!selectedSlide}
+                        onClick={() => setShowEditorNotesPanel(!showEditorNotesPanel)}
+                      >
+                        <LuFileText aria-hidden="true" />
+                        <span>{language === 'vi' ? 'Ghi chú' : 'Notes'}</span>
+                      </button>
+                      <button
+                        type="button"
                         className="workspace-canvas-mode-button"
                         aria-label="Undo"
                         title="Undo"
@@ -4529,6 +4562,33 @@ function FolderStudioRuntime() {
                       onSelectElement={handleSelectCanvasElement}
                     />
                   </article>
+
+                  {showEditorNotesPanel && selectedSlide && (
+                    <div className="workspace-speaker-notes-panel">
+                      <div className="workspace-speaker-notes-header">
+                        <div className="workspace-speaker-notes-title">
+                          <LuFileText className="notes-icon" aria-hidden="true" />
+                          <span>{language === 'vi' ? 'Ghi chú của Slide này' : 'Speaker Notes for this Slide'}</span>
+                        </div>
+                        <button 
+                          type="button" 
+                          className="workspace-speaker-notes-close"
+                          onClick={() => setShowEditorNotesPanel(false)}
+                          aria-label={language === 'vi' ? 'Đóng ghi chú' : 'Close notes'}
+                        >
+                          <LuX aria-hidden="true" />
+                        </button>
+                      </div>
+                      <textarea
+                        className="workspace-speaker-notes-textarea"
+                        value={selectedDraft?.notes?.text || ''}
+                        onChange={(e) => handleFieldTextChange('notes', e.target.value)}
+                        placeholder={language === 'vi' ? 'Nhập ghi chú hoặc script thuyết trình tại đây...' : 'Enter speaker notes or script here...'}
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
+
                   {false && (
                   <article className="folder-slide-card">
                     <div className={`folder-slide-layout${selectedSlideNeedsMedia ? '' : ' text-only-layout'}`}>
@@ -5143,15 +5203,27 @@ function FolderStudioRuntime() {
                 total: slideItems.length,
               })}
             </span>
-            <button
-              type="button"
-              className="slide-presentation-close"
-              onClick={closePresentation}
-              title={t('slides.presentation.exitPresent')}
-              aria-label={t('slides.presentation.exitPresent')}
-            >
-              <LuX aria-hidden="true" />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                type="button"
+                className={`slide-presentation-toggle-notes${showPresentationNotes ? ' active' : ''}`}
+                onClick={() => setShowPresentationNotes(!showPresentationNotes)}
+                title={language === 'vi' ? 'Xem ghi chú' : 'View speaker notes'}
+                aria-label={language === 'vi' ? 'Xem ghi chú' : 'View speaker notes'}
+              >
+                <LuBookOpen aria-hidden="true" />
+                <span>{language === 'vi' ? 'Ghi chú' : 'Notes'}</span>
+              </button>
+              <button
+                type="button"
+                className="slide-presentation-close"
+                onClick={closePresentation}
+                title={t('slides.presentation.exitPresent')}
+                aria-label={t('slides.presentation.exitPresent')}
+              >
+                <LuX aria-hidden="true" />
+              </button>
+            </div>
           </div>
 
           <div className="slide-presentation-stage">
@@ -5175,6 +5247,35 @@ function FolderStudioRuntime() {
                 scale={presentationCanvasScale}
               />
             </article>
+
+            {showPresentationNotes && (
+              <aside className="slide-presentation-notes-panel">
+                <div className="slide-presentation-notes-header">
+                  <div className="slide-presentation-notes-title">
+                    <LuBookOpen className="notes-panel-icon" aria-hidden="true" />
+                    <span>{language === 'vi' ? 'Ghi chú thuyết trình' : 'Speaker Notes'}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="slide-presentation-notes-close"
+                    onClick={() => setShowPresentationNotes(false)}
+                    title={language === 'vi' ? 'Đóng ghi chú' : 'Close notes'}
+                    aria-label={language === 'vi' ? 'Đóng ghi chú' : 'Close notes'}
+                  >
+                    <LuX aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="slide-presentation-notes-body">
+                  {presentationSlide.speakerNotes ? (
+                    <p>{presentationSlide.speakerNotes}</p>
+                  ) : (
+                    <p className="no-notes-placeholder">
+                      {language === 'vi' ? 'Không có ghi chú cho slide này.' : 'No notes for this slide.'}
+                    </p>
+                  )}
+                </div>
+              </aside>
+            )}
 
             <button
               type="button"

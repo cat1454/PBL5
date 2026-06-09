@@ -74,8 +74,61 @@ public class DemoPayloadImporter
 
                 _logger.LogInformation("Document with title '{Title}' already exists. Deleting old document and related data.", payload.DocumentAnalysis.Title);
                 deletedOldDocId = existingDoc.Id;
-                await CleanUpDocumentDataAsync(existingDoc.Id);
+                
+                var oldWorkspaceId = existingDoc.FolderProjectId;
+                if (oldWorkspaceId.HasValue)
+                {
+                    var oldWorkspace = await _context.FolderProjects
+                        .Include(w => w.Documents)
+                        .Include(w => w.SlideDecks)
+                        .FirstOrDefaultAsync(w => w.Id == oldWorkspaceId.Value);
+
+                    if (oldWorkspace != null)
+                    {
+                        // Clean up all documents inside this workspace
+                        var docIds = oldWorkspace.Documents.Select(d => d.Id).ToList();
+                        foreach (var docId in docIds)
+                        {
+                            await CleanUpDocumentDataAsync(docId);
+                        }
+
+                        // Clean up any remaining slide decks in the workspace
+                        foreach (var deck in oldWorkspace.SlideDecks)
+                        {
+                            var slideItems = await _context.SlideItems
+                                .Where(item => item.SlideDeckId == deck.Id)
+                                .ToListAsync();
+                            _context.SlideItems.RemoveRange(slideItems);
+                        }
+                        _context.SlideDecks.RemoveRange(oldWorkspace.SlideDecks);
+
+                        _context.FolderProjects.Remove(oldWorkspace);
+                        await _context.SaveChangesAsync();
+                        _logger.LogInformation("Deleted old workspace associated with document: {WorkspaceId}", oldWorkspaceId.Value);
+                    }
+                    else
+                    {
+                        await CleanUpDocumentDataAsync(existingDoc.Id);
+                    }
+                }
+                else
+                {
+                    await CleanUpDocumentDataAsync(existingDoc.Id);
+                }
             }
+
+            // Create new workspace for this document
+            var workspace = new FolderProject
+            {
+                Name = payload.DocumentAnalysis.Title,
+                Description = $"Workspace for demo topic: {payload.DocumentAnalysis.Title}",
+                UploadedBy = user.Id.ToString(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _context.FolderProjects.Add(workspace);
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Created new workspace: {WorkspaceName} (Id: {Id})", workspace.Name, workspace.Id);
 
             // 5. Map and Save Document
             var document = new Document
@@ -86,6 +139,7 @@ public class DemoPayloadImporter
                 FileSize = 1024,
                 Status = DocumentStatus.Completed,
                 UploadedBy = user.Id.ToString(),
+                FolderProjectId = workspace.Id, // Link to the new workspace!
                 Summary = payload.DocumentAnalysis.Summary,
                 Language = payload.DocumentAnalysis.Language,
                 CreatedAt = DateTime.UtcNow,
@@ -153,6 +207,7 @@ public class DemoPayloadImporter
             var slideDeck = new SlideDeck
             {
                 DocumentId = document.Id,
+                FolderProjectId = workspace.Id, // Link to workspace!
                 Title = payload.SlideDeck.Title,
                 Subtitle = payload.SlideDeck.Subtitle,
                 ThemeKey = payload.SlideDeck.ThemeKey,
@@ -352,6 +407,15 @@ public class DemoPayloadImporter
             _context.ClassroomAssignmentAnswers.RemoveRange(classroomAssignmentAnswers);
         }
 
+        // 2b. ClassroomAssignmentQuestionStat
+        if (questionIds.Count > 0)
+        {
+            var classroomAssignmentQuestionStats = await _context.ClassroomAssignmentQuestionStats
+                .Where(stat => questionIds.Contains(stat.QuestionId))
+                .ToListAsync();
+            _context.ClassroomAssignmentQuestionStats.RemoveRange(classroomAssignmentQuestionStats);
+        }
+
         // 3. LearningAttempt
         var learningAttempts = await _context.LearningAttempts
             .Where(la => la.DocumentId == documentId || questionIds.Contains(la.QuestionId))
@@ -363,6 +427,12 @@ public class DemoPayloadImporter
             .Where(lp => lp.DocumentId == documentId || questionIds.Contains(lp.QuestionId))
             .ToListAsync();
         _context.LearningProgresses.RemoveRange(learningProgresses);
+
+        // 4b. LearningTestResult
+        var learningTestResults = await _context.LearningTestResults
+            .Where(r => r.DocumentId == documentId)
+            .ToListAsync();
+        _context.LearningTestResults.RemoveRange(learningTestResults);
 
         // 5. GameSession
         var gameSessions = await _context.GameSessions
@@ -407,6 +477,10 @@ public class DemoPayloadImporter
             _context.SlideItems.RemoveRange(slideItems);
         }
         _context.SlideDecks.RemoveRange(slideDecks);
+
+        // Save dependencies before deleting parent Questions and Documents
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Cleaned up child dependency tables for document {DocumentId}.", documentId);
 
         // 11. Question
         if (questionIds.Count > 0)

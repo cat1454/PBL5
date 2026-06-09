@@ -229,10 +229,6 @@ const buildFallbackElements = (slide) => {
     elements.push(imageElement());
   }
 
-  if (notes) {
-    elements.push(textElement({ role: 'notes', x: 96, y: 748, width: 880, height: 70, zIndex: 40, text: notes, fontSize: 18, color: '#B6C6D8' }));
-  }
-
   return elements;
 };
 
@@ -242,7 +238,9 @@ export const normalizeEditorState = (slide) => {
   const sourceElements = readEditorValue(source, 'elements', 'Elements', []);
   const elements = (Array.isArray(sourceElements) && sourceElements.length > 0 ? sourceElements : buildFallbackElements(slide))
     .map((element, index) => normalizeElement(element, index, canvas))
+    .filter((element) => element.role !== 'notes')
     .sort((a, b) => a.zIndex - b.zIndex);
+
 
   return {
     version: String(readEditorValue(source, 'version', 'Version', '2') || '2'),

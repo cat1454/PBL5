@@ -285,27 +285,42 @@ public class DocumentsController : AuthenticatedControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteDocument(int id)
     {
-        var document = await _documentRepository.GetByIdAsync(id);
-        
-        if (document == null)
+        try
         {
-            return NotFound();
-        }
+            var document = await _documentRepository.GetByIdAsync(id);
+            
+            if (document == null)
+            {
+                return NotFound();
+            }
 
-        var authResult = EnsureOwnerAccess(document.UploadedBy);
-        if (authResult != null)
+            var authResult = EnsureOwnerAccess(document.UploadedBy);
+            if (authResult != null)
+            {
+                return authResult;
+            }
+
+            // Delete file with safety try-catch for locks
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(document.FilePath) && System.IO.File.Exists(document.FilePath))
+                {
+                    System.IO.File.Delete(document.FilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not delete physical file {FilePath} for document {DocumentId}", document.FilePath, id);
+            }
+
+            await _documentRepository.DeleteAsync(id);
+            return NoContent();
+        }
+        catch (Exception ex)
         {
-            return authResult;
+            _logger.LogError(ex, "Error occurred during document deletion {DocumentId}", id);
+            return StatusCode(500, new { error = "delete_failed", message = ex.Message });
         }
-
-        // Delete file
-        if (System.IO.File.Exists(document.FilePath))
-        {
-            System.IO.File.Delete(document.FilePath);
-        }
-
-        await _documentRepository.DeleteAsync(id);
-        return NoContent();
     }
 
     [HttpPut("{id}/workspace")]
