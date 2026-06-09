@@ -9,6 +9,8 @@ using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.API.Filters;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using ELearnGamePlatform.Infrastructure.Data;
 
 namespace ELearnGamePlatform.API.Controllers;
 
@@ -28,6 +30,7 @@ public class DocumentsController : AuthenticatedControllerBase
     private readonly IDocumentUnderstandingRunRepository _understandingRunRepository;
     private readonly IDocumentGenerationReadinessService _generationReadinessService;
     private readonly DocumentUnderstandingOptions _documentUnderstandingOptions;
+    private readonly ApplicationDbContext _context;
 
     public DocumentsController(
         IDocumentRepository documentRepository,
@@ -39,7 +42,8 @@ public class DocumentsController : AuthenticatedControllerBase
         IContentAnalyzer contentAnalyzer,
         IDocumentUnderstandingRunRepository understandingRunRepository,
         IDocumentGenerationReadinessService generationReadinessService,
-        IOptions<DocumentUnderstandingOptions> documentUnderstandingOptions)
+        IOptions<DocumentUnderstandingOptions> documentUnderstandingOptions,
+        ApplicationDbContext context)
     {
         _documentRepository = documentRepository;
         _questionRepository = questionRepository;
@@ -51,6 +55,7 @@ public class DocumentsController : AuthenticatedControllerBase
         _understandingRunRepository = understandingRunRepository;
         _generationReadinessService = generationReadinessService;
         _documentUnderstandingOptions = documentUnderstandingOptions.Value;
+        _context = context;
     }
 
     [HttpPost("upload")]
@@ -246,7 +251,17 @@ public class DocumentsController : AuthenticatedControllerBase
             return authResult;
         }
 
-        var documents = await _documentRepository.GetByUserAsync(CurrentUserIdAsString);
+        var targetUserId = userId;
+        if (!int.TryParse(userId, out _))
+        {
+            var user = await _context.AppUsers.FirstOrDefaultAsync(u => u.Email == userId.Trim().ToLower());
+            if (user != null)
+            {
+                targetUserId = user.Id.ToString();
+            }
+        }
+
+        var documents = await _documentRepository.GetByUserAsync(targetUserId);
         var questionsCountMap = new Dictionary<int, int>();
 
         foreach (var document in documents)
@@ -291,6 +306,41 @@ public class DocumentsController : AuthenticatedControllerBase
 
         await _documentRepository.DeleteAsync(id);
         return NoContent();
+    }
+
+    [HttpPut("{id}/workspace")]
+    public async Task<IActionResult> MoveDocumentToWorkspace(int id, [FromBody] MoveDocumentWorkspaceRequest request)
+    {
+        var document = await _documentRepository.GetByIdAsync(id);
+        
+        if (document == null)
+        {
+            return NotFound("Document not found");
+        }
+
+        var authResult = EnsureOwnerAccess(document.UploadedBy);
+        if (authResult != null)
+        {
+            return authResult;
+        }
+
+        var targetWorkspace = await _context.FolderProjects.FirstOrDefaultAsync(fp => fp.Id == request.TargetWorkspaceId);
+        if (targetWorkspace == null)
+        {
+            return NotFound("Target workspace not found");
+        }
+
+        var workspaceAuth = EnsureOwnerAccess(targetWorkspace.UploadedBy);
+        if (workspaceAuth != null)
+        {
+            return workspaceAuth;
+        }
+
+        document.FolderProjectId = request.TargetWorkspaceId;
+        document.UpdatedAt = DateTime.UtcNow;
+
+        await _documentRepository.UpdateAsync(document.Id, document);
+        return Ok(new { message = "Document moved successfully" });
     }
 
     private async Task<object> BuildDocumentPayloadAsync(Document doc, int questionsCount)
@@ -391,4 +441,9 @@ public class DocumentsController : AuthenticatedControllerBase
 
         return JsonSerializer.Deserialize<JsonElement>(json);
     }
+}
+
+public class MoveDocumentWorkspaceRequest
+{
+    public int TargetWorkspaceId { get; set; }
 }

@@ -309,8 +309,185 @@
 }
 
 .app-surface-workspace .folder-studio-source-item {
-  grid-template-columns: 24px 34px minmax(0, 1fr);
+  grid-template-columns: 24px 34px minmax(0, 1fr) auto;
   padding: 12px !important;
+}
+
+.folder-studio-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-studio-source-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  align-self: center;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.folder-studio-source-action-btn:hover {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
+.folder-studio-source-action-btn.tone-danger:hover {
+  background-color: #fecdd3;
+  color: #e11d48;
+}
+
+.folder-studio-source-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Document Move Modal */
+.workspace-move-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(4px);
+  padding: 20px;
+}
+
+.workspace-move-modal {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 24px 54px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: workspaceFloatIn 180ms ease;
+}
+
+.workspace-move-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workspace-move-header h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.workspace-move-close {
+  background: transparent;
+  border: 0;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.workspace-move-close:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.workspace-move-body {
+  padding: 20px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.workspace-move-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.workspace-move-item:hover {
+  border-color: #7f77dd;
+  background-color: #f5f4ff;
+  color: #4338ca;
+}
+
+.workspace-move-item svg {
+  color: #94a3b8;
+  transition: color 150ms ease;
+}
+
+.workspace-move-item:hover svg {
+  color: #4338ca;
+}
+
+.workspace-move-empty {
+  padding: 16px;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+}
+
+.workspace-move-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #f1f5f9;
+  background-color: #f8fafc;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workspace-move-new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.workspace-move-new-btn:hover {
+  border-color: #7f77dd;
+  color: #4338ca;
 }
 
 .app-surface-workspace .folder-studio-flow-item {
