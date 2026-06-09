@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from './AppShell';
-import LoginPage from '../components/auth/LoginPage';
+import AuthPage from '../components/auth/AuthPage';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
-import RegisterPage from '../components/auth/RegisterPage';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import AuthLayout from '../layouts/AuthLayout';
@@ -27,8 +26,8 @@ function AppRouter() {
 
   return (
     <Routes>
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <AuthLayout><LoginPage /></AuthLayout>} />
-      <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <AuthLayout><RegisterPage /></AuthLayout>} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <AuthLayout><AuthPage initialTab="login" /></AuthLayout>} />
+      <Route path="/register" element={isAuthenticated ? <Navigate to="/" replace /> : <AuthLayout><AuthPage initialTab="register" /></AuthLayout>} />
       <Route
         path="/*"
         element={(
