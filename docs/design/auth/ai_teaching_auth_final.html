@@ -1,0 +1,673 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  .auth-wrapper {
+    display: flex;
+    min-height: 540px;
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+    border: 0.5px solid var(--color-border-tertiary);
+    background: var(--color-background-primary);
+  }
+
+  .auth-left {
+    width: 44%;
+    background: linear-gradient(155deg, #1a6b6b 0%, #145c5c 40%, #0e4a4a 70%, #0a3a3a 100%);
+    padding: 28px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between;
+    position: relative; overflow: hidden;
+  }
+  .auth-left::before {
+    content: '';
+    position: absolute; top: -60px; right: -60px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: rgba(255,255,255,0.04);
+  }
+
+  .brand { display: flex; align-items: center; gap: 10px; align-self: flex-start; }
+  .brand-icon { width: 32px; height: 32px; background: rgba(255,255,255,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
+  .brand-text { color: #fff; font-weight: 500; font-size: 15px; }
+  .brand-sub { color: rgba(255,255,255,0.6); font-size: 12px; }
+
+  .character-area { display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 1; flex: 1; justify-content: center; }
+  canvas#aiChar { display: block; }
+
+  .char-label { color: rgba(255,255,255,0.75); font-size: 12px; text-align: center; line-height: 1.5; }
+  .char-label strong { color: #fff; font-weight: 500; display: block; font-size: 13px; margin-bottom: 2px; }
+
+  /* How-it-works button in left panel */
+  .how-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px; padding: 7px 14px; color: #fff; font-size: 12px;
+    cursor: pointer; font-family: var(--font-sans);
+    transition: background 0.2s, transform 0.15s;
+  }
+  .how-btn:hover { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+  .how-btn i { font-size: 14px; }
+
+  .auth-right { flex: 1; padding: 32px 36px; display: flex; flex-direction: column; overflow: hidden; }
+  .eyebrow { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; color: var(--color-text-secondary); text-transform: uppercase; margin-bottom: 10px; }
+
+  .tab-row { display: flex; margin-bottom: 20px; border-bottom: 0.5px solid var(--color-border-tertiary); position: relative; }
+  .tab-btn { background: none; border: none; padding: 8px 0; margin-right: 24px; font-size: 14px; cursor: pointer; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -0.5px; font-family: var(--font-sans); transition: color 0.2s; }
+  .tab-btn.active { color: var(--color-text-primary); font-weight: 500; }
+  .tab-indicator { position: absolute; bottom: -0.5px; height: 2px; background: #1a6b6b; border-radius: 2px; transition: left 0.3s cubic-bezier(0.4,0,0.2,1), width 0.3s cubic-bezier(0.4,0,0.2,1); }
+
+  .panels-container { position: relative; flex: 1; overflow: hidden; }
+  .form-panel { position: absolute; top: 0; left: 0; right: 0; opacity: 0; transform: translateX(32px); pointer-events: none; transition: opacity 0.28s cubic-bezier(0.4,0,0.2,1), transform 0.28s cubic-bezier(0.4,0,0.2,1); }
+  .form-panel.active { opacity: 1; transform: translateX(0); pointer-events: auto; position: relative; }
+
+  .auth-title { font-size: 24px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
+  .auth-desc { font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 14px; }
+
+  /* Inline "Xem cách hoạt động" link inside right panel */
+  .how-inline {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: #1a6b6b; font-size: 12px; cursor: pointer;
+    font-family: var(--font-sans); background: none; border: none; padding: 0;
+    text-decoration: underline; text-underline-offset: 2px;
+    transition: opacity 0.15s;
+  }
+  .how-inline:hover { opacity: 0.75; }
+  .how-inline i { font-size: 13px; }
+
+  .form-group { margin-bottom: 12px; }
+  .form-label { display: block; font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 5px; }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { width: 100%; padding-right: 38px; }
+  .pw-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--color-text-secondary); padding: 2px; display: flex; align-items: center; line-height: 1; transition: color 0.15s; }
+  .pw-toggle:hover { color: var(--color-text-primary); }
+  .pw-toggle i { font-size: 17px; }
+
+  input[type="text"], input[type="email"], input[type="password"] {
+    width: 100%; height: 38px;
+    border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md);
+    padding: 0 12px; font-size: 13px; font-family: var(--font-sans);
+    background: var(--color-background-primary); color: var(--color-text-primary);
+    outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input:focus { border-color: #1a6b6b; box-shadow: 0 0 0 2px rgba(26,107,107,0.15); }
+
+  .role-section { margin-bottom: 12px; }
+  .role-label { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 8px; display: block; }
+  .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .role-card { border: 1.5px solid var(--color-border-tertiary); border-radius: 10px; padding: 11px; cursor: pointer; position: relative; background: var(--color-background-primary); transition: border-color 0.18s, background 0.18s, transform 0.15s; }
+  .role-card:hover { border-color: #1a6b6b; background: rgba(26,107,107,0.04); transform: translateY(-1px); }
+  .role-card.selected { border-color: #1a6b6b; background: rgba(26,107,107,0.06); }
+  .role-card.selected .role-check { opacity: 1; transform: scale(1); }
+  .role-check { position: absolute; top: 9px; right: 9px; width: 18px; height: 18px; background: #1a6b6b; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(0.5); transition: opacity 0.2s, transform 0.2s cubic-bezier(0.34,1.56,0.64,1); color: #fff; font-size: 11px; }
+  .role-icon { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; font-size: 16px; transition: transform 0.2s; }
+  .role-card:hover .role-icon { transform: scale(1.08); }
+  .role-icon.student { background: rgba(26,107,107,0.1); color: #1a6b6b; }
+  .role-icon.teacher { background: rgba(90,64,184,0.1); color: #5a40b8; }
+  .role-name { font-size: 12px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 2px; }
+  .role-desc { font-size: 11px; color: var(--color-text-secondary); line-height: 1.35; }
+
+  .submit-btn { width: 100%; height: 40px; background: #5a40b8; border: none; border-radius: var(--border-radius-md); color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; font-family: var(--font-sans); margin-bottom: 10px; transition: opacity 0.15s, transform 0.12s; }
+  .submit-btn:hover { opacity: 0.92; }
+  .submit-btn:active { transform: scale(0.98); }
+
+  .switch-link { text-align: center; font-size: 13px; color: var(--color-text-secondary); }
+  .switch-link a { color: #5a40b8; text-decoration: none; font-weight: 500; cursor: pointer; }
+  .switch-link a:hover { text-decoration: underline; }
+
+  /* ===================== MODAL ===================== */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.48);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+    backdrop-filter: blur(3px);
+  }
+  .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .modal-box {
+    background: #f0f4f4;
+    border-radius: 20px;
+    padding: 36px 40px 32px;
+    width: min(860px, 92vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+    transform: translateY(16px) scale(0.97);
+    transition: transform 0.28s cubic-bezier(0.22,1,0.36,1);
+    position: relative;
+  }
+  .modal-backdrop.open .modal-box { transform: translateY(0) scale(1); }
+
+  .modal-close {
+    position: absolute; top: 16px; right: 16px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(0,0,0,0.08); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #444; font-size: 18px;
+    transition: background 0.15s;
+  }
+  .modal-close:hover { background: rgba(0,0,0,0.15); }
+
+  .modal-title {
+    font-size: 22px; font-weight: 700; color: #0e3a3a;
+    text-align: center; margin-bottom: 4px;
+  }
+  .modal-subtitle {
+    font-size: 13px; color: #4a6a6a; text-align: center;
+    margin-bottom: 28px; line-height: 1.5;
+  }
+
+  /* Flow diagram */
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    gap: 0;
+    align-items: start;
+    margin-bottom: 24px;
+  }
+
+  .flow-col {
+    background: #fff;
+    border-radius: 14px;
+    padding: 18px 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+  }
+
+  .flow-col-center {
+    background: #fff;
+    border-radius: 14px;
+    padding: 18px 16px;
+    box-shadow: 0 4px 20px rgba(26,107,107,0.15);
+    border: 1.5px solid rgba(26,107,107,0.18);
+  }
+
+  .flow-col-title {
+    font-size: 17px; font-weight: 700; color: #0e3a3a;
+    margin-bottom: 3px;
+  }
+  .flow-col-summary {
+    font-size: 12px; color: #1a6b6b; font-weight: 500;
+    margin-bottom: 14px;
+  }
+  .flow-col-center .flow-col-title {
+    text-align: center; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .flow-col-center .flow-col-summary { text-align: center; color: #444; font-weight: 400; font-size: 12px; }
+
+  .flow-step {
+    display: flex; align-items: center; gap: 9px;
+    background: rgba(26,107,107,0.06); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 8px; font-size: 13px;
+    font-weight: 500; color: #0e3a3a;
+  }
+  .flow-step:last-child { margin-bottom: 0; }
+  .flow-step-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid #1a6b6b; color: #1a6b6b;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+
+  /* teacher steps purple accent */
+  .flow-col.teacher .flow-step { background: rgba(90,64,184,0.06); }
+  .flow-col.teacher .flow-step-num { border-color: #5a40b8; color: #5a40b8; }
+  .flow-col.teacher .flow-col-summary { color: #5a40b8; }
+
+  .flow-arrow {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 0 10px; padding-top: 56px;
+    gap: 4px;
+  }
+  .flow-arrow-label {
+    font-size: 10px; color: #888; letter-spacing: 0.05em;
+  }
+  .flow-arrow-line {
+    display: flex; align-items: center; gap: 0;
+    color: #1a6b6b; font-size: 18px;
+  }
+
+  /* Center module chips */
+  .module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .module-chip {
+    background: rgba(26,107,107,0.07); border-radius: 8px;
+    padding: 7px 8px; font-size: 11px; font-weight: 500; color: #0e3a3a;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .module-chip i { color: #1a6b6b; font-size: 13px; }
+
+  /* Footer note */
+  .flow-footer {
+    background: #fff; border-radius: 12px; padding: 14px 18px;
+    border-left: 4px solid #1a6b6b;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  }
+  .flow-footer-main { font-size: 13px; font-weight: 600; color: #0e3a3a; margin-bottom: 2px; }
+  .flow-footer-sub { font-size: 12px; color: #5a7070; line-height: 1.4; }
+</style>
+
+<div style="padding:1rem 0;">
+<h2 class="sr-only">Giao diện đăng nhập AI Teaching</h2>
+<div class="auth-wrapper">
+
+  <div class="auth-left">
+    <div class="brand">
+      <div class="brand-icon"><i class="ti ti-sparkles" aria-hidden="true"></i></div>
+      <div>
+        <div class="brand-text">AI Teaching</div>
+        <div class="brand-sub">Không gian học tập với AI</div>
+      </div>
+    </div>
+
+    <div class="character-area">
+      <canvas id="aiChar" width="180" height="180"></canvas>
+      <div class="char-label">
+        <strong>Trợ lý AI</strong>
+        Luôn theo dõi bạn 👀
+      </div>
+      <button class="how-btn" onclick="openModal()">
+        <i class="ti ti-info-circle"></i>
+        Xem cách hoạt động
+      </button>
+    </div>
+
+    <div style="width:40px;height:40px;background:#d4a017;border-radius:10px;display:flex;align-items:center;justify-content:center;align-self:flex-end;color:#fff;font-size:18px;">
+      <i class="ti ti-check" aria-hidden="true"></i>
+    </div>
+  </div>
+
+  <div class="auth-right">
+    <div class="eyebrow">Elearn Account</div>
+    <div class="tab-row" id="tabRow">
+      <button class="tab-btn active" id="tab-login" onclick="switchTab('login')">Đăng nhập</button>
+      <button class="tab-btn" id="tab-register" onclick="switchTab('register')">Đăng ký</button>
+      <div class="tab-indicator" id="tabIndicator"></div>
+    </div>
+
+    <div class="panels-container">
+      <!-- LOGIN PANEL -->
+      <div id="panel-login" class="form-panel active">
+        <div class="auth-title">Đăng nhập</div>
+        <div class="auth-desc">
+          Dùng tài khoản thật để lưu workspace, tài liệu và slide deck của bạn.
+          <button class="how-inline" onclick="openModal()" style="margin-left:4px;">
+            <i class="ti ti-help-circle"></i> Nền tảng hoạt động thế nào?
+          </button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" placeholder="teacher.demo@elearn.local" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mật khẩu</label>
+          <div class="pw-wrap">
+            <input type="password" id="login-pw" placeholder="••••••••••" />
+            <button class="pw-toggle" onclick="togglePw('login-pw', this)" aria-label="Hiện mật khẩu">
+              <i class="ti ti-eye"></i>
+            </button>
+          </div>
+        </div>
+        <button class="submit-btn" style="margin-top:6px;">Đăng nhập</button>
+        <div class="switch-link">Chưa có tài khoản? <a onclick="switchTab('register')">Đăng ký</a></div>
+      </div>
+
+      <!-- REGISTER PANEL -->
+      <div id="panel-register" class="form-panel">
+        <div class="auth-title">Đăng ký</div>
+        <div class="auth-desc">
+          Tạo tài khoản học tập hoặc giảng dạy.
+          <button class="how-inline" onclick="openModal()" style="margin-left:4px;">
+            <i class="ti ti-help-circle"></i> Vai trò khác nhau thế nào?
+          </button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Họ và tên</label>
+          <input type="text" placeholder="Nguyễn Văn A" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" placeholder="example@email.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mật khẩu</label>
+          <div class="pw-wrap">
+            <input type="password" id="reg-pw1" placeholder="Tối thiểu 8 ký tự" />
+            <button class="pw-toggle" onclick="togglePw('reg-pw1', this)" aria-label="Hiện mật khẩu">
+              <i class="ti ti-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Xác nhận mật khẩu</label>
+          <div class="pw-wrap">
+            <input type="password" id="reg-pw2" placeholder="Nhập lại mật khẩu" />
+            <button class="pw-toggle" onclick="togglePw('reg-pw2', this)" aria-label="Hiện mật khẩu">
+              <i class="ti ti-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div class="role-section">
+          <span class="role-label">Bạn tham gia với vai trò</span>
+          <div class="role-grid">
+            <div class="role-card selected" onclick="selectRole(this)">
+              <div class="role-check"><i class="ti ti-check" aria-hidden="true"></i></div>
+              <div class="role-icon student"><i class="ti ti-school" aria-hidden="true"></i></div>
+              <div class="role-name">Người học</div>
+              <div class="role-desc">Vào lớp, làm bài và xem kết quả</div>
+            </div>
+            <div class="role-card" onclick="selectRole(this)">
+              <div class="role-check"><i class="ti ti-check" aria-hidden="true"></i></div>
+              <div class="role-icon teacher"><i class="ti ti-chalkboard" aria-hidden="true"></i></div>
+              <div class="role-name">Giảng viên</div>
+              <div class="role-desc">Tạo học liệu, giao bài và theo dõi lớp</div>
+            </div>
+          </div>
+        </div>
+        <button class="submit-btn">Tạo tài khoản</button>
+        <div class="switch-link">Đã có tài khoản? <a onclick="switchTab('login')">Đăng nhập</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===================== MODAL ===================== -->
+<div class="modal-backdrop" id="flowModal" onclick="closeModalOutside(event)">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-label="Cách nền tảng hoạt động">
+    <button class="modal-close" onclick="closeModal()" aria-label="Đóng">
+      <i class="ti ti-x"></i>
+    </button>
+    <div class="modal-title">Học tập thông minh từ tài liệu của giảng viên</div>
+    <div class="modal-subtitle">Giảng viên tạo lớp và giao bài; người học tham gia, làm bài và theo dõi tiến độ.</div>
+
+    <div class="flow-grid">
+      <!-- Teacher -->
+      <div class="flow-col teacher">
+        <div class="flow-col-title">Giảng viên</div>
+        <div class="flow-col-summary">Tạo học liệu &amp; giao bài</div>
+        <div class="flow-step"><div class="flow-step-num">1</div>Tải tài liệu</div>
+        <div class="flow-step"><div class="flow-step-num">2</div>Tạo bài kiểm tra</div>
+        <div class="flow-step"><div class="flow-step-num">3</div>Theo dõi lớp học</div>
+      </div>
+
+      <!-- Arrow left -->
+      <div class="flow-arrow">
+        <div class="flow-arrow-label">giao bài</div>
+        <div class="flow-arrow-line"><i class="ti ti-arrow-right"></i></div>
+      </div>
+
+      <!-- Center classroom -->
+      <div class="flow-col-center">
+        <div class="flow-col-title">LỚP HỌC</div>
+        <div class="flow-col-summary">Không gian học tập chung<br>Kết nối học liệu, bài kiểm tra và kết quả.</div>
+        <div class="module-grid">
+          <div class="module-chip"><i class="ti ti-list-check"></i>Bộ câu hỏi</div>
+          <div class="module-chip"><i class="ti ti-file-check"></i>Bài kiểm tra</div>
+          <div class="module-chip"><i class="ti ti-trophy"></i>Xếp hạng</div>
+          <div class="module-chip"><i class="ti ti-chart-bar"></i>Tiến độ</div>
+        </div>
+      </div>
+
+      <!-- Arrow right -->
+      <div class="flow-arrow">
+        <div class="flow-arrow-label">học</div>
+        <div class="flow-arrow-line"><i class="ti ti-arrow-right"></i></div>
+      </div>
+
+      <!-- Learner -->
+      <div class="flow-col">
+        <div class="flow-col-title">Người học</div>
+        <div class="flow-col-summary">Tham gia lớp &amp; làm bài</div>
+        <div class="flow-step"><div class="flow-step-num">1</div>Vào lớp học</div>
+        <div class="flow-step"><div class="flow-step-num">2</div>Làm bài được giao</div>
+        <div class="flow-step"><div class="flow-step-num">3</div>Xem kết quả</div>
+      </div>
+    </div>
+
+    <div class="flow-footer">
+      <div class="flow-footer-main">Người học chỉ thấy lớp học, bài được giao, kết quả và tiến độ cá nhân.</div>
+      <div class="flow-footer-sub">Không hiển thị tải tài liệu, không gian làm việc, nhận dạng văn bản hoặc tạo học liệu tự động.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- Tab switching ---- */
+var currentTab = 'login';
+function moveIndicator(name) {
+  var btn = document.getElementById('tab-' + name);
+  var ind = document.getElementById('tabIndicator');
+  ind.style.left = btn.offsetLeft + 'px';
+  ind.style.width = btn.offsetWidth + 'px';
+}
+function switchTab(name) {
+  if (name === currentTab) return;
+  var old = document.getElementById('panel-' + currentTab);
+  var nw  = document.getElementById('panel-' + name);
+  var dir = name === 'register' ? 1 : -1;
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('tab-' + name).classList.add('active');
+  moveIndicator(name);
+  old.style.transition = 'opacity 0.22s ease, transform 0.22s ease';
+  old.style.opacity = '0'; old.style.transform = 'translateX(' + (-32*dir) + 'px)';
+  old.style.pointerEvents = 'none';
+  nw.style.transition = 'none'; nw.style.opacity = '0';
+  nw.style.transform = 'translateX(' + (32*dir) + 'px)';
+  nw.style.position = 'absolute'; nw.style.top = '0'; nw.style.left = '0'; nw.style.right = '0';
+  nw.classList.add('active');
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    nw.style.transition = 'opacity 0.26s ease, transform 0.26s ease';
+    nw.style.opacity = '1'; nw.style.transform = 'translateX(0)';
+    nw.style.pointerEvents = 'auto';
+  }); });
+  setTimeout(function(){
+    old.classList.remove('active');
+    old.style.cssText = '';
+    nw.style.position = nw.style.top = nw.style.left = nw.style.right = '';
+  }, 300);
+  currentTab = name;
+}
+function selectRole(card) {
+  document.querySelectorAll('.role-card').forEach(function(c){ c.classList.remove('selected'); });
+  card.classList.add('selected');
+}
+function togglePw(id, btn) {
+  var inp = document.getElementById(id), icon = btn.querySelector('i');
+  if (inp.type === 'password') { inp.type = 'text'; icon.className = 'ti ti-eye-off'; btn.setAttribute('aria-label','Ẩn mật khẩu'); }
+  else { inp.type = 'password'; icon.className = 'ti ti-eye'; btn.setAttribute('aria-label','Hiện mật khẩu'); }
+}
+setTimeout(function(){ moveIndicator('login'); }, 60);
+
+/* ---- Modal ---- */
+function openModal() {
+  document.getElementById('flowModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('flowModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function closeModalOutside(e) {
+  if (e.target === document.getElementById('flowModal')) closeModal();
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
+
+/* ---- AI character: global mouse tracking ---- */
+(function() {
+  var canvas = document.getElementById('aiChar');
+  var ctx = canvas.getContext('2d');
+  var W = 180, H = 180;
+
+  // Track mouse globally across whole page
+  var mouse = { x: W/2, y: H/2 };
+
+  document.addEventListener('mousemove', function(e) {
+    // Convert page mouse to canvas-local coords for eye direction
+    var rect = canvas.getBoundingClientRect();
+    // We want direction from canvas center toward cursor, globally
+    var canvasCenterX = rect.left + rect.width / 2;
+    var canvasCenterY = rect.top + rect.height / 2;
+    var dx = e.clientX - canvasCenterX;
+    var dy = e.clientY - canvasCenterY;
+    // Map to canvas space centered at W/2,H/2
+    var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    // Normalize and scale — eyes can travel up to ~half canvas width
+    var maxTravel = 90;
+    var factor = Math.min(dist, maxTravel) / dist;
+    mouse.x = W/2 + dx * factor;
+    mouse.y = H/2 + dy * factor;
+  });
+
+  var eyeCurL = {x:0,y:0,vx:0,vy:0};
+  var eyeCurR = {x:0,y:0,vx:0,vy:0};
+  var blinkT = 0, blinkNext = 120, blinkDur = 0, isBlinking = false;
+  var antennaT = 0, bodyBobT = 0, earWiggleT = 0, ledT = 0, swayT = 0;
+  var frame = 0;
+  var shieldAlpha = 0, shieldTarget = 0;
+
+  document.addEventListener('focusin', function(e) {
+    if (e.target && e.target.type === 'password') shieldTarget = 1;
+  });
+  document.addEventListener('focusout', function(e) {
+    if (e.target && e.target.type === 'password') shieldTarget = 0;
+  });
+
+  function lerp(a,b,t){ return a+(b-a)*t; }
+
+  function getEyeTarget(ex, ey) {
+    var dx = mouse.x - ex, dy = mouse.y - ey;
+    var dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    var maxR = 4.5;
+    var r = Math.min(dist, maxR*8) / (maxR*8);
+    return { x: dx/dist * r * maxR, y: dy/dist * r * maxR };
+  }
+
+  function drawRR(x,y,w,h,r,fill,stroke,lw) {
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+    ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+    ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+    ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill();}
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||1.5;ctx.stroke();}
+  }
+
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    frame++;
+    antennaT  += 0.038;
+    bodyBobT  += 0.022;
+    earWiggleT+= 0.034;
+    ledT      += 0.020;
+    swayT     += 0.008;
+
+    shieldAlpha = lerp(shieldAlpha, shieldTarget, 0.08);
+
+    var bodyBob  = Math.sin(bodyBobT)*2.0 + Math.sin(bodyBobT*1.7)*0.4;
+    var antWave  = Math.sin(antennaT)*3.5 + Math.sin(antennaT*2.2)*0.9;
+    var earWig   = Math.sin(earWiggleT)*1.8;
+
+    var cx = W/2, cy = H/2 - 5 + bodyBob;
+    var bodyX=cx-38, bodyY=cy-28, bodyW=76, bodyH=64;
+    var headX=cx-30, headY=cy-70, headW=60, headH=52;
+
+    // Legs
+    drawRR(bodyX+4, bodyY+42, 18, 28, 6, '#1a5a5a', null);
+    drawRR(bodyX+bodyW-22, bodyY+42, 18, 28, 6, '#1a5a5a', null);
+
+    // Antenna
+    ctx.beginPath(); ctx.moveTo(cx,headY); ctx.lineTo(cx+antWave, headY-22);
+    ctx.strokeStyle='#5dd4b4'; ctx.lineWidth=2.5; ctx.lineCap='round'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx+antWave, headY-26, 5, 0, Math.PI*2);
+    ctx.fillStyle='#5dd4b4'; ctx.fill();
+
+    // Ears
+    var earLX=headX-10, earRX=headX+headW-4, earY=headY+12;
+    drawRR(earLX, earY+earWig*0.5, 12, 22, 4, '#1a5a5a', null);
+    drawRR(earLX+2, earY+3+earWig*0.5, 8, 14, 3, '#5dd4b4', null);
+    drawRR(earRX, earY-earWig*0.5, 12, 22, 4, '#1a5a5a', null);
+    drawRR(earRX+2, earY+3-earWig*0.5, 8, 14, 3, '#5dd4b4', null);
+
+    // Head
+    drawRR(headX, headY, headW, headH, 14, '#1d7a7a', '#5dd4b4', 1.5);
+    // Body
+    drawRR(bodyX, bodyY, bodyW, bodyH, 10, '#1d7a7a', null);
+
+    // AI badge
+    ctx.fillStyle='rgba(255,255,255,0.08)';
+    ctx.beginPath(); ctx.arc(cx, bodyY+15, 20, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle='#5dd4b4'; ctx.font='500 13px monospace'; ctx.textAlign='center';
+    ctx.fillText('AI', cx, bodyY+20);
+
+    // LEDs — smooth sine pulse
+    var ledColors=['#5dd4b4','#4bbfff','#c084fc'];
+    for(var li=0;li<3;li++){
+      var p=0.55+0.45*Math.sin(ledT*1.6+li*1.8); p=p*p;
+      ctx.globalAlpha=p;
+      ctx.fillStyle=ledColors[li];
+      ctx.beginPath(); ctx.arc(cx-14+li*14, bodyY+38, 4, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // Eyes
+    var eyeLX=cx-16, eyeRX=cx+16, eyeY=headY+22, eyeR=9;
+
+    blinkT++;
+    if(!isBlinking && blinkT>=blinkNext){ isBlinking=true; blinkDur=0; blinkNext=80+Math.random()*120; blinkT=0; }
+    if(isBlinking){ blinkDur++; if(blinkDur>12) isBlinking=false; }
+    var blinkScale = isBlinking ? Math.max(0.05, 1-Math.sin(blinkDur/12*Math.PI)) : 1;
+
+    if(shieldAlpha>0.3){
+      ctx.save(); ctx.globalAlpha=Math.min(shieldAlpha,1);
+      ctx.fillStyle='#1d7a7a';
+      [eyeLX,eyeRX].forEach(function(ex){
+        ctx.beginPath(); ctx.ellipse(ex,eyeY,eyeR,eyeR*blinkScale,0,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='#5dd4b4'; ctx.lineWidth=1.5; ctx.stroke();
+      });
+      ctx.fillStyle='#5dd4b4'; ctx.font='500 11px monospace'; ctx.textAlign='center';
+      ctx.fillText('* *', cx, eyeY+4);
+      ctx.restore();
+    } else {
+      // spring-physics eye tracking
+      [eyeLX,eyeRX].forEach(function(ex,i){
+        var cur = i===0 ? eyeCurL : eyeCurR;
+        var tgt = getEyeTarget(ex,eyeY);
+        if(shieldAlpha>0.01){ tgt={x:0,y:0}; }
+        cur.vx = cur.vx*0.78 + (tgt.x - cur.x)*0.16;
+        cur.vy = cur.vy*0.78 + (tgt.y - cur.y)*0.16;
+        cur.x += cur.vx; cur.y += cur.vy;
+        ctx.save(); ctx.globalAlpha=1-shieldAlpha*0.8;
+        ctx.fillStyle='#fff';
+        ctx.save(); ctx.translate(ex,eyeY); ctx.scale(1,blinkScale);
+        ctx.beginPath(); ctx.arc(0,0,eyeR,0,Math.PI*2); ctx.restore(); ctx.fill();
+        ctx.fillStyle='#0a3a3a';
+        ctx.beginPath(); ctx.arc(ex+cur.x, eyeY+cur.y*blinkScale, 4.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(ex+cur.x+1.5, eyeY+cur.y*blinkScale-1.5, 1.5, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    // Mouth
+    var mouthY=headY+41;
+    ctx.beginPath();
+    if(shieldAlpha>0.5){
+      // flat line when covering eyes
+      ctx.moveTo(cx-7,mouthY); ctx.lineTo(cx+7,mouthY);
+      ctx.strokeStyle='#5dd4b4'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.stroke();
+      // wave overlay
+      ctx.save(); ctx.globalAlpha=shieldAlpha*0.9; ctx.strokeStyle='#5dd4b4'; ctx.lineWidth=2;
+      var sx=cx-10,sy=mouthY-2;
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+6,sy); ctx.lineTo(sx+9,sy-3);
+      ctx.lineTo(sx+13,sy); ctx.lineTo(cx+10,sy); ctx.stroke(); ctx.restore();
+    } else {
+      ctx.arc(cx, mouthY-3, 8, 0.15, Math.PI-0.15);
+      ctx.strokeStyle='#5dd4b4'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.stroke();
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
