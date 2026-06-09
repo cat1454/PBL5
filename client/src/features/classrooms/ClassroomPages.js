@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams, Navigate, useLocation } from 'react-router-dom';
+import StudyHub from '../../components/StudyHub';
 import {
   LuArrowDown,
   LuArrowUp,
@@ -18,6 +19,8 @@ import {
   LuSave,
   LuSchool,
   LuTrash2,
+  LuPlay,
+  LuGamepad,
 } from 'react-icons/lu';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -1113,6 +1116,14 @@ export function ClassroomQuestionSetDetailPage() {
             <Metric label={getText(t, 'classrooms.questionSets.totalPoints', 'Điểm')} value={questionSet?.totalPoints || 0} />
             <Metric label="Document ID" value={questionSet?.documentId || '-'} />
           </div>
+          {(isPublished || isTeacher) && (
+            <div style={{ marginTop: '16px' }}>
+              <Link className="classroom-button primary" to={`/classrooms/${classroomId}/question-sets/${questionSetId}/play`}>
+                <LuGamepad aria-hidden="true" />
+                {getText(t, 'classrooms.questionSets.play.startPractice', 'Luyện tập ngay')}
+              </Link>
+            </div>
+          )}
           {!isTeacher && (
             <p className="classroom-muted">{getText(t, 'classrooms.questionSets.readOnly', 'Bạn đang xem ở chế độ chỉ đọc.')}</p>
           )}
@@ -3977,6 +3988,279 @@ export function StudentClassroomAnalyticsPage() {
           </div>
         )}
       </section>
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomQuestionSetPlayPage() {
+  const { classroomId, questionSetId } = useParams();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [classroom, setClassroom] = useState(null);
+  const [questionSet, setQuestionSet] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [gameType, setGameType] = useState('Quiz'); // Quiz, Flashcard, Streak
+  const [questionCount, setQuestionCount] = useState(10);
+  const [starting, setStarting] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const [classroomData, questionSetData] = await Promise.all([
+        classroomService.getClassroomDetail(classroomId),
+        classroomService.getClassroomQuestionSetDetail(questionSetId),
+      ]);
+      setClassroom(classroomData);
+      setQuestionSet(questionSetData);
+    } catch (err) {
+      setError(getApiErrorMessage(err, getText(t, 'classrooms.questionSets.errors.detail', 'Không tải được chi tiết bộ câu hỏi.')));
+    } finally {
+      setLoading(false);
+    }
+  }, [classroomId, questionSetId, t]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleStart = async () => {
+    setStarting(true);
+    setError('');
+    try {
+      const sessionData = await classroomService.createClassroomQuestionSetPlaySession(
+        Number(classroomId),
+        Number(questionSetId),
+        gameType,
+        Number(questionCount)
+      );
+
+      const state = {
+        sessionId: sessionData.sessionId,
+        questions: sessionData.questions,
+        flashcards: sessionData.flashcards,
+      };
+
+      const lowerMode = gameType === 'Flashcard' ? 'flashcards' : gameType.toLowerCase();
+      navigate(`/classrooms/${classroomId}/question-sets/${questionSetId}/play/${lowerMode}`, { state });
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Không thể khởi tạo phiên chơi. Vui lòng thử lại.'));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.questionSets.play.title', 'Luyện tập')} subtitle="">
+        <LoadingCard label={getText(t, 'classrooms.states.loading', 'Đang tải...')} />
+      </ClassroomShell>
+    );
+  }
+
+  const isPublished = questionSet?.visibility === 'Published';
+  const isTeacher = isClassroomTeacherRole(classroom?.currentUserRole);
+
+  if (error && !questionSet) {
+    return (
+      <ClassroomShell title={getText(t, 'classrooms.questionSets.play.title', 'Luyện tập')} subtitle="">
+        <MessageBar error={error} />
+        <div className="classroom-page-actions">
+          <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets/${questionSetId}`}>
+            <LuListChecks aria-hidden="true" />
+            {getText(t, 'classrooms.questionSets.backToDetail', 'Về chi tiết')}
+          </Link>
+        </div>
+      </ClassroomShell>
+    );
+  }
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.questionSets.play.title', 'Luyện tập')} subtitle={questionSet?.title || ''}>
+      <MessageBar error={error} />
+      
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets/${questionSetId}`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.questionSets.play.backToDetail', 'Về chi tiết bộ câu hỏi')}
+        </Link>
+      </div>
+
+      <div className="classroom-panel">
+        <span className="classroom-kicker">{getText(t, 'classrooms.questionSets.play.chooseMode', 'Chọn hình thức luyện tập')}</span>
+        
+        <div className="classroom-play-modes-grid">
+          <div
+            className={`classroom-play-mode-card${gameType === 'Quiz' ? ' selected' : ''}`}
+            onClick={() => setGameType('Quiz')}
+          >
+            <div className="classroom-play-mode-icon">
+              <LuFileQuestion />
+            </div>
+            <div className="classroom-play-mode-info">
+              <h3>{getText(t, 'classrooms.questionSets.play.quiz', 'Quiz trắc nghiệm')}</h3>
+              <p>{getText(t, 'classrooms.questionSets.play.quizDesc', 'Luyện tập trả lời các câu hỏi trắc nghiệm khách quan để củng cố kiến thức.')}</p>
+            </div>
+          </div>
+
+          <div
+            className={`classroom-play-mode-card${gameType === 'Flashcard' ? ' selected' : ''}`}
+            onClick={() => setGameType('Flashcard')}
+          >
+            <div className="classroom-play-mode-icon">
+              <LuSchool />
+            </div>
+            <div className="classroom-play-mode-info">
+              <h3>{getText(t, 'classrooms.questionSets.play.flashcard', 'Thẻ ghi nhớ')}</h3>
+              <p>{getText(t, 'classrooms.questionSets.play.flashcardDesc', 'Lật các thẻ ghi nhớ để ôn lại kiến thức cốt lõi và kiểm tra khả năng tự ghi nhớ.')}</p>
+            </div>
+          </div>
+
+          <div
+            className={`classroom-play-mode-card${gameType === 'Streak' ? ' selected' : ''}`}
+            onClick={() => setGameType('Streak')}
+          >
+            <div className="classroom-play-mode-icon">
+              <LuGamepad />
+            </div>
+            <div className="classroom-play-mode-info">
+              <h3>{getText(t, 'classrooms.questionSets.play.streak', 'Streak thách đấu')}</h3>
+              <p>{getText(t, 'classrooms.questionSets.play.streakDesc', 'Thách đấu chuỗi trả lời đúng liên tiếp để kiểm tra độ nhạy bén và đẩy kỷ lục lên cao nhất.')}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="classroom-play-config">
+          <div className="classroom-play-config-fields">
+            <label>
+              <span>{getText(t, 'classrooms.questionSets.play.questionCount', 'Số câu hỏi')}</span>
+              <select
+                value={questionCount}
+                onChange={(e) => setQuestionCount(Number(e.target.value))}
+                disabled={starting}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={20}>20</option>
+                <option value={25}>25</option>
+                <option value={30}>30</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div style={{ marginTop: '24px' }}>
+          <button
+            className="classroom-button primary"
+            onClick={handleStart}
+            disabled={starting || (!isPublished && !isTeacher)}
+          >
+            <LuPlay />
+            {starting ? getText(t, 'classrooms.states.loading', 'Đang tải...') : getText(t, 'classrooms.questionSets.play.start', 'Bắt đầu')}
+          </button>
+        </div>
+      </div>
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomQuizPlayPage() {
+  const { classroomId, questionSetId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { t } = useLanguage();
+
+  if (!location.state || !location.state.questions) {
+    return <Navigate to={`/classrooms/${classroomId}/question-sets/${questionSetId}/play`} replace />;
+  }
+
+  const { sessionId, questions } = location.state;
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.questionSets.play.quiz', 'Quiz trắc nghiệm')} subtitle="">
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets/${questionSetId}`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.questionSets.play.backToDetail', 'Về chi tiết')}
+        </Link>
+      </div>
+      <StudyHub
+        documentId={null}
+        forcedMode="quiz"
+        showShell={false}
+        preloadedQuestions={questions}
+        sessionId={sessionId}
+        isClassroomPlay={true}
+        onClassroomBack={() => navigate(`/classrooms/${classroomId}/question-sets/${questionSetId}`)}
+      />
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomStreakPlayPage() {
+  const { classroomId, questionSetId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { t } = useLanguage();
+
+  if (!location.state || !location.state.questions) {
+    return <Navigate to={`/classrooms/${classroomId}/question-sets/${questionSetId}/play`} replace />;
+  }
+
+  const { sessionId, questions } = location.state;
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.questionSets.play.streak', 'Streak thách đấu')} subtitle="">
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets/${questionSetId}`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.questionSets.play.backToDetail', 'Về chi tiết')}
+        </Link>
+      </div>
+      <StudyHub
+        documentId={null}
+        forcedMode="streak"
+        showShell={false}
+        preloadedQuestions={questions}
+        sessionId={sessionId}
+        isClassroomPlay={true}
+        onClassroomBack={() => navigate(`/classrooms/${classroomId}/question-sets/${questionSetId}`)}
+      />
+    </ClassroomShell>
+  );
+}
+
+export function ClassroomFlashcardPlayPage() {
+  const { classroomId, questionSetId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { t } = useLanguage();
+
+  if (!location.state || !location.state.flashcards) {
+    return <Navigate to={`/classrooms/${classroomId}/question-sets/${questionSetId}/play`} replace />;
+  }
+
+  const { sessionId, flashcards } = location.state;
+
+  return (
+    <ClassroomShell title={getText(t, 'classrooms.questionSets.play.flashcard', 'Thẻ ghi nhớ')} subtitle="">
+      <div className="classroom-page-actions">
+        <Link className="classroom-button" to={`/classrooms/${classroomId}/question-sets/${questionSetId}`}>
+          <LuListChecks aria-hidden="true" />
+          {getText(t, 'classrooms.questionSets.play.backToDetail', 'Về chi tiết')}
+        </Link>
+      </div>
+      <StudyHub
+        documentId={null}
+        forcedMode="flashcards"
+        showShell={false}
+        preloadedFlashcards={flashcards}
+        sessionId={sessionId}
+        isClassroomPlay={true}
+        onClassroomBack={() => navigate(`/classrooms/${classroomId}/question-sets/${questionSetId}`)}
+      />
     </ClassroomShell>
   );
 }

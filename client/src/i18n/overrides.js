@@ -1877,4 +1877,44 @@ overrides.en.classrooms = {
   },
 };
 
+overrides.vi.classrooms = {
+  ...overrides.vi.classrooms,
+  questionSets: {
+    ...overrides.vi.classrooms?.questionSets,
+    play: {
+      title: "Luyện tập",
+      chooseMode: "Chọn hình thức luyện tập",
+      quiz: "Quiz trắc nghiệm",
+      flashcard: "Thẻ ghi nhớ",
+      streak: "Streak thách đấu",
+      questionCount: "Số câu hỏi",
+      start: "Bắt đầu",
+      notPublished: "Bộ câu hỏi chưa được công bố.",
+      startPractice: "Luyện tập ngay",
+      backToDetail: "Về chi tiết bộ câu hỏi",
+      backToQuestionSet: "Về bộ câu hỏi",
+    }
+  }
+};
+
+overrides.en.classrooms = {
+  ...overrides.en.classrooms,
+  questionSets: {
+    ...overrides.en.classrooms?.questionSets,
+    play: {
+      title: "Practice",
+      chooseMode: "Choose practice mode",
+      quiz: "Practice Quiz",
+      flashcard: "Flashcards",
+      streak: "Streak Challenge",
+      questionCount: "Question count",
+      start: "Start",
+      notPublished: "Question set is not published yet.",
+      startPractice: "Practice Now",
+      backToDetail: "Back to Detail",
+      backToQuestionSet: "Back to Question Set",
+    }
+  }
+};
+
 export default overrides;
