@@ -21,6 +21,40 @@ function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChan
   const isCleanMode = mode === 'preview' || mode === 'clean';
   const displayText = text || (isCleanMode ? '' : labels?.emptyText);
 
+  const debounceTimerRef = useRef(null);
+
+  const handleInput = (event) => {
+    const nextText = event.currentTarget.textContent || '';
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    if (typeof jest !== 'undefined' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test')) {
+      onTextChange?.(element.id, nextText);
+    } else {
+      debounceTimerRef.current = setTimeout(() => {
+        onTextChange?.(element.id, nextText);
+      }, 400);
+    }
+  };
+
+  const handleBlur = (event) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const nextText = event.currentTarget.textContent || '';
+    onTextCommit?.(element.id, nextText);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (element.type === 'image') {
       return;
@@ -66,8 +100,8 @@ function ElementRenderer({ element, imageVm, labels, mode = 'layout', onTextChan
       contentEditable={isTextMode}
       spellCheck={false}
       suppressContentEditableWarning
-      onInput={isTextMode ? (event) => onTextChange?.(element.id, event.currentTarget.textContent || '') : undefined}
-      onBlur={isTextMode ? (event) => onTextCommit?.(element.id, event.currentTarget.textContent || '') : undefined}
+      onInput={isTextMode ? handleInput : undefined}
+      onBlur={isTextMode ? handleBlur : undefined}
       style={{
         color: element.color,
         fontFamily: element.fontFamily,

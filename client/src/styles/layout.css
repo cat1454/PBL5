@@ -1,4 +1,4 @@
-﻿.App,
+.App,
 .app-shell {
   min-height: 100vh;
   display: flex;
@@ -21,15 +21,18 @@
 }
 
 .app-shell-header {
-  min-height: 64px;
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-navbar-height) !important;
+  min-height: var(--app-navbar-height) !important;
   background: linear-gradient(90deg, #6366f1 0%, #4338ca 100%); /* Purple gradient */
   color: white;
   display: flex;
   align-items: center;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
-  position: sticky;
-  top: 0;
-  z-index: 40;
+  z-index: 200 !important;
 }
 .app-shell-header-inner {
   display: flex;
@@ -168,7 +171,8 @@
 .app-shell-body {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
-  min-height: calc(100vh - 52px);
+  margin-top: var(--app-navbar-height) !important;
+  min-height: calc(100vh - var(--app-navbar-height)) !important;
   background-color: #f5f7fb;
 }
 
@@ -303,4 +307,46 @@
     display: none;
   }
 }
+
+/* Animated AI Mascot Logo Styling */
+.animated-ai-logo {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.animated-ai-logo.size-large {
+  width: 180px;
+  height: 180px;
+}
+
+.animated-ai-logo.size-small {
+  width: 100%;
+  height: 100%;
+}
+
+/* Float and interactive glow for the navbar logo container and auth page brand logo */
+.app-shell-brand-mark.v2-brand-mark,
+.auth-left .brand-icon {
+  animation: logo-float 3.5s ease-in-out infinite;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+}
+
+.app-shell-brand:hover .app-shell-brand-mark.v2-brand-mark,
+.auth-left .brand:hover .brand-icon,
+.app-shell-brand-mark.v2-brand-mark:hover,
+.auth-left .brand-icon:hover {
+  transform: scale(1.12) rotate(4deg);
+  box-shadow: 0 0 22px rgba(93, 212, 180, 0.65), 0 8px 20px rgba(56, 189, 248, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.6) !important;
+}
+
+@keyframes logo-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
 

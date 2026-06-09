@@ -82,7 +82,7 @@
 }
 
 .v2-shell-body {
-  min-height: calc(100vh - 72px);
+  min-height: calc(100vh - var(--app-navbar-height));
 }
 
 .v2-shell-content-inner {

@@ -9,12 +9,32 @@ const getEffectClass = (effectPreset) => {
     : '';
 };
 
-function SlideElement({ element, imageVm, labels, mode = 'layout', scale, selected, onCommit, onPatch, onSelect }) {
+function SlideElement({
+  element,
+  imageVm,
+  labels,
+  mode = 'layout',
+  scale,
+  selected,
+  onCommit,
+  onPatch,
+  onSelect,
+  snapGrid = null,
+}) {
   const isEditMode = mode === 'layout' || mode === 'edit';
   const effectClass = getEffectClass(element.effectPreset);
   const elementStyle = {
     zIndex: element.zIndex,
   };
+
+  const activeDragRef = React.useRef(false);
+  const transientPosRef = React.useRef({ x: element.x, y: element.y });
+  const transientSizeRef = React.useRef({ width: element.width, height: element.height });
+
+  if (!activeDragRef.current) {
+    transientPosRef.current = { x: element.x, y: element.y };
+    transientSizeRef.current = { width: element.width, height: element.height };
+  }
 
   const absoluteStyle = {
     position: 'absolute',
@@ -60,29 +80,39 @@ function SlideElement({ element, imageVm, labels, mode = 'layout', scale, select
     <Rnd
       bounds="parent"
       scale={scale}
-      size={{ width: element.width, height: element.height }}
-      position={{ x: element.x, y: element.y }}
-      dragGrid={[8, 8]}
-      resizeGrid={[8, 8]}
+      size={activeDragRef.current ? transientSizeRef.current : { width: element.width, height: element.height }}
+      position={activeDragRef.current ? transientPosRef.current : { x: element.x, y: element.y }}
+      dragGrid={snapGrid || undefined}
+      resizeGrid={snapGrid || undefined}
       disableDragging={element.locked}
       enableResizing={!element.locked}
       onMouseDown={handleMouseDown}
-      onDragStop={(event, data) => {
-        onCommit(element.id, { x: data.x, y: data.y });
+      onDragStart={() => {
+        activeDragRef.current = true;
+        transientPosRef.current = { x: element.x, y: element.y };
       }}
       onDrag={(event, data) => {
-        onPatch(element.id, { x: data.x, y: data.y });
+        transientPosRef.current = { x: data.x, y: data.y };
       }}
-      onResizeStop={(event, direction, ref, delta, position) => {
-        onCommit(element.id, {
-          x: position.x,
-          y: position.y,
-          width: Number.parseFloat(ref.style.width),
-          height: Number.parseFloat(ref.style.height),
-        });
+      onDragStop={(event, data) => {
+        activeDragRef.current = false;
+        onCommit(element.id, { x: data.x, y: data.y });
+      }}
+      onResizeStart={() => {
+        activeDragRef.current = true;
+        transientPosRef.current = { x: element.x, y: element.y };
+        transientSizeRef.current = { width: element.width, height: element.height };
       }}
       onResize={(event, direction, ref, delta, position) => {
-        onPatch(element.id, {
+        transientPosRef.current = { x: position.x, y: position.y };
+        transientSizeRef.current = {
+          width: Number.parseFloat(ref.style.width),
+          height: Number.parseFloat(ref.style.height),
+        };
+      }}
+      onResizeStop={(event, direction, ref, delta, position) => {
+        activeDragRef.current = false;
+        onCommit(element.id, {
           x: position.x,
           y: position.y,
           width: Number.parseFloat(ref.style.width),

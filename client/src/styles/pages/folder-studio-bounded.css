@@ -1,6 +1,6 @@
-﻿/* Workspace Studio bounded layout and slide navigation feedback */
+/* Workspace Studio bounded layout and slide navigation feedback */
 .folder-studio-page {
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--app-navbar-height));
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -72,7 +72,7 @@
 @media (max-width: 980px) {
   .folder-studio-page {
     height: auto;
-    min-height: calc(100vh - 64px);
+    min-height: calc(100vh - var(--app-navbar-height));
     overflow: visible;
   }
 
@@ -85,7 +85,7 @@
 
 @media (max-width: 768px) {
   .folder-studio-page {
-    min-height: calc(100vh - 72px);
+    min-height: calc(100vh - var(--app-navbar-height));
   }
 }
 

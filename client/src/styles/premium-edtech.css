@@ -319,9 +319,9 @@ textarea:focus {
 .app-menu-logo,
 .auth-brand-mark {
   border-radius: var(--premium-radius) !important;
-  background: linear-gradient(135deg, var(--premium-primary) 0%, var(--premium-teal) 62%, #f0b45c 100%) !important;
-  color: #ffffff !important;
-  box-shadow: 0 10px 20px rgba(15, 111, 143, 0.22);
+  background: linear-gradient(135deg, #ffffff 0%, #e0f2fe 55%, #bae6fd 100%) !important;
+  color: var(--premium-primary-strong) !important;
+  box-shadow: 0 10px 22px rgba(56, 189, 248, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.5) !important;
 }
 
 .app-shell-brand-copy strong,

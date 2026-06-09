@@ -1,5 +1,6 @@
-﻿/* Core UX refresh: shared tokens, accessible controls, compact learning workflows */
+/* Core UX refresh: shared tokens, accessible controls, compact learning workflows */
 :root {
+  --app-navbar-height: 72px;
   --ux-surface: #ffffff;
   --ux-surface-muted: #f8fafc;
   --ux-border: #d9e2ef;

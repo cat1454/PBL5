@@ -14,6 +14,7 @@ export default function useSlideEditorRealtime({ deckId, displayName, onOperatio
   const clientId = useMemo(createClientId, []);
   const connectionRef = useRef(null);
   const [status, setStatus] = useState('offline');
+  const operationQueueRef = useRef([]);
 
   useEffect(() => {
     if (!deckId) {
@@ -21,11 +22,50 @@ export default function useSlideEditorRealtime({ deckId, displayName, onOperatio
     }
 
     let disposed = false;
+
+    const flushQueue = async (conn) => {
+      if (operationQueueRef.current.length === 0) {
+        return;
+      }
+
+      const queue = [...operationQueueRef.current];
+      operationQueueRef.current = [];
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[SignalR] Flushing ${queue.length} queued operations.`);
+      }
+
+      for (const op of queue) {
+        try {
+          await conn.invoke('BroadcastOperation', op);
+        } catch (err) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[SignalR] Failed to send queued operation:', err);
+          } else {
+            console.warn('[SignalR] Failed to send queued operation.');
+          }
+          // Put back in queue if it fails again
+          operationQueueRef.current.push(op);
+        }
+      }
+    };
+
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(`${getApiOrigin()}/hubs/slide-editor`, {
         accessTokenFactory: () => getApiAuthToken(),
+        skipNegotiation: false,
+        transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling,
       })
-      .withAutomaticReconnect()
+      .withAutomaticReconnect({
+        nextRetryDelayInMilliseconds: (retryContext) => {
+          // Retry immediately, then 2s, 5s, 10s, 20s, and then 30s indefinitely
+          const delays = [0, 2000, 5000, 10000, 20000];
+          if (retryContext.previousRetryCount < delays.length) {
+            return delays[retryContext.previousRetryCount];
+          }
+          return 30000;
+        },
+      })
       .build();
 
     connectionRef.current = connection;
@@ -48,22 +88,59 @@ export default function useSlideEditorRealtime({ deckId, displayName, onOperatio
       }
     });
 
-    connection.onreconnecting(() => setStatus('offline'));
-    connection.onreconnected(async () => {
+    connection.onreconnecting((error) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[SignalR] Reconnecting due to error:', error);
+      } else {
+        console.warn('[SignalR] Connection lost. Reconnecting...');
+      }
+      setStatus('offline');
+    });
+
+    connection.onreconnected(async (connectionId) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[SignalR] Reconnected. Connection ID:', connectionId);
+      }
       setStatus('connected');
       try {
         await connection.invoke('JoinDeck', deckId);
-      } catch {
+        await connection.invoke('BroadcastPresence', {
+          deckId,
+          clientId,
+          displayName,
+          status: 'online',
+        });
+        await flushQueue(connection);
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[SignalR] Post-reconnect join failed:', err);
+        } else {
+          console.warn('[SignalR] Post-reconnect join failed.');
+        }
         setStatus('offline');
       }
     });
-    connection.onclose(() => setStatus('offline'));
+
+    connection.onclose((error) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[SignalR] Connection closed. Error:', error);
+      } else {
+        console.warn('[SignalR] Connection closed.');
+      }
+      setStatus('offline');
+    });
 
     const start = async () => {
       try {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[SignalR] Starting connection...');
+        }
         await connection.start();
         if (disposed) {
           return;
+        }
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[SignalR] Connected successfully. Joining deck:', deckId);
         }
         await connection.invoke('JoinDeck', deckId);
         await connection.invoke('BroadcastPresence', {
@@ -73,7 +150,13 @@ export default function useSlideEditorRealtime({ deckId, displayName, onOperatio
           status: 'online',
         });
         setStatus('connected');
-      } catch {
+        await flushQueue(connection);
+      } catch (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[SignalR] Connection start failed:', err);
+        } else {
+          console.warn('[SignalR] Connection start failed.');
+        }
         setStatus('offline');
       }
     };
@@ -95,16 +178,30 @@ export default function useSlideEditorRealtime({ deckId, displayName, onOperatio
 
   const broadcastOperation = useCallback((message) => {
     const connection = connectionRef.current;
-    if (!connection || connection.state !== signalR.HubConnectionState.Connected || !deckId) {
-      return false;
-    }
-
-    connection.invoke('BroadcastOperation', {
+    const op = {
       deckId,
       clientId,
       operationId: createClientId(),
       ...message,
-    }).catch(() => setStatus('offline'));
+    };
+
+    if (!connection || connection.state !== signalR.HubConnectionState.Connected || !deckId) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[SignalR] Connection offline. Queueing operation:', op);
+      }
+      operationQueueRef.current.push(op);
+      return false;
+    }
+
+    connection.invoke('BroadcastOperation', op).catch((err) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[SignalR] Invoke failed, queueing operation:', err);
+      } else {
+        console.warn('[SignalR] Invoke failed, queueing operation.');
+      }
+      operationQueueRef.current.push(op);
+      setStatus('offline');
+    });
     return true;
   }, [clientId, deckId]);
 

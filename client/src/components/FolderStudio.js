@@ -1357,6 +1357,26 @@ function FolderStudioRuntime() {
     onSave: saveCanvasEditorState,
   });
 
+  const previousSlideIdRef = useRef(selectedSlideId);
+
+  useEffect(() => {
+    const prevSlideId = previousSlideIdRef.current;
+    previousSlideIdRef.current = selectedSlideId;
+
+    if (prevSlideId && prevSlideId !== selectedSlideId) {
+      const prevDraft = drafts[prevSlideId];
+      if (prevDraft) {
+        canvasAutosave.flushSave(prevSlideId, prevDraft).catch(() => {});
+      }
+    }
+  }, [selectedSlideId, drafts, canvasAutosave]);
+
+  useEffect(() => {
+    if (isPresenting && selectedSlideId && selectedCanvasState) {
+      canvasAutosave.flushSave(selectedSlideId, selectedCanvasState).catch(() => {});
+    }
+  }, [isPresenting, selectedSlideId, selectedCanvasState, canvasAutosave]);
+
   const applyRemoteCanvasOperation = useCallback((message) => {
     const editorState = message?.payload?.editorState || message?.payload?.EditorState;
     if (!message?.slideId || !editorState) {
