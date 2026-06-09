@@ -50,7 +50,16 @@ function getQuestionCountFromCollection(payload) {
   return 0;
 }
 
-function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true }) {
+function StudyHub({
+  documentId: providedDocumentId,
+  forcedMode,
+  showShell = true,
+  preloadedQuestions,
+  preloadedFlashcards,
+  sessionId,
+  isClassroomPlay = false,
+  onClassroomBack
+}) {
   const { language, t } = useLanguage();
   const { documentId: routeDocumentId, mode: routeMode } = useParams();
   const navigate = useNavigate();
@@ -100,7 +109,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       return {
         language: 'vi',
         back: 'Quay lại',
-        backToWorkspace: 'Về Workspace',
+        backToWorkspace: isClassroomPlay ? 'Về bộ câu hỏi' : 'Về Workspace',
         backToStudyHub: 'Về Study Hub',
         retryLoad: 'Tải lại',
         sourceFallback: 'Tài liệu đang học',
@@ -207,7 +216,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
     return {
       language: 'en',
       back: 'Back',
-      backToWorkspace: 'Back to Workspace',
+      backToWorkspace: isClassroomPlay ? 'Back to Question Set' : 'Back to Workspace',
       backToStudyHub: 'Back to Study Hub',
       retryLoad: 'Retry',
       sourceFallback: 'Current study source',
@@ -309,7 +318,7 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
       doneShort: 'done',
       avgShort: 'Avg',
     };
-  }, [language]);
+  }, [language, isClassroomPlay]);
 
   useEffect(() => {
     setActiveMode(routeModeFromLegacyPath);
@@ -460,12 +469,16 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
   };
 
   const handleBack = () => {
+    if (isClassroomPlay && onClassroomBack) {
+      onClassroomBack();
+      return;
+    }
     if (window.history.length > 1 && window.history.state?.idx > 0) {
       navigate(-1);
       return;
     }
 
-    navigate('/workspaces');
+    navigate(isClassroomPlay ? -1 : '/workspaces');
   };
 
   const handleRegenerate = useCallback(async () => {
@@ -674,6 +687,10 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
                 refreshToken={refreshToken}
                 onAttemptRecorded={handleAttemptRecorded}
                 progressSummary={progressSummary}
+                preloadedQuestions={preloadedQuestions}
+                preloadedFlashcards={preloadedFlashcards}
+                sessionId={sessionId}
+                isClassroomPlay={isClassroomPlay}
               />
             </div>
 
@@ -716,6 +733,10 @@ function StudyHub({ documentId: providedDocumentId, forcedMode, showShell = true
           refreshToken={refreshToken}
           onAttemptRecorded={handleAttemptRecorded}
           progressSummary={progressSummary}
+          preloadedQuestions={preloadedQuestions}
+          preloadedFlashcards={preloadedFlashcards}
+          sessionId={sessionId}
+          isClassroomPlay={isClassroomPlay}
         />
       )}
     </div>
@@ -1032,7 +1053,21 @@ function WeakQuestionsPanel({ copy, weakQuestions, onReviewWeakQuestions }) {
   );
 }
 
-function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshToken, onAttemptRecorded, progressSummary }) {
+function StudyModePanel({
+  documentId,
+  mode,
+  onBack,
+  t,
+  copy,
+  showShell,
+  refreshToken,
+  onAttemptRecorded,
+  progressSummary,
+  preloadedQuestions,
+  preloadedFlashcards,
+  sessionId,
+  isClassroomPlay
+}) {
   if (mode === 'flashcards') {
     return (
       <FlashcardsPane
@@ -1043,6 +1078,8 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
         refreshToken={refreshToken}
         showShell={showShell}
         onAttemptRecorded={onAttemptRecorded}
+        preloadedFlashcards={preloadedFlashcards}
+        isClassroomPlay={isClassroomPlay}
       />
     );
   }
@@ -1058,11 +1095,27 @@ function StudyModePanel({ documentId, mode, onBack, t, copy, showShell, refreshT
       showShell={showShell}
       onAttemptRecorded={onAttemptRecorded}
       progressSummary={progressSummary}
+      preloadedQuestions={preloadedQuestions}
+      sessionId={sessionId}
+      isClassroomPlay={isClassroomPlay}
     />
   );
 }
 
-function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, showShell, onAttemptRecorded, progressSummary }) {
+function QuestionModePane({
+  documentId,
+  mode,
+  onBack,
+  t,
+  copy,
+  refreshToken,
+  showShell,
+  onAttemptRecorded,
+  progressSummary,
+  preloadedQuestions,
+  sessionId,
+  isClassroomPlay
+}) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1104,6 +1157,11 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
           return;
         }
 
+        if (isClassroomPlay && preloadedQuestions) {
+          setAllQuestions(preloadedQuestions);
+          return;
+        }
+
         const data = await gameService.getQuizGame(documentId, DEFAULT_QUESTION_COUNT);
         setAllQuestions(Array.isArray(data?.questions) ? data.questions : []);
       } catch (error) {
@@ -1115,7 +1173,7 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     };
 
     loadQuiz();
-  }, [documentId, isTestMode, mode, refreshToken, reloadKey, t]);
+  }, [documentId, isTestMode, mode, refreshToken, reloadKey, t, isClassroomPlay, preloadedQuestions]);
 
   useEffect(() => () => {
     if (bumpTimerRef.current) {
@@ -1209,6 +1267,9 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   };
 
   const recordCurrentAttempt = async (isCorrect) => {
+    if (isClassroomPlay) {
+      return true;
+    }
     if (!currentQuestion) {
       return false;
     }
@@ -1249,9 +1310,21 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
 
   const getResponseTimeMs = () => Math.max(0, Date.now() - questionStartTimeRef.current);
 
-  const finishWithAnswers = (nextAnswers) => {
+  const finishWithAnswers = async (nextAnswers) => {
     const totalCorrect = nextAnswers.filter((answer) => answer.isCorrect).length;
     const score = questions.length > 0 ? Math.round((totalCorrect / questions.length) * 100) : 0;
+    
+    if (isClassroomPlay && sessionId) {
+      try {
+        await gameService.submitGameSession(sessionId, nextAnswers.map((answer) => ({
+          questionId: answer.questionId,
+          selectedAnswer: answer.selectedAnswer,
+        })));
+      } catch (err) {
+        console.warn('Could not submit classroom game session', err);
+      }
+    }
+
     setFinalScore(score);
     trackEvent('study_session_completed', {
       documentId,
@@ -1347,17 +1420,26 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
     }
 
     let answerResult;
-    try {
-      answerResult = await gameService.submitQuizAnswer(
-        Number(documentId),
-        currentQuestion.id,
-        selectedAnswer
-      );
-      revealAnsweredQuestion(answerResult);
-    } catch (error) {
-      console.warn('Could not submit quiz answer.', error);
-      setTestSubmitError(getApiErrorMessage(error, copy.testSubmitError));
-      return;
+    if (isClassroomPlay) {
+      const isCorrect = currentQuestion.correctAnswer === selectedAnswer;
+      answerResult = {
+        isCorrect,
+        correctAnswer: currentQuestion.correctAnswer,
+        explanation: currentQuestion.explanation
+      };
+    } else {
+      try {
+        answerResult = await gameService.submitQuizAnswer(
+          Number(documentId),
+          currentQuestion.id,
+          selectedAnswer
+        );
+        revealAnsweredQuestion(answerResult);
+      } catch (error) {
+        console.warn('Could not submit quiz answer.', error);
+        setTestSubmitError(getApiErrorMessage(error, copy.testSubmitError));
+        return;
+      }
     }
 
     const isCorrect = Boolean(answerResult?.isCorrect);
@@ -1390,11 +1472,13 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
         bumpTimerRef.current = window.setTimeout(() => setStreakBump(false), 420);
       } else {
         setStreakBump(false);
-        trackEvent('streak_recovery_used', {
-          documentId,
-          questionId: currentQuestion.id,
-          bestStreak: nextBestStreak,
-        });
+        if (!isClassroomPlay) {
+          trackEvent('streak_recovery_used', {
+            documentId,
+            questionId: currentQuestion.id,
+            bestStreak: nextBestStreak,
+          });
+        }
       }
     }
 
@@ -1736,7 +1820,17 @@ function QuestionModePane({ documentId, mode, onBack, t, copy, refreshToken, sho
   );
 }
 
-function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, onAttemptRecorded }) {
+function FlashcardsPane({
+  documentId,
+  onBack,
+  t,
+  copy,
+  refreshToken,
+  showShell,
+  onAttemptRecorded,
+  preloadedFlashcards,
+  isClassroomPlay
+}) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1757,6 +1851,13 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
       setLoadError('');
       trackEvent('study_session_started', { documentId, mode: 'flashcards' });
       try {
+        if (isClassroomPlay && preloadedFlashcards) {
+          setAllFlashcards(preloadedFlashcards);
+          setProgressByQuestionId({});
+          setReviewQueue(null);
+          return;
+        }
+
         const [data, progress] = await Promise.all([
           gameService.getFlashcards(documentId),
           learningService.getDocumentProgress(documentId).catch(() => []),
@@ -1773,7 +1874,7 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
     };
 
     loadFlashcards();
-  }, [documentId, refreshToken, reloadKey, t]);
+  }, [documentId, refreshToken, reloadKey, t, isClassroomPlay, preloadedFlashcards]);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -1844,6 +1945,10 @@ function FlashcardsPane({ documentId, onBack, t, copy, refreshToken, showShell, 
   };
 
   const recordFlashcardAssessment = async (assessment) => {
+    if (isClassroomPlay) {
+      moveToNextCard();
+      return;
+    }
     if (!currentCard || assessing) {
       return;
     }

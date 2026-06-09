@@ -1,49 +1,42 @@
 using ELearnGamePlatform.API.Services;
 using ELearnGamePlatform.Core.Entities;
-using ELearnGamePlatform.Core.Enums;
 using ELearnGamePlatform.Core.Extensions;
 using ELearnGamePlatform.Core.Interfaces;
+using ELearnGamePlatform.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace ELearnGamePlatform.API.Controllers;
 
-/// <summary>
-/// Classroom-scoped practice game sessions.
-/// Any classroom member (student or teacher) can start a practice session
-/// from a published ClassroomQuestionSet without authoring permissions.
-/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/classroom-workspaces/{classroomId:int}/question-sets/{questionSetId:int}/play")]
-public sealed class ClassroomGamesController : AuthenticatedControllerBase
+public class ClassroomGamesController : AuthenticatedControllerBase
 {
-    private readonly IClassroomQuestionSetService _questionSetService;
+    private readonly ApplicationDbContext _dbContext;
     private readonly IClassroomPermissionService _permissionService;
     private readonly IGameSessionRepository _gameSessionRepository;
     private readonly ILogger<ClassroomGamesController> _logger;
 
     public ClassroomGamesController(
-        IClassroomQuestionSetService questionSetService,
+        ApplicationDbContext dbContext,
         IClassroomPermissionService permissionService,
         IGameSessionRepository gameSessionRepository,
         ILogger<ClassroomGamesController> logger)
     {
-        _questionSetService = questionSetService;
+        _dbContext = dbContext;
         _permissionService = permissionService;
         _gameSessionRepository = gameSessionRepository;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Create a practice game session from a published classroom question set.
-    /// Body: { gameType: "Quiz"|"Flashcard"|"Streak", questionCount: int? }
-    /// </summary>
     [HttpPost("session")]
-    public async Task<IActionResult> CreatePracticeSession(
+    public async Task<IActionResult> CreateClassroomPlaySession(
         int classroomId,
         int questionSetId,
-        [FromBody] CreateClassroomPracticeSessionRequest request,
+        [FromBody] CreateClassroomPlaySessionRequest request,
         CancellationToken cancellationToken)
     {
         if (request == null)
@@ -56,164 +49,265 @@ public sealed class ClassroomGamesController : AuthenticatedControllerBase
             return Unauthorized(ApiErrorResponse.Create("user_context_required", "User context is required."));
         }
 
-        // Check classroom membership (student OR teacher both allowed)
-        var canView = await _permissionService.CanViewClassroomAsync(classroomId, CurrentUserId.Value, cancellationToken);
-        if (!canView)
-        {
-            return ApiForbidden("classroom_member_required", "You must be a member of this classroom to practice.");
-        }
-
-        // Load the question set (service checks membership access)
-        ClassroomQuestionSet? questionSet;
         try
         {
-            questionSet = await _questionSetService.GetQuestionSetDetailAsync(
-                questionSetId,
-                CurrentUserId.Value,
-                cancellationToken);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return ApiForbidden("classroom_question_set_view_required", ex.Message);
-        }
+            // Verify membership
+            var canManage = await _permissionService.CanManageClassroomAsync(classroomId, CurrentUserId.Value, cancellationToken);
+            var canView = await _permissionService.CanViewClassroomAsync(classroomId, CurrentUserId.Value, cancellationToken);
+            if (!canManage && !canView)
+            {
+                return ApiForbidden("classroom_access_forbidden", "User is not a member of this classroom.");
+            }
 
-        if (questionSet == null)
-        {
-            return ApiNotFound("classroom_question_set_not_found", "Question set not found.");
-        }
+            // Load Question Set
+            var questionSet = await _dbContext.ClassroomQuestionSets
+                .Include(qs => qs.Items)
+                    .ThenInclude(item => item.Question)
+                .FirstOrDefaultAsync(qs => qs.Id == questionSetId && qs.ClassroomWorkspaceId == classroomId, cancellationToken);
 
-        // Validate the question set belongs to this classroom
-        if (questionSet.ClassroomWorkspaceId != classroomId)
-        {
-            return ApiNotFound("classroom_question_set_not_found", "Question set not found in this classroom.");
-        }
+            if (questionSet == null)
+            {
+                return ApiNotFound("question_set_not_found", "Question set was not found in this classroom.");
+            }
 
-        // Only Published sets are available for practice
-        if (questionSet.Visibility != ClassroomQuestionSetVisibility.Published)
-        {
-            return ApiBadRequest("classroom_question_set_not_published",
-                "This question set has not been published yet. Ask your teacher to publish it before practicing.");
-        }
+            // Check Visibility
+            if (questionSet.Visibility != ELearnGamePlatform.Core.Enums.ClassroomQuestionSetVisibility.Published && !canManage)
+            {
+                return ApiForbidden("question_set_not_published", "This question set is not published yet.");
+            }
 
-        // Resolve questions from items (ordered)
-        var orderedItems = questionSet.Items
-            .OrderBy(item => item.OrderIndex)
-            .ThenBy(item => item.Id)
-            .ToList();
+            // Get active questions
+            var questions = questionSet.Items
+                .Select(item => item.Question)
+                .Where(q => q != null)
+                .Select(q => q!)
+                .Where(q => !q.IsArchived)
+                .ToList();
 
-        if (orderedItems.Count == 0)
-        {
-            return ApiBadRequest("classroom_question_set_empty", "This question set has no questions.");
-        }
+            if (!questions.Any())
+            {
+                return ApiBadRequest("questions_unavailable", "No questions available in this question set.");
+            }
 
-        // Determine the documentId for the GameSession record.
-        // Use the set's linked document if available, otherwise fall back to the
-        // document of the first question item.
-        var documentId = questionSet.DocumentId
-            ?? orderedItems.FirstOrDefault(item => item.Question?.DocumentId != null)?.Question?.DocumentId;
+            // Select random questions
+            var questionCount = request.QuestionCount ?? 10;
+            if (questionCount <= 0)
+            {
+                questionCount = 10;
+            }
 
-        if (documentId == null)
-        {
-            return ApiBadRequest("classroom_question_set_no_document",
-                "Could not resolve a document for this question set. Ensure questions are linked to a document.");
-        }
+            var selectedQuestions = questions
+                .OrderBy(x => Guid.NewGuid())
+                .Take(questionCount)
+                .ToList();
 
-        // Select questions — shuffle then take questionCount
-        var questionCount = request.QuestionCount is > 0
-            ? Math.Min(request.QuestionCount.Value, orderedItems.Count)
-            : orderedItems.Count;
+            var selectedIds = selectedQuestions.Select(q => q.Id).ToList();
 
-        var selectedIds = orderedItems
-            .Select(item => item.QuestionId)
-            .OrderBy(_ => Guid.NewGuid()) // shuffle
-            .Take(questionCount)
-            .ToList();
+            // Determine DocumentId
+            int? docId = questionSet.DocumentId ?? selectedQuestions.FirstOrDefault()?.DocumentId;
+            if (docId == null)
+            {
+                return ApiBadRequest("document_context_missing", "Cannot determine document context for this question set.");
+            }
 
-        // Map game type (Streak maps to Quiz since GameType has no Streak value)
-        var gameType = NormalizeGameType(request.GameType);
+            // Map GameType
+            GameType mappedGameType = GameType.Quiz;
+            if (string.Equals(request.GameType, "Flashcard", StringComparison.OrdinalIgnoreCase))
+            {
+                mappedGameType = GameType.Flashcard;
+            }
+            else if (string.Equals(request.GameType, "Streak", StringComparison.OrdinalIgnoreCase))
+            {
+                mappedGameType = GameType.Quiz; // Map Streak to Quiz in database
+            }
 
-        // Create game session
-        var session = new GameSession
-        {
-            DocumentId = documentId.Value,
-            GameType = gameType,
-            UserId = CurrentUserIdAsString,
-            TotalQuestions = selectedIds.Count,
-            Status = GameStatus.NotStarted
-        };
-        session.SetQuestionIds(selectedIds);
+            // Create GameSession
+            var session = new GameSession
+            {
+                DocumentId = docId.Value,
+                GameType = mappedGameType,
+                UserId = CurrentUserIdAsString,
+                TotalQuestions = selectedIds.Count,
+                Status = GameStatus.InProgress
+            };
+            session.SetQuestionIds(selectedIds);
 
-        GameSession createdSession;
-        try
-        {
-            createdSession = await _gameSessionRepository.CreateAsync(session);
+            var createdSession = await _gameSessionRepository.CreateAsync(session);
+
+            // Return response based on game mode
+            if (mappedGameType == GameType.Flashcard)
+            {
+                var flashcards = selectedQuestions.Select(q => new
+                {
+                    id = q.Id,
+                    front = NormalizeGameQuestionText(q.QuestionText, q.QuestionType),
+                    back = NormalizeGameText(ResolveFlashcardAnswer(q)),
+                    explanation = NormalizeGameExplanation(q.Explanation),
+                    topic = q.Topic,
+                    quality = BuildQuestionQualityPayload(q)
+                });
+
+                return Ok(new
+                {
+                    sessionId = createdSession.Id,
+                    gameType = request.GameType,
+                    flashcards = flashcards
+                });
+            }
+            else
+            {
+                // Quiz or Streak
+                var questionsPayload = selectedQuestions.Select(q => ToGameQuestionPayload(q, true)).ToList(); // Include answers so frontend can check locally
+                return Ok(new
+                {
+                    sessionId = createdSession.Id,
+                    gameType = request.GameType,
+                    questions = questionsPayload
+                });
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating classroom practice session for questionSetId={QuestionSetId}", questionSetId);
-            return ApiServerError("classroom_practice_session_create_failed", "Could not create practice session.");
+            _logger.LogError(ex, "Error creating classroom play session");
+            return ApiServerError("classroom_play_session_failed", "Error creating classroom play session");
         }
-
-        // Build question payload (no answers revealed)
-        var questions = orderedItems
-            .Where(item => selectedIds.Contains(item.QuestionId))
-            .Select(item => item.Question)
-            .Where(q => q != null)
-            .OrderBy(_ => Guid.NewGuid()) // maintain shuffle order for response
-            .Select(q => ToQuestionPayload(q!))
-            .ToList();
-
-        return Ok(new
-        {
-            sessionId = createdSession.Id,
-            gameType = createdSession.GameType.ToString(),
-            requestedGameType = request.GameType,
-            totalQuestions = createdSession.TotalQuestions,
-            status = createdSession.Status.ToString(),
-            questionSetId = questionSet.Id,
-            questionSetTitle = questionSet.Title,
-            classroomWorkspaceId = classroomId,
-            questions
-        });
     }
 
-    // Map frontend game type string to GameType enum.
-    // "Streak" is a frontend concept — it uses Quiz questions on the backend.
-    private static GameType NormalizeGameType(string? raw)
+    #region Helpers
+    private static string ResolveFlashcardAnswer(Question question)
     {
-        return (raw ?? string.Empty).Trim().ToLowerInvariant() switch
+        var options = question.GetOptions();
+        var correctOption = options.FirstOrDefault(option => option.IsCorrect)
+            ?? options.FirstOrDefault(option => string.Equals(option.Key, question.CorrectAnswer, StringComparison.OrdinalIgnoreCase));
+
+        if (correctOption != null)
         {
-            "flashcard" => GameType.Flashcard,
-            "streak" => GameType.Quiz, // Streak uses quiz-style questions
-            _ => GameType.Quiz
+            return $"{correctOption.Key}. {correctOption.Text}";
+        }
+
+        return question.CorrectAnswer ?? "Khong co dap an";
+    }
+
+    private static string NormalizeGameQuestionText(string? questionText, QuestionType questionType)
+    {
+        var normalized = NormalizeGameText(questionText);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "Cau hoi dang duoc cap nhat";
+        }
+
+        normalized = Regex.Replace(
+            normalized,
+            @"^(Cau\s+\d+:\s+)Theo tai lieu,\s*dau la noi dung dung nhat ve\s+(.+?)([?!.]?)$",
+            "$1Theo tai lieu, nhan dinh nao mo ta dung nhat ve $2?",
+            RegexOptions.IgnoreCase);
+
+        if (questionType != QuestionType.FillInTheBlank && !Regex.IsMatch(normalized, @"[.!?]$"))
+        {
+            normalized += questionType == QuestionType.ShortAnswer ? "." : "?";
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeGameExplanation(string? explanation)
+    {
+        var normalized = NormalizeGameText(explanation);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        if (normalized.Contains("cau hoi du phong", StringComparison.OrdinalIgnoreCase))
+        {
+            var evidenceMatch = Regex.Match(normalized, @"Can cu:\s*(.+)$", RegexOptions.IgnoreCase);
+            return evidenceMatch.Success
+                ? $"Cau hoi nay duoc tao tu cac y chinh trong tai lieu. Can cu: {evidenceMatch.Groups[1].Value}"
+                : "Cau hoi nay duoc tao tu cac y chinh trong tai lieu.";
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeGameText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value.Replace('\u00A0', ' ');
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        normalized = Regex.Replace(normalized, @"(?<=[\p{L}])(?=\d)", " ");
+        normalized = Regex.Replace(normalized, @"(?<=\d)(?=[\p{L}])", " ");
+        normalized = Regex.Replace(normalized, @"\s+([,.;:?!])", "$1");
+        normalized = Regex.Replace(normalized, @"([,.;:?!])(?=[\p{L}\p{N}])", "$1 ");
+        normalized = Regex.Replace(normalized, @"\big\b", "g"); // preserve minor fixes
+        normalized = Regex.Replace(normalized, @"\(\s+", "(");
+        normalized = Regex.Replace(normalized, @"\s+\)", ")");
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        return normalized;
+    }
+
+    private static object BuildQuestionQualityPayload(Question question)
+    {
+        var issues = question.GetVerifierIssues();
+        return new
+        {
+            score = question.VerifierScore,
+            issues,
+            isLowConfidence = question.VerifierScore.HasValue && question.VerifierScore.Value < 70,
+            isUnknown = !question.VerifierScore.HasValue
         };
     }
 
-    private static object ToQuestionPayload(Question q)
+    private static object ToGameQuestionPayload(Question q, bool includeAnswers)
     {
-        var options = q.GetOptions().Select(option => new
+        var options = q.GetOptions().Select(option => includeAnswers
+            ? (object)new
+            {
+                key = option.Key,
+                text = NormalizeGameText(option.Text),
+                isCorrect = option.IsCorrect
+            }
+            : new
+            {
+                key = option.Key,
+                text = NormalizeGameText(option.Text)
+            });
+
+        if (!includeAnswers)
         {
-            key = option.Key,
-            text = option.Text
-        });
+            return new
+            {
+                id = q.Id,
+                questionText = NormalizeGameQuestionText(q.QuestionText, q.QuestionType),
+                questionType = q.QuestionType.ToString(),
+                options,
+                difficulty = q.Difficulty.ToString(),
+                topic = q.Topic,
+                quality = BuildQuestionQualityPayload(q)
+            };
+        }
 
         return new
         {
             id = q.Id,
-            questionText = q.QuestionText,
+            questionText = NormalizeGameQuestionText(q.QuestionText, q.QuestionType),
             questionType = q.QuestionType.ToString(),
             options,
+            correctAnswer = q.CorrectAnswer,
+            explanation = NormalizeGameExplanation(q.Explanation),
             difficulty = q.Difficulty.ToString(),
-            topic = q.Topic
+            topic = q.Topic,
+            quality = BuildQuestionQualityPayload(q)
         };
     }
+    #endregion
 }
 
-public sealed class CreateClassroomPracticeSessionRequest
+public class CreateClassroomPlaySessionRequest
 {
-    /// <summary>"Quiz", "Flashcard", or "Streak"</summary>
-    public string? GameType { get; set; }
-
-    /// <summary>Number of questions to include. Null = all questions in the set.</summary>
+    public required string GameType { get; set; } // "Quiz", "Flashcard", "Streak"
     public int? QuestionCount { get; set; }
 }
