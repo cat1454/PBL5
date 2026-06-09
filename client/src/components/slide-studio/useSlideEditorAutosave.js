@@ -5,6 +5,8 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
   const pendingRef = useRef({});
   const timerRef = useRef({});
   const onSaveRef = useRef(onSave);
+  const scheduledRevisionRef = useRef({});
+  const savedRevisionRef = useRef({});
 
   useEffect(() => {
     onSaveRef.current = onSave;
@@ -15,14 +17,38 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
       return null;
     }
 
-    setStatusBySlideId((current) => ({ ...current, [slideId]: 'saving' }));
+    const revision = editorState.revision || 0;
+
+    setStatusBySlideId((current) => {
+      if ((scheduledRevisionRef.current[slideId] || 0) > revision) {
+        return current;
+      }
+      return { ...current, [slideId]: 'saving' };
+    });
+
     try {
       const result = await onSave(slideId, editorState);
-      delete pendingRef.current[slideId];
-      setStatusBySlideId((current) => ({ ...current, [slideId]: 'saved' }));
+
+      if (pendingRef.current[slideId]?.revision === revision) {
+        delete pendingRef.current[slideId];
+      }
+
+      savedRevisionRef.current[slideId] = Math.max(savedRevisionRef.current[slideId] || 0, revision);
+
+      setStatusBySlideId((current) => {
+        if ((scheduledRevisionRef.current[slideId] || 0) > revision) {
+          return current;
+        }
+        return { ...current, [slideId]: 'saved' };
+      });
       return result;
     } catch (error) {
-      setStatusBySlideId((current) => ({ ...current, [slideId]: 'error' }));
+      setStatusBySlideId((current) => {
+        if ((scheduledRevisionRef.current[slideId] || 0) > revision) {
+          return current;
+        }
+        return { ...current, [slideId]: 'error' };
+      });
       throw error;
     }
   }, [onSave]);
@@ -31,6 +57,9 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
     if (!slideId || !editorState) {
       return;
     }
+
+    const revision = editorState.revision || 0;
+    scheduledRevisionRef.current[slideId] = Math.max(scheduledRevisionRef.current[slideId] || 0, revision);
 
     pendingRef.current[slideId] = editorState;
     setStatusBySlideId((current) => ({ ...current, [slideId]: 'dirty' }));
@@ -41,7 +70,9 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
 
     timerRef.current[slideId] = setTimeout(() => {
       const pending = pendingRef.current[slideId];
-      saveNow(slideId, pending).catch(() => {});
+      if (pending) {
+        saveNow(slideId, pending).catch(() => {});
+      }
     }, debounceMs);
   }, [debounceMs, saveNow]);
 
@@ -51,7 +82,13 @@ export default function useSlideEditorAutosave({ debounceMs = 1000, onSave }) {
       timerRef.current[slideId] = null;
     }
 
-    return saveNow(slideId, editorState || pendingRef.current[slideId]);
+    const targetState = editorState || pendingRef.current[slideId];
+    if (targetState) {
+      const revision = targetState.revision || 0;
+      scheduledRevisionRef.current[slideId] = Math.max(scheduledRevisionRef.current[slideId] || 0, revision);
+    }
+
+    return saveNow(slideId, targetState);
   }, [saveNow]);
 
   useEffect(() => () => {
