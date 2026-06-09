@@ -11,6 +11,7 @@ function PasswordField({
   placeholder = '••••••••••',
   onFocus,
   onBlur,
+  onVisibilityChange,
   error,
   helperText,
   required = true,
@@ -19,7 +20,16 @@ function PasswordField({
   const [showPassword, setShowPassword] = useState(false);
 
   const toggleVisibility = () => {
-    setShowPassword((prev) => !prev);
+    setShowPassword((prev) => {
+      const next = !prev;
+      if (onVisibilityChange) onVisibilityChange(next);
+      return next;
+    });
+  };
+
+  const handleFocus = (e) => {
+    if (onFocus) onFocus(e);
+    if (onVisibilityChange) onVisibilityChange(showPassword);
   };
 
   const ariaLabel = language === 'vi'
@@ -37,7 +47,7 @@ function PasswordField({
           type={showPassword ? 'text' : 'password'}
           value={value}
           onChange={onChange}
-          onFocus={onFocus}
+          onFocus={handleFocus}
           onBlur={onBlur}
           autoComplete={autoComplete}
           placeholder={placeholder}

@@ -1,4 +1,4 @@
-﻿/* Gamma-inspired studio refresh */
+/* Gamma-inspired studio refresh */
 .folder-studio-page,
 .slide-studio {
   background:
@@ -647,15 +647,18 @@
 }
 
 .app-topbar {
-  position: sticky;
+  position: fixed !important;
   top: 0;
-  z-index: 40;
+  left: 0;
+  right: 0;
+  z-index: 200 !important;
 }
 
 .app-shell-body,
 .app-shell-documents .app-shell-body {
   display: block;
-  min-height: calc(100vh - 64px);
+  margin-top: var(--app-navbar-height) !important;
+  min-height: calc(100vh - var(--app-navbar-height)) !important;
   background: #f6f8fb;
 }
 
@@ -704,7 +707,7 @@
 .app-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 300 !important;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(3px);
   display: flex;
@@ -955,7 +958,8 @@
 
   .app-shell-body,
   .app-shell-documents .app-shell-body {
-    min-height: calc(100vh - 72px);
+    margin-top: var(--app-navbar-height) !important;
+    min-height: calc(100vh - var(--app-navbar-height)) !important;
   }
 
   .app-shell-content-inner,

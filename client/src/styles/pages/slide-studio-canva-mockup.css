@@ -3,7 +3,7 @@
   --mockup-rail-w: 64px;
   --mockup-drawer-w: 316px;
   --mockup-filmstrip-h: 104px;
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--app-navbar-height));
   min-height: 680px;
   display: grid;
   grid-template-columns: var(--mockup-rail-w) minmax(0, 1fr);

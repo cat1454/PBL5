@@ -2,12 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import AiAssistantCanvas from './AiAssistantCanvas';
+import AnimatedAiLogo from '../common/AnimatedAiLogo';
 import AuthFlowModal from './AuthFlowModal';
 import PasswordField from './PasswordField';
 import RoleSelector from './RoleSelector';
 import GoogleChooserModal from './GoogleChooserModal';
-import { TbSparkles } from 'react-icons/tb';
 import { FcGoogle } from 'react-icons/fc';
 import '../../styles/pages/auth.css';
 
@@ -32,6 +31,8 @@ function AuthPage({ initialTab = 'login' }) {
 
   // Focus and Animation State for Canvas Character
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
 
   // Status States
   const [submitting, setSubmitting] = useState(false);
@@ -140,8 +141,8 @@ function AuthPage({ initialTab = 'login' }) {
           {/* Cột Trái - Brand & AI Character */}
           <div className="auth-left">
             <div className="brand">
-              <div className="brand-icon" aria-hidden="true">
-                <TbSparkles />
+              <div className="brand-icon" aria-hidden="true" style={{ overflow: 'hidden' }}>
+                <AnimatedAiLogo size="small" />
               </div>
               <div>
                 <div className="brand-text">{t('app.brand')}</div>
@@ -150,7 +151,12 @@ function AuthPage({ initialTab = 'login' }) {
             </div>
 
             <div className="character-area">
-              <AiAssistantCanvas hideEyes={isPasswordFocused} />
+              <AnimatedAiLogo 
+                size="large" 
+                hideEyes={isPasswordFocused && !isPasswordVisible} 
+                peekEyes={isPasswordFocused && isPasswordVisible}
+                isTyping={isTyping} 
+              />
               <div className="char-label">
                 <strong>
                   {language === 'vi' ? 'Trợ lý AI' : 'AI Assistant'}
@@ -289,6 +295,8 @@ function AuthPage({ initialTab = 'login' }) {
                         onChange={(e) =>
                           setLoginForm((prev) => ({ ...prev, email: e.target.value }))
                         }
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
                         autoComplete="username"
                         placeholder="teacher.demo@elearn.local"
                         required
@@ -306,6 +314,7 @@ function AuthPage({ initialTab = 'login' }) {
                       autoComplete="current-password"
                       onFocus={() => setIsPasswordFocused(true)}
                       onBlur={() => setIsPasswordFocused(false)}
+                      onVisibilityChange={(visible) => setIsPasswordVisible(visible)}
                       required
                     />
 
@@ -374,6 +383,8 @@ function AuthPage({ initialTab = 'login' }) {
                         onChange={(e) =>
                           setRegisterForm((prev) => ({ ...prev, fullName: e.target.value }))
                         }
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
                         autoComplete="name"
                         placeholder="Nguyễn Văn A"
                         required
@@ -392,6 +403,8 @@ function AuthPage({ initialTab = 'login' }) {
                         onChange={(e) =>
                           setRegisterForm((prev) => ({ ...prev, email: e.target.value }))
                         }
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
                         autoComplete="email"
                         placeholder="example@email.com"
                         required
@@ -410,6 +423,7 @@ function AuthPage({ initialTab = 'login' }) {
                         autoComplete="new-password"
                         onFocus={() => setIsPasswordFocused(true)}
                         onBlur={() => setIsPasswordFocused(false)}
+                        onVisibilityChange={(visible) => setIsPasswordVisible(visible)}
                         placeholder={language === 'vi' ? 'Tối thiểu 8 ký tự' : 'At least 8 characters'}
                         required
                       />
@@ -427,6 +441,7 @@ function AuthPage({ initialTab = 'login' }) {
                         autoComplete="new-password"
                         onFocus={() => setIsPasswordFocused(true)}
                         onBlur={() => setIsPasswordFocused(false)}
+                        onVisibilityChange={(visible) => setIsPasswordVisible(visible)}
                         placeholder={language === 'vi' ? 'Nhập lại mật khẩu' : 'Re-enter password'}
                         required
                       />
