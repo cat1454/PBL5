@@ -177,6 +177,7 @@ builder.Services.AddScoped<ILearningProgressService, LearningProgressService>();
 builder.Services.AddScoped<IAnalyticsEventService, AnalyticsEventService>();
 builder.Services.AddScoped<IPersonalAnalyticsService, PersonalAnalyticsService>();
 builder.Services.AddScoped<IQuestionMetricsService, QuestionMetricsService>();
+builder.Services.AddScoped<DemoPayloadImporter>();
 builder.Services.AddSingleton<IAutoRepairEvidenceLogger, FileAutoRepairEvidenceLogger>();
 builder.Services.AddHttpClient<ISlideImageService, SlideImageService>(client =>
 {
@@ -233,6 +234,58 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogCritical(ex, "Database migration failed. The API cannot start with a schema mismatch.");
         throw;
+    }
+}
+
+// CLI Command Hook for Demo Payload Import
+if (args.Length > 0 && args[0] == "import-demo-payload")
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("CLI Command: import-demo-payload triggered.");
+    
+    string? user = null;
+    string? file = null;
+    bool replace = false;
+
+    for (int i = 1; i < args.Length; i++)
+    {
+        if (args[i] == "--user" && i + 1 < args.Length)
+        {
+            user = args[i + 1];
+            i++;
+        }
+        else if (args[i] == "--file" && i + 1 < args.Length)
+        {
+            file = args[i + 1];
+            i++;
+        }
+        else if (args[i] == "--replace")
+        {
+            replace = true;
+        }
+    }
+
+    if (string.IsNullOrWhiteSpace(file))
+    {
+        Console.Error.WriteLine("Error: --file argument is required.");
+        Environment.Exit(1);
+    }
+
+    try
+    {
+        using (var scope = app.Services.CreateScope())
+        {
+            var importer = scope.ServiceProvider.GetRequiredService<DemoPayloadImporter>();
+            var result = await importer.ImportAsync(file, user, replace);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        }
+        Environment.Exit(0);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Import failed: {ex.Message}");
+        logger.LogError(ex, "Import failed via CLI");
+        Environment.Exit(1);
     }
 }
 

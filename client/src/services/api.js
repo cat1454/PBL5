@@ -244,6 +244,11 @@ export const documentService = {
   deleteDocument: async (id) => {
     await apiClient.delete(`/documents/${id}`);
   },
+
+  moveDocument: async (id, targetWorkspaceId) => {
+    const response = await apiClient.put(`/documents/${id}/workspace`, { targetWorkspaceId });
+    return response.data;
+  },
 };
 
 export const workspaceService = {

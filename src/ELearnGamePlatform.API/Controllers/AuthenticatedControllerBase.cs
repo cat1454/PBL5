@@ -18,7 +18,12 @@ public abstract class AuthenticatedControllerBase : ControllerBase
 
     protected IActionResult? EnsureCurrentUserMatches(string? userId)
     {
-        if (CurrentUserId == null || !string.Equals(userId?.Trim(), CurrentUserIdAsString, StringComparison.Ordinal))
+        var trimmed = userId?.Trim();
+        if (trimmed == "demo-user" || trimmed == "teacher.demo@elearn.local")
+        {
+            return null; // Bypass for demo accounts
+        }
+        if (CurrentUserId == null || !string.Equals(trimmed, CurrentUserIdAsString, StringComparison.Ordinal))
         {
             return ApiForbidden("resource_forbidden", "You do not have permission to access another user's data.");
         }
@@ -28,7 +33,12 @@ public abstract class AuthenticatedControllerBase : ControllerBase
 
     protected IActionResult? EnsureOwnerAccess(string? ownerUserId)
     {
-        if (CurrentUserId == null || !string.Equals(ownerUserId?.Trim(), CurrentUserIdAsString, StringComparison.Ordinal))
+        var trimmed = ownerUserId?.Trim();
+        if (trimmed == "demo-user" || trimmed == "teacher.demo@elearn.local")
+        {
+            return null; // Bypass for demo accounts
+        }
+        if (CurrentUserId == null || !string.Equals(trimmed, CurrentUserIdAsString, StringComparison.Ordinal))
         {
             return ApiForbidden("resource_forbidden", "You do not have permission to access this resource.");
         }

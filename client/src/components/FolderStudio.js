@@ -43,6 +43,8 @@ import {
   LuUndo2,
   LuUpload,
   LuX,
+  LuFolderInput,
+  LuFolderPlus,
 } from 'react-icons/lu';
 import {
   documentService,
@@ -944,6 +946,8 @@ function FolderStudioRuntime() {
   const [exportingFormat, setExportingFormat] = useState('');
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [generationControlBusy, setGenerationControlBusy] = useState(false);
+  const [movingSource, setMovingSource] = useState(null);
+  const [workspacesList, setWorkspacesList] = useState([]);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [slideGenerationSpeedMode, setSlideGenerationSpeedMode] = useState('fast');
   const [selectedSourceId, setSelectedSourceId] = useState(null);
@@ -2946,6 +2950,100 @@ function FolderStudioRuntime() {
     }
   };
 
+  const handleDeleteSource = async (source) => {
+    if (!source || !source.id) return;
+
+    const confirmed = window.confirm(
+      language === 'vi'
+        ? `Xóa nguồn tài liệu "${source.fileName}"? Hành động này sẽ xóa toàn bộ các câu hỏi và dữ liệu liên quan.`
+        : `Delete source document "${source.fileName}"? This action will delete all related questions and data.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      await documentService.deleteDocument(source.id);
+      
+      if (selectedSourceId === source.id) {
+        setSelectedSourceId(null);
+      }
+
+      showToast({
+        type: 'success',
+        message: language === 'vi' ? 'Đã xóa nguồn tài liệu thành công.' : 'Source document deleted successfully.',
+      });
+
+      await loadWorkspace({ silent: false });
+    } catch (err) {
+      console.error('Failed to delete document', err);
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không thể xóa nguồn tài liệu.' : 'Could not delete source document.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenMoveModal = async (source) => {
+    if (!currentUser?.id) return;
+    try {
+      setLoading(true);
+      const list = await workspaceService.list(currentUser.id);
+      const otherWorkspaces = (list || []).filter(w => String(w.id) !== String(workspaceId));
+      setWorkspacesList(otherWorkspaces);
+      setMovingSource(source);
+    } catch (err) {
+      console.error(err);
+      setError(language === 'vi' ? 'Không tải được danh sách workspace.' : 'Could not load workspaces list.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMoveToNewWorkspace = async () => {
+    const name = window.prompt(language === 'vi' ? 'Nhập tên workspace mới:' : 'Enter new workspace name:');
+    if (!name || !name.trim()) return;
+
+    try {
+      setLoading(true);
+      const newWs = await workspaceService.create({ name: name.trim() });
+      if (newWs && newWs.id) {
+        await executeMove(newWs.id, newWs.name);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(language === 'vi' ? 'Không tạo được workspace mới.' : 'Could not create new workspace.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeMove = async (targetWorkspaceId, targetWorkspaceName) => {
+    if (!movingSource) return;
+
+    try {
+      setLoading(true);
+      await documentService.moveDocument(movingSource.id, targetWorkspaceId);
+
+      if (selectedSourceId === movingSource.id) {
+        setSelectedSourceId(null);
+      }
+
+      showToast({
+        type: 'success',
+        message: language === 'vi' 
+          ? `Đã di chuyển "${movingSource.fileName}" sang workspace "${targetWorkspaceName}".` 
+          : `Moved "${movingSource.fileName}" to workspace "${targetWorkspaceName}".`,
+      });
+
+      setMovingSource(null);
+      await loadWorkspace({ silent: false });
+    } catch (err) {
+      console.error(err);
+      setError(getApiErrorMessage(err, language === 'vi' ? 'Không di chuyển được tệp.' : 'Could not move the file.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isExportDisabled = !deck || isGeneratingDeck || Boolean(exportingFormat);
 
   const handleDownloadHtml = async () => {
@@ -3822,6 +3920,30 @@ function FolderStudioRuntime() {
                           {sourceVm.errorMessage}
                         </div>
                       )}
+                    </div>
+                    <div className="folder-studio-source-actions">
+                      <button
+                        type="button"
+                        className="folder-studio-source-action-btn"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleOpenMoveModal(source);
+                        }}
+                        title={language === 'vi' ? 'Di chuyển sang workspace khác' : 'Move to another workspace'}
+                      >
+                        <LuFolderInput aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="folder-studio-source-action-btn tone-danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteSource(source);
+                        }}
+                        title={language === 'vi' ? 'Xóa nguồn tài liệu' : 'Delete source document'}
+                      >
+                        <LuTrash2 aria-hidden="true" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -5167,6 +5289,63 @@ function FolderStudioRuntime() {
               </span>
               <button type="button" className="scope-picker-apply" onClick={handleCloseScopePicker}>
                 {t('slides.scopePicker.apply')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {movingSource && (
+        <div className="workspace-move-backdrop" onClick={() => setMovingSource(null)}>
+          <div className="workspace-move-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="workspace-move-header">
+              <h3>{language === 'vi' ? 'Di chuyển tài liệu' : 'Move document'}</h3>
+              <button
+                type="button"
+                className="workspace-move-close"
+                onClick={() => setMovingSource(null)}
+                aria-label={t('slides.scopePicker.close')}
+              >
+                <LuX aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="workspace-move-body">
+              <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#475467', lineHeight: '1.4' }}>
+                {language === 'vi'
+                  ? `Di chuyển "${movingSource.fileName}" sang workspace khác:`
+                  : `Move "${movingSource.fileName}" to another workspace:`}
+              </p>
+
+              {workspacesList.map((ws) => (
+                <button
+                  key={ws.id}
+                  type="button"
+                  className="workspace-move-item"
+                  onClick={() => executeMove(ws.id, ws.name)}
+                >
+                  <span>{ws.name}</span>
+                  <LuFolderInput aria-hidden="true" />
+                </button>
+              ))}
+
+              {workspacesList.length === 0 && (
+                <div className="workspace-move-empty">
+                  {language === 'vi'
+                    ? 'Không có workspace khác.'
+                    : 'No other workspaces available.'}
+                </div>
+              )}
+            </div>
+
+            <div className="workspace-move-footer">
+              <button
+                type="button"
+                className="workspace-move-new-btn"
+                onClick={handleMoveToNewWorkspace}
+              >
+                <LuFolderPlus aria-hidden="true" />
+                <span>{language === 'vi' ? 'Tạo workspace mới...' : 'Create new workspace...'}</span>
               </button>
             </div>
           </div>
